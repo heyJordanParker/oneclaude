@@ -1,0 +1,16 @@
+{
+  "name": "oneclaude",
+  "version": "0.1.0",
+  "description": "Every Claude account you have, as one: usage, pace and agents under the prompt",
+  "author": {
+    "name": "Jordan Parker",
+    "email": "jordan@parkerlabs.co"
+  },
+  "repository": "https://github.com/heyJordanParker/oneclaude",
+  "dependencies": [
+    {
+      "name": "cmod",
+      "version": "^1.5.0"
+    }
+  ]
+}

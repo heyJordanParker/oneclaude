@@ -1,4 +1,3 @@
-.toolchain/
-plugin/dist/
-dev/*
-!dev/config.yaml
+.target/
+node_modules/
+.claude-plugin/types/

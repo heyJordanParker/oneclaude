@@ -38,8 +38,8 @@ observability:
 
 plugins:
   enabled: true
-  dir: "/Users/jordan/Developer/oneclaude/dev/plugins"
+  dir: "/Users/jordan/Developer/oneclaude/.target/dev/plugins"
   configs:
     oneclaude:
       enabled: true
-      data-dir: "/Users/jordan/Developer/oneclaude/dev/data"
+      data-dir: "/Users/jordan/Developer/oneclaude/.target/dev/data"

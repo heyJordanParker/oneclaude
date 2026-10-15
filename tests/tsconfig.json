@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.json",
+  "include": [
+    ".",
+    "../types",
+    "../node_modules/bun-types/index.d.ts"
+  ]
+}

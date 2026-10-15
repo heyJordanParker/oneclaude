@@ -1,0 +1,6 @@
+{
+  "description": "oneclaude hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}
