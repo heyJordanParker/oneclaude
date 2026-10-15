@@ -1,0 +1,4 @@
+.toolchain/
+plugin/dist/
+dev/*
+!dev/config.yaml

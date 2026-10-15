@@ -1,0 +1,45 @@
+config-version: 8
+
+server:
+  host: "127.0.0.1"
+  port: 8318
+
+management:
+  secret-key: ""
+  disable-control-panel: true
+
+access:
+  api-keys:
+    - "dev-client"
+
+routing:
+  strategy: "round-robin"
+  session-affinity: true
+  session-affinity-subagents: false
+  retry:
+    request-retry: 0
+
+oauth:
+  auth-dir: "~/.cli-proxy-api-dev"
+
+api-keys:
+  claude:
+    - name: fake
+      base-url: "http://127.0.0.1:8319"
+      keys:
+        - api-key: "fake-key-a"
+        - api-key: "fake-key-b"
+
+observability:
+  logs:
+    logging-to-file: false
+    debug: true
+    request-log: false
+
+plugins:
+  enabled: true
+  dir: "/Users/jordan/Developer/oneclaude/dev/plugins"
+  configs:
+    oneclaude:
+      enabled: true
+      data-dir: "/Users/jordan/Developer/oneclaude/dev/data"
