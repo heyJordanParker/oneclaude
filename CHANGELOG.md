@@ -4,6 +4,13 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+### Added
+- On a machine with no CLIProxyAPI, installing oneclaude installs it with Homebrew, keeps it on this machine only, and starts it.
+
+### Changed
+- A bar's color shows its usage, gray until the last 5% and red after. The pace text shows the pace: no color within 5 points, green under, orange over, red more than 25 points over.
+- The line under the prompt draws thin-line bars, and the accounts pane half-height bars.
+
 ## [0.2.1]
 
 ### Fixed

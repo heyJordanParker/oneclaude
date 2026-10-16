@@ -39,13 +39,84 @@ func main() {
 }
 
 func run(library, configPath, data string, remove bool) error {
+	installed := false
 	if configPath == "" {
 		found, err := findConfig()
+		if err != nil && remove {
+			return nil
+		}
 		if err != nil {
-			return err
+			if found, err = installProxy(); err != nil {
+				return err
+			}
+			installed = true
 		}
 		configPath = found
 	}
+	if err := apply(library, configPath, data, remove); err != nil {
+		return err
+	}
+	if installed {
+		if out, err := exec.Command("brew", "services", "start", "cliproxyapi").CombinedOutput(); err != nil {
+			return fmt.Errorf("brew services start cliproxyapi failed: %s", lastLine(out))
+		}
+	}
+	return nil
+}
+
+// installProxy installs CLIProxyAPI with Homebrew and makes its example
+// config safe to run: it listens on this machine only and takes requests with
+// no client key, as Claude Code sends none of its own.
+func installProxy() (string, error) {
+	if _, err := exec.LookPath("brew"); err != nil {
+		return "", errors.New("oneclaude routes through CLIProxyAPI, which installs with Homebrew, and Homebrew is not installed: install it from https://brew.sh, then install oneclaude again")
+	}
+	if out, err := exec.Command("brew", "install", "cliproxyapi").CombinedOutput(); err != nil {
+		return "", fmt.Errorf("brew install cliproxyapi failed: %s", lastLine(out))
+	}
+	prefix, err := exec.Command("brew", "--prefix").Output()
+	if err != nil {
+		return "", err
+	}
+	config := filepath.Join(strings.TrimSpace(string(prefix)), "etc", "cliproxyapi.conf")
+	return config, secure(config)
+}
+
+func secure(configPath string) error {
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(before, &doc); err != nil {
+		return fmt.Errorf("%s is not valid YAML: %w", configPath, err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("%s holds no settings", configPath)
+	}
+	root := doc.Content[0]
+	set(child(root, "server"), "host", "127.0.0.1", "!!str")
+	if keys := lookup(child(root, "access"), "api-keys"); keys != nil && keys.Kind == yaml.SequenceNode {
+		kept := keys.Content[:0]
+		for _, key := range keys.Content {
+			if !strings.HasPrefix(key.Value, "your-api-key") {
+				kept = append(kept, key)
+			}
+		}
+		keys.Content = kept
+		if len(kept) == 0 {
+			keys.Style = yaml.FlowStyle
+		}
+	}
+	return write(configPath, before, &doc, "server", "access")
+}
+
+func lastLine(out []byte) string {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return lines[len(lines)-1]
+}
+
+func apply(library, configPath, data string, remove bool) error {
 	before, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
@@ -210,44 +281,50 @@ func place(library, target string) error {
 	return os.Rename(partial, target)
 }
 
-// write puts the edited plugins block in place of the original one and keeps
-// every other byte of the file. It writes in place, so a symbolic link stays one.
-func write(path string, before []byte, doc *yaml.Node) error {
+// write puts each named top-level block, as edited, in place of the original
+// one and keeps every other byte of the file. It writes in place, so a
+// symbolic link stays one.
+func write(path string, before []byte, doc *yaml.Node, blocks ...string) error {
+	if len(blocks) == 0 {
+		blocks = []string{"plugins"}
+	}
+	text := string(before)
 	root := doc.Content[0]
-	var key, value *yaml.Node
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "plugins" {
-			key, value = root.Content[i], root.Content[i+1]
+	for _, name := range blocks {
+		for i := 0; i+1 < len(root.Content); i += 2 {
+			if root.Content[i].Value != name {
+				continue
+			}
+			headless := *root.Content[i]
+			headless.HeadComment = ""
+			var buf bytes.Buffer
+			encoder := yaml.NewEncoder(&buf)
+			encoder.SetIndent(indentOf(before))
+			if err := encoder.Encode(&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{&headless, root.Content[i+1]}}); err != nil {
+				return err
+			}
+			if err := encoder.Close(); err != nil {
+				return err
+			}
+			text = splice(text, name, buf.String())
 		}
 	}
-	headless := *key
-	headless.HeadComment = ""
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
-	encoder.SetIndent(indentOf(before))
-	if err := encoder.Encode(&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{&headless, value}}); err != nil {
-		return err
-	}
-	if err := encoder.Close(); err != nil {
-		return err
-	}
-	after := []byte(splice(string(before), buf.String()))
-	if bytes.Equal(before, after) {
+	if text == string(before) {
 		return nil
 	}
-	return os.WriteFile(path, after, 0o600)
+	return os.WriteFile(path, []byte(text), 0o600)
 }
 
-// splice replaces the top-level plugins block of text with block, or adds
-// block at the end when text has none. The blank lines and comments before
-// the next top-level key stay with that key.
-func splice(text, block string) string {
+// splice replaces the top-level key's block of text with block, or adds block
+// at the end when text has none. The blank lines and comments before the next
+// top-level key stay with that key.
+func splice(text, key, block string) string {
 	lines := strings.SplitAfter(text, "\n")
 	start, end := -1, len(lines)
 	for i, line := range lines {
 		bare := strings.TrimRight(line, "\r\n")
 		if start < 0 {
-			if bare == "plugins:" || strings.HasPrefix(bare, "plugins: ") || strings.HasPrefix(bare, "plugins:#") {
+			if bare == key+":" || strings.HasPrefix(bare, key+": ") || strings.HasPrefix(bare, key+":#") {
 				start = i
 			}
 			continue

@@ -111,11 +111,66 @@ func TestRemoveTurnsOneclaudeOffAndSeatPacerBackOn(t *testing.T) {
 func TestSpliceKeepsTheBlankLinesAndCommentsAroundThePluginsBlock(t *testing.T) {
 	text := "a: 1\n\n# the plugins\nplugins:\n  enabled: true\n\n# the server\nb: 2\n"
 	want := "a: 1\n\n# the plugins\nplugins:\n  enabled: false\n\n# the server\nb: 2\n"
-	if got := splice(text, "plugins:\n  enabled: false\n"); got != want {
+	if got := splice(text, "plugins", "plugins:\n  enabled: false\n"); got != want {
 		t.Fatalf("splice =\n%s", got)
 	}
-	if got := splice("a: 1", "plugins:\n  enabled: true\n"); got != "a: 1\nplugins:\n  enabled: true\n" {
+	if got := splice("a: 1", "plugins", "plugins:\n  enabled: true\n"); got != "a: 1\nplugins:\n  enabled: true\n" {
 		t.Fatalf("splice without a plugins block =\n%s", got)
+	}
+}
+
+const exampleConfig = `config-version: 8
+
+# Listener, TLS, network discovery, and server operation.
+server:
+  # Server host/interface to bind to.
+  host: ""
+
+  # Server port
+  port: 8317
+
+# Client authentication for the proxy API.
+access:
+  # API keys for authentication
+  api-keys:
+    - "your-api-key-1"
+    - "your-api-key-2"
+
+routing:
+  strategy: round-robin
+`
+
+func TestInstallingTheProxyKeepsItOnThisMachineWithNoPlaceholderKeys(t *testing.T) {
+	prefix := t.TempDir()
+	bin := t.TempDir()
+	config := filepath.Join(prefix, "etc", "cliproxyapi.conf")
+	brew := "#!/bin/sh\ncase \"$1\" in\n  --prefix) echo " + prefix + " ;;\n  install) mkdir -p " + filepath.Dir(config) + " && cat > " + config + " <<'EOF'\n" + exampleConfig + "EOF\n ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "brew"), []byte(brew), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	found, err := installProxy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found != config {
+		t.Fatalf("installProxy = %s, want %s", found, config)
+	}
+	text, _ := os.ReadFile(config)
+	for _, want := range []string{"  host: \"127.0.0.1\"\n", "  api-keys: []\n", "\nrouting:\n  strategy: round-robin\n", "config-version: 8\n\n# Listener"} {
+		if !strings.Contains(string(text), want) {
+			t.Fatalf("config lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(string(text), "your-api-key") {
+		t.Fatalf("placeholder keys left:\n%s", text)
+	}
+}
+
+func TestInstallingTheProxyWithoutHomebrewSaysWhatToDo(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if _, err := installProxy(); err == nil || !strings.Contains(err.Error(), "https://brew.sh") {
+		t.Fatalf("installProxy without brew = %v", err)
 	}
 }
 
