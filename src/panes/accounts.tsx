@@ -2,10 +2,12 @@ import type { RenderElement } from 'claude-code'
 import { definePane } from '../../node_modules/@cmodjs/core/ui/define-pane.js'
 import { Box, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
+import { Facts, type Fact } from '../components/pool-line.js'
 import type { OneclaudeState } from '../state.js'
-import { ago, agentsOf, evenOf, FAMILIES, pace, percent, plural, PROBLEMS, until, type Account, type Status, type Warning } from '../status.js'
+import { ago, agentsOf, evenOf, FAMILIES, percent, plural, PROBLEMS, until, type Account, type Status, type Warning } from '../status.js'
 
 const BAR = 20
+const COMBINED = 'Combined usage'
 
 export const accountsPane = definePane<OneclaudeState>({
   id: 'accounts',
@@ -19,11 +21,12 @@ export const accountsPane = definePane<OneclaudeState>({
     if (reading === null) return <Text dimColor>Reading your accounts</Text>
     if ('problem' in reading) return <Text color="warning">{PROBLEMS[reading.problem]}</Text>
     const { status } = reading
-    const width = Math.max(...status.accounts.map((account) => account.name.length), 'oneclaude'.length)
+    const width = Math.max(...status.accounts.map((account) => account.name.length), COMBINED.length)
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
-        <Box borderStyle="round" borderDimColor paddingX={1}>
-          <Header status={status} width={width} />
+        <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column">
+          <Text bold>oneclaude</Text>
+          <CombinedRow status={status} width={width} />
         </Box>
         <Box flexDirection="column" paddingX={2}>
           <Text bold>Claude accounts</Text>
@@ -37,27 +40,26 @@ export const accountsPane = definePane<OneclaudeState>({
   },
 })
 
-function Row({ name, bar, facts, color, dimColor = true }: { readonly name: string; readonly bar?: RenderElement[]; readonly facts: readonly string[]; readonly color?: 'error'; readonly dimColor?: boolean }): RenderElement {
+function Row({ name, bar, facts, color }: { readonly name: string; readonly bar?: RenderElement[]; readonly facts: readonly Fact[]; readonly color?: string }): RenderElement {
   return (
     <Box gap={2}>
       <Box flexShrink={0}><Text>{name}</Text></Box>
       {bar === undefined ? null : <Box flexShrink={0}>{bar}</Box>}
-      <Text color={color} dimColor={color === undefined && dimColor} wrap="wrap">{facts.join(' · ')}</Text>
+      <Facts facts={facts} color={color} />
     </Box>
   )
 }
 
-function Header({ status, width }: { readonly status: Status; readonly width: number }): RenderElement {
+function CombinedRow({ status, width }: { readonly status: Status; readonly width: number }): RenderElement {
   const { pool, now } = status
   const unread = pool.accounts - pool.known
   return (
     <Row
-      name={'oneclaude'.padEnd(width)}
-      dimColor={false}
-      bar={poolBar(pool.used, pool.even, BAR)}
+      name={COMBINED.padEnd(width)}
+      bar={poolBar(pool.used, pool.even, BAR, 'half')}
       facts={[
         percent(pool.used),
-        pace(pool.used, pool.even),
+        { used: pool.used, even: pool.even },
         ...(pool.next_refill === undefined ? [] : [`next refill in ${until(pool.next_refill, now)} frees ${percent(pool.refill_gain)}`]),
         plural(pool.agents, 'agent'),
         ...(unread > 0 ? [`${plural(unread, 'account')} not read yet`] : []),
@@ -74,11 +76,11 @@ function AccountRow({ account, now, width }: { readonly account: Account; readon
   return (
     <Row
       name={name}
-      bar={poolBar(account.used, even, BAR)}
+      bar={poolBar(account.used, even, BAR, 'half')}
       color={account.empty ? 'error' : undefined}
       facts={[
         account.empty ? 'empty' : percent(account.used),
-        ...(account.empty || even === undefined ? [] : [pace(account.used, even)]),
+        ...(account.empty || even === undefined ? [] : [{ used: account.used, even }]),
         `refills in ${until(account.resets_at, now)}`,
         agentsOf(account) === 0 ? 'idle' : agents.join(', '),
         ...(account.projected ? ['refilled since its last reading'] : []),

@@ -3,7 +3,7 @@ import type { HttpResponse, RenderPropsOf } from 'claude-code'
 import { PromptHint } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { oneclaude } from '../src/mod.js'
-import { bar, evenOf, type Status } from '../src/status.js'
+import { bar, evenOf, paceState, type Status } from '../src/status.js'
 
 const hint: RenderPropsOf['PromptHint'] = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
 
@@ -40,10 +40,10 @@ async function hintLines(tested: ReturnType<typeof testMod>): Promise<string> {
 
 test('the hint line shows the pool after the engine line', async () => {
   const line = await hintLines(answering({ text: JSON.stringify(status) }))
-  expect(line.indexOf('PromptHint')).toBeLessThan(line.indexOf('███'))
+  expect(line.indexOf('PromptHint')).toBeLessThan(line.indexOf('━━━'))
   expect(line).toContain('58% · 9% under')
   expect(line).toContain('[ 2 warnings ]')
-  expect(line).toContain('[+]')
+  expect(line).toMatch(/\S \[\+\]/)
 })
 
 test('the toggle after the line shows [-] while the accounts pane is open', async () => {
@@ -94,13 +94,14 @@ test('/accounts shows the combined usage, every account with its pace, and every
   await tested.type('/accounts')
   const pane = (await tested.lines('accounts')).join('\n')
   expect(pane).toContain('Claude accounts')
-  expect(pane).toContain('58% · 9% under pace · next refill in 2d')
-  expect(pane).toContain('11% · 14 agents · 1 account not read')
+  expect(pane).toContain('58% · 9% under pace · next refill in')
+  expect(pane).toContain('frees 11% · 14 agents · 1 account')
   expect(pane).toContain('40% · 26% over pace · refills in 6d')
-  expect(pane).toContain('opus, 2 haiku')
+  expect(pane).toContain('9 opus, 2 haiku')
   expect(pane).not.toContain('/19')
   expect(pane).not.toContain('every Claude account as one')
-  expect(pane.trimStart().startsWith('oneclaude')).toBe(true)
+  expect(pane.trimStart().startsWith('oneclaude\n')).toBe(true)
+  expect(pane).toContain('Combined usage')
   expect(pane).toContain('empty · refills in 3h · idle')
   expect(pane).toContain('not read yet')
   expect(pane).toContain('30m ago')
@@ -108,14 +109,14 @@ test('/accounts shows the combined usage, every account with its pace, and every
   expect(pane.indexOf('subagent refused')).toBeLessThan(pane.indexOf('throttled on jordan'))
 })
 
-test('the header keeps its name and bar on one row, and every bar starts in the header bar\'s column', async () => {
+test('the combined usage keeps its name and bar on one row, and every bar starts in its column', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const rows = await tested.lines('accounts')
-  const barStart = (row: string): number => row.search(/[█░]/)
+  const barStart = (row: string): number => row.search(/[▄▁█]/)
   const borderTheTestKitLeavesOut = 1
-  const header = rows.find((row) => row.includes('oneclaude'))!
-  expect(barStart(header)).toBeGreaterThan(header.indexOf('oneclaude'))
+  const header = rows.find((row) => row.includes('Combined usage'))!
+  expect(barStart(header)).toBeGreaterThan(header.indexOf('Combined usage'))
   for (const name of ['jordan ', 'jordan4']) {
     const row = rows.find((each) => each.includes(name) && barStart(each) >= 0)!
     expect(barStart(row)).toBe(barStart(header) + borderTheTestKitLeavesOut)
@@ -136,8 +137,16 @@ test('an account marks its own even pace', () => {
 })
 
 test('the bar fills whole cells to the usage, and even pace takes one cell of its own', () => {
-  expect(bar(0.5, 0.75, 8).map((run) => `${run.kind}:${run.text.length}`)).toEqual(['fill:4', 'empty:2', 'marker:1', 'empty:1'])
-  expect(bar(0.5, undefined, 8).map((run) => run.text).join('')).toBe('████░░░░')
-  expect(bar(1, 0.25, 4).map((run) => run.kind)).toEqual(['fill', 'marker', 'fill'])
-  expect(bar(0.2, 1, 4).map((run) => run.kind)).toEqual(['fill', 'empty', 'marker'])
+  expect(bar(0.5, 0.75, 8, 'half').map((run) => `${run.kind}:${run.text.length}`)).toEqual(['fill:4', 'empty:2', 'marker:1', 'empty:1'])
+  expect(bar(0.5, undefined, 8, 'half').map((run) => run.text).join('')).toBe('▄▄▄▄▁▁▁▁')
+  expect(bar(0.5, 0.75, 8, 'line').map((run) => run.text).join('')).toBe('━━━━──┃─')
+  expect(bar(1, 0.25, 4, 'half').map((run) => run.kind)).toEqual(['fill', 'marker', 'fill'])
+  expect(bar(0.2, 1, 4, 'half').map((run) => run.kind)).toEqual(['fill', 'empty', 'marker'])
+})
+
+test('pace is on within 5 points, and far over past 25', () => {
+  expect(paceState(0.5, 0.46)).toBe('on')
+  expect(paceState(0.4, 0.5)).toBe('under')
+  expect(paceState(0.6, 0.5)).toBe('over')
+  expect(paceState(0.8, 0.5)).toBe('far-over')
 })

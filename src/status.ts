@@ -82,6 +82,18 @@ export function pace(used: number, even: number): string {
   return `${points}% ${ahead < 0 ? 'under' : 'over'} pace`
 }
 
+export type PaceState = 'on' | 'under' | 'over' | 'far-over'
+
+export function paceState(used: number, even: number): PaceState {
+  const ahead = used - even
+  if (ahead > 0.25) return 'far-over'
+  if (ahead > 0.05) return 'over'
+  if (ahead < -0.05) return 'under'
+  return 'on'
+}
+
+export const NEARLY_EMPTY = 0.95
+
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 export function evenOf(account: Account, now: string): number | undefined {
@@ -107,10 +119,18 @@ export function ago(iso: string, now: string): string {
 
 export type Run = { readonly kind: 'fill' | 'empty' | 'marker'; readonly text: string }
 
-export function bar(used: number, even: number | undefined, cells: number): readonly Run[] {
+export type BarStyle = 'line' | 'half'
+
+const GLYPHS: Readonly<Record<BarStyle, Readonly<Record<Run['kind'], string>>>> = {
+  line: { fill: '━', empty: '─', marker: '┃' },
+  half: { fill: '▄', empty: '▁', marker: '█' },
+}
+
+export function bar(used: number, even: number | undefined, cells: number, style: BarStyle): readonly Run[] {
+  const glyph = GLYPHS[style]
   const filled = Math.round(clamp(used) * cells)
-  const glyphs: Run[] = Array.from({ length: cells }, (_, cell) => (cell < filled ? { kind: 'fill', text: '█' } : { kind: 'empty', text: '░' }))
-  if (even !== undefined) glyphs[Math.min(cells - 1, Math.floor(clamp(even) * cells))] = { kind: 'marker', text: '█' }
+  const glyphs: Run[] = Array.from({ length: cells }, (_, cell) => (cell < filled ? { kind: 'fill', text: glyph.fill } : { kind: 'empty', text: glyph.empty }))
+  if (even !== undefined) glyphs[Math.min(cells - 1, Math.floor(clamp(even) * cells))] = { kind: 'marker', text: glyph.marker }
   return glyphs.reduce<Run[]>((runs, glyph) => {
     const last = runs.at(-1)
     if (last?.kind === glyph.kind) runs[runs.length - 1] = { kind: last.kind, text: last.text + glyph.text }
