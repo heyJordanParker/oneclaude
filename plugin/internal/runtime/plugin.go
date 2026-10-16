@@ -37,6 +37,15 @@ type accountState struct {
 	known  bool
 }
 
+// codexAccount is a Codex account the proxy holds. oneclaude routes none of
+// its requests and reads only its weekly usage, so the pane can show it.
+type codexAccount struct {
+	Name      string
+	AuthIndex string
+	weekly    model.Weekly
+	known     bool
+}
+
 type request struct {
 	key      string
 	family   model.Family
@@ -66,6 +75,7 @@ type Plugin struct {
 
 	mu           sync.Mutex
 	accounts     map[string]*accountState
+	codex        map[string]*codexAccount
 	requests     map[string]request
 	warnings     []Warning
 	log          *usage.Log
@@ -95,6 +105,7 @@ func New(opts Options) *Plugin {
 		agents:   session.NewAgents(),
 		book:     limits.NewBook(),
 		accounts: map[string]*accountState{},
+		codex:    map[string]*codexAccount{},
 		requests: map[string]request{},
 		history:  requestHistory{},
 	}

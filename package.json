@@ -11,7 +11,8 @@
     "install": "./setup/install.sh",
     "uninstall": "./setup/uninstall.sh",
     "permissions": {
-      "network": ["127.0.0.1"]
+      "network": ["127.0.0.1"],
+      "config": ["env.ANTHROPIC_BASE_URL"]
     }
   },
   "files": [
@@ -20,6 +21,6 @@
     "src"
   ],
   "dependencies": {
-    "@cmodjs/core": "^1.5.0"
+    "@cmodjs/core": "^1.6.0"
   }
 }

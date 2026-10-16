@@ -111,6 +111,40 @@ func WeeklyFromEndpoint(body []byte, now time.Time) (model.Weekly, bool) {
 	return model.Weekly{}, false
 }
 
+// WeeklyFromCodex reads ChatGPT's wham/usage, whose rate_limit holds a
+// primary and a secondary window. The weekly one is whichever lasts a week.
+func WeeklyFromCodex(body []byte, now time.Time) (model.Weekly, bool) {
+	type window struct {
+		UsedPercent  *float64 `json:"used_percent"`
+		ResetAt      int64    `json:"reset_at"`
+		WindowLength int64    `json:"limit_window_seconds"`
+	}
+	var p struct {
+		RateLimit struct {
+			Allowed      *bool   `json:"allowed"`
+			LimitReached bool    `json:"limit_reached"`
+			Primary      *window `json:"primary_window"`
+			Secondary    *window `json:"secondary_window"`
+		} `json:"rate_limit"`
+	}
+	if json.Unmarshal(body, &p) != nil {
+		return model.Weekly{}, false
+	}
+	limit := p.RateLimit
+	for _, w := range []*window{limit.Primary, limit.Secondary} {
+		if w == nil || w.UsedPercent == nil || time.Duration(w.WindowLength)*time.Second != model.Week {
+			continue
+		}
+		weekly := model.Weekly{Used: math.Max(*w.UsedPercent/100, 0), ObservedAt: now}
+		if w.ResetAt > 0 {
+			weekly.ResetsAt = time.Unix(w.ResetAt, 0).UTC()
+		}
+		weekly.Rejected = limit.LimitReached || (limit.Allowed != nil && !*limit.Allowed)
+		return weekly, true
+	}
+	return model.Weekly{}, false
+}
+
 // PlanFromProfile reads organization.rate_limit_tier from /api/oauth/profile.
 func PlanFromProfile(body []byte) string {
 	var p struct {

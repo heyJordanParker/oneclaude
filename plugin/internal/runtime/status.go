@@ -35,7 +35,17 @@ type Status struct {
 	Now      time.Time       `json:"now"`
 	Pool     PoolStatus      `json:"pool"`
 	Accounts []AccountStatus `json:"accounts"`
+	Codex    []CodexStatus   `json:"codex"`
 	Warnings []Warning       `json:"warnings"`
+}
+
+type CodexStatus struct {
+	Name      string     `json:"name"`
+	Known     bool       `json:"known"`
+	Used      float64    `json:"used"`
+	ResetsAt  *time.Time `json:"resets_at,omitempty"`
+	Projected bool       `json:"projected"`
+	Empty     bool       `json:"empty"`
 }
 
 type PoolStatus struct {
@@ -88,11 +98,23 @@ func (p *Plugin) Status() Status {
 	s := p.settings()
 	now := p.now()
 	active := p.agents.Active(now)
-	st := Status{Version: p.opts.Version, Now: now, Accounts: []AccountStatus{}, Warnings: []Warning{}}
+	st := Status{Version: p.opts.Version, Now: now, Accounts: []AccountStatus{}, Codex: []CodexStatus{}, Warnings: []Warning{}}
 	p.mu.Lock()
 	accounts := make([]accountState, 0, len(p.accounts))
 	for _, a := range p.accounts {
 		accounts = append(accounts, *a)
+	}
+	for _, c := range p.codex {
+		row := CodexStatus{Name: c.Name, Known: c.known}
+		if c.known {
+			w, projected := c.weekly.Now(now)
+			row.Used, row.Projected, row.Empty = w.Used, projected, w.Rejected || w.Used >= 1
+			if !w.ResetsAt.IsZero() {
+				resets := w.ResetsAt
+				row.ResetsAt = &resets
+			}
+		}
+		st.Codex = append(st.Codex, row)
 	}
 	for _, w := range p.warnings {
 		if now.Sub(w.At) <= 24*time.Hour {
@@ -101,6 +123,7 @@ func (p *Plugin) Status() Status {
 	}
 	p.mu.Unlock()
 	sort.Slice(accounts, func(i, j int) bool { return accounts[i].Name < accounts[j].Name })
+	sort.Slice(st.Codex, func(i, j int) bool { return st.Codex[i].Name < st.Codex[j].Name })
 
 	var used, even float64
 	for _, a := range accounts {

@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test'
 import type { HttpResponse, RenderPropsOf } from 'claude-code'
 import { PromptHint } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
-import { oneclaude } from '../src/mod.js'
-import { bar, evenOf, paceState, type Status } from '../src/status.js'
+import { oneclaude, REFRESH_MS } from '../src/mod.js'
+import { bar, evenOf, glide, paceState, PROXY, until, type Cell, type Status } from '../src/status.js'
 
 const hint: RenderPropsOf['PromptHint'] = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
 
@@ -17,6 +17,9 @@ const status: Status = {
     { name: 'jordan', plan: 'default_claude_max_20x', known: true, used: 0.4, resets_at: '2026-10-21T16:00:00Z', projected: false, empty: false, agents: { opus: 9, haiku: 2 }, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
     { name: 'jordan4', known: true, used: 1, resets_at: '2026-10-15T19:00:00Z', projected: false, empty: true, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
     { name: 'jarvis', known: false, used: 0, projected: false, empty: false, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
+  ],
+  codex: [
+    { name: 'ada', known: true, used: 0.3, resets_at: '2026-10-16T21:30:00Z', projected: false, empty: false },
   ],
   warnings: [
     { at: '2026-10-15T13:00:00Z', kind: 'throttled', account: 'jordan', family: 'opus', agents: 12, detail: 'throttled on jordan with 12 opus agents on the account' },
@@ -38,9 +41,11 @@ async function hintLines(tested: ReturnType<typeof testMod>): Promise<string> {
   return (await tested.lines(PromptHint, hint)).join('\n')
 }
 
+const CAP = ''
+
 test('the hint line shows the pool after the engine line', async () => {
   const line = await hintLines(answering({ text: JSON.stringify(status) }))
-  expect(line.indexOf('PromptHint')).toBeLessThan(line.indexOf('━━━'))
+  expect(line.indexOf('PromptHint')).toBeLessThan(line.indexOf(CAP))
   expect(line).toContain('58% · 9% under')
   expect(line).toContain('[ 2 warnings ]')
   expect(line).toMatch(/\S \[\+\]/)
@@ -74,8 +79,8 @@ test('the hint line says when the status cannot be read', async () => {
 test('the hint line refreshes on its timer', async () => {
   const tested = testMod(oneclaude)
   let tick: (() => unknown) | undefined
-  tested.fakes.clock.every = (_ms, fn) => {
-    tick = fn
+  tested.fakes.clock.every = (ms, fn) => {
+    if (ms === REFRESH_MS) tick = fn
     return { cancel() {} }
   }
   let answer: Error | HttpResponse = new Error('connection refused')
@@ -93,36 +98,81 @@ test('/accounts shows the combined usage, every account with its pace, and every
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const pane = (await tested.lines('accounts')).join('\n')
-  expect(pane).toContain('Claude accounts')
-  expect(pane).toContain('58% · 9% under pace · next refill in')
-  expect(pane).toContain('frees 11% · 14 agents · 1 account')
-  expect(pane).toContain('40% · 26% over pace · refills in 6d')
-  expect(pane).toContain('9 opus, 2 haiku')
+  expect(pane).toContain('9% under pace · next refill in 2d frees 11% · 14 agents')
+  expect(pane).toContain('26% over pace · refills in 6d · 9 opus, 2 haiku')
   expect(pane).not.toContain('/19')
-  expect(pane).not.toContain('every Claude account as one')
   expect(pane.trimStart().startsWith('✻ oneclaude\n\n')).toBe(true)
   expect(pane).toContain('Combined usage')
   expect(pane).toContain('[Open dashboard]')
   expect(pane).toContain('[Manage accounts]')
-  expect(pane).toContain('empty · refills in 3h · idle')
+  expect(pane).toContain('refills in 3h · idle')
   expect(pane).toContain('not read yet')
   expect(pane).toContain('30m ago')
   expect(pane).toContain('subagent refused, every account at its Fable limit')
   expect(pane.indexOf('subagent refused')).toBeLessThan(pane.indexOf('throttled on jordan'))
 })
 
-test('the combined usage keeps its name and bar on one row, and every bar starts in its column', async () => {
+test('/accounts shows each Codex account apart from the Claude pool', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  const pane = (await tested.lines('accounts')).join('\n')
+  expect(pane.indexOf('Claude accounts')).toBeLessThan(pane.indexOf('Codex accounts'))
+  expect(pane).toContain('52% under pace · refills in 1d 5h')
+})
+
+test('every section title has an empty line under it, and every bar an empty line between it and the next', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  const pane = (await tested.lines('accounts')).map((row) => row.trim()).join('\n')
+  expect(pane).toContain('Claude accounts\n\njordan ')
+  expect(pane).toContain('Codex accounts\n\nada ')
+  expect(pane).toContain('Warnings in the last 24 hours\n\n')
+  const barRows = pane.split('\n').map((row, index) => (row.includes(CAP) ? index : -1)).filter((index) => index >= 0)
+  for (let i = 1; i < barRows.length; i++) expect(barRows[i]! - barRows[i - 1]!).toBeGreaterThan(1)
+})
+
+test('a pane too narrow for one line puts each row\'s facts under its bar, and every bar starts in its column', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const rows = await tested.lines('accounts')
-  const barStart = (row: string): number => row.search(/[▄▁┃]/)
+  const barStart = (row: string): number => row.indexOf(CAP)
   const borderTheTestKitLeavesOut = 1
   const header = rows.find((row) => row.includes('Combined usage'))!
-  expect(barStart(header)).toBeGreaterThan(header.indexOf('Combined usage'))
-  for (const name of ['jordan ', 'jordan4']) {
+  expect(header.trimEnd().endsWith('58%')).toBe(true)
+  const jordan = rows.findIndex((row) => row.includes('jordan ') && barStart(row) >= 0)
+  expect(rows[jordan]!.trimEnd().endsWith('40%')).toBe(true)
+  expect(rows[jordan + 1]!.indexOf('26% over pace')).toBe(barStart(rows[jordan]!))
+  for (const name of ['jordan ', 'jordan4', 'ada ']) {
     const row = rows.find((each) => each.includes(name) && barStart(each) >= 0)!
     expect(barStart(row)).toBe(barStart(header) + borderTheTestKitLeavesOut)
   }
+})
+
+test('the hint line points Claude Code at the proxy once the proxy answers, and only that setting', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await hintLines(tested)
+  expect(settingsUpdates(tested)).toEqual([{ env: { ANTHROPIC_BASE_URL: PROXY } }])
+})
+
+// settingsUpdates is every settings change the mod asked cmod to make.
+function settingsUpdates(tested: ReturnType<typeof testMod>): unknown[] {
+  return tested.calls.flatMap(({ call, args }) => {
+    const [request] = args as [{ method?: string; input?: { values?: unknown } }]
+    return call === 'cmod.call' && request.method === 'updateSettings' ? [request.input?.values] : []
+  })
+}
+
+test('the hint line leaves a base URL the person pointed elsewhere', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9000' } })
+  await hintLines(tested)
+  expect(settingsUpdates(tested)).toEqual([])
+})
+
+test('the hint line leaves Claude Code alone while the proxy is down', async () => {
+  const tested = answering(new Error('connection refused'))
+  await hintLines(tested)
+  expect(settingsUpdates(tested)).toEqual([])
 })
 
 test('/accounts closes the pane it opened', async () => {
@@ -138,12 +188,51 @@ test('an account marks its own even pace', () => {
   expect(evenOf(status.accounts[2]!, now)).toBeUndefined()
 })
 
-test('the bar fills whole cells to the usage, and even pace takes one cell of its own', () => {
-  expect(bar(0.5, 0.75, 8, 'half').map((run) => `${run.kind}:${run.text.length}`)).toEqual(['fill:4', 'empty:2', 'marker:1', 'empty:1'])
-  expect(bar(0.5, undefined, 8, 'half').map((run) => run.text).join('')).toBe('▄▄▄▄▁▁▁▁')
-  expect(bar(0.5, 0.75, 8, 'line').map((run) => run.text).join('')).toBe('━━━━──┃─')
-  expect(bar(1, 0.25, 4, 'half').map((run) => run.kind)).toEqual(['fill', 'marker', 'fill'])
-  expect(bar(0.2, 1, 4, 'half').map((run) => run.kind)).toEqual(['fill', 'empty', 'marker'])
+// columns spreads a bar's runs back into one cell per column.
+function columns(cells: readonly Cell[]): Cell[] {
+  return cells.flatMap((cell) => [...cell.text].map((text) => ({ ...cell, text })))
+}
+
+test('the bar is exact to an eighth of a cell, and the color change marks pace', () => {
+  const drawn = columns(bar(0.51, 0.29, 20))
+  expect(drawn).toHaveLength(22)
+  expect(drawn[0]).toEqual({ text: CAP, color: 'inactive' })
+  expect(drawn.slice(1, 6).every((cell) => cell.text === '█' && cell.color === 'inactive')).toBe(true)
+  expect(drawn[6]).toEqual({ text: '▊', color: 'inactive', background: 'warning' })
+  expect(drawn.slice(7, 11).every((cell) => cell.text === '█' && cell.color === 'warning')).toBe(true)
+  expect(drawn[11]).toEqual({ text: '▎', color: 'warning', background: 'subtle' })
+  expect(drawn.slice(12, 21).every((cell) => cell.text === '█' && cell.color === 'subtle')).toBe(true)
+  expect(drawn[21]).toEqual({ text: '', color: 'subtle' })
+})
+
+test('under pace the headroom shows in a lifted track, and a nearly empty bar turns red', () => {
+  const under = columns(bar(0.25, 0.5, 4))
+  expect(under.map((cell) => cell.background ?? cell.color)).toEqual(['inactive', 'inactive', 'promptBorder', 'subtle', 'subtle', 'subtle'])
+  const spent = columns(bar(1, 1, 4))
+  expect(spent.every((cell) => cell.color === 'error' && cell.background === undefined)).toBe(true)
+  const nearly = columns(bar(0.96, 0.5, 4))
+  expect(nearly[1]!.color).toBe('error')
+  expect(nearly[3]!.color).toBe('diffRemoved')
+})
+
+test('a bar glides toward its reading and lands on it', () => {
+  let shown = { used: 0, pace: 0 }
+  const target = { used: 0.5, pace: 0.3 }
+  shown = glide(shown, target)
+  expect(shown.used).toBeCloseTo(0.09)
+  for (let frame = 0; frame < 60; frame++) shown = glide(shown, target)
+  expect(shown).toEqual(target)
+})
+
+test('a refill reads in days, then days and hours under 2 days, then hours and minutes under a day', () => {
+  const at = (minutes: number): string => new Date(Date.parse(now) + minutes * 60_000).toISOString()
+  expect(until(at(4 * 24 * 60 + 300), now)).toBe('4d')
+  expect(until(at(30 * 60), now)).toBe('1d 6h')
+  expect(until(at(24 * 60), now)).toBe('1d')
+  expect(until(at(5 * 60 + 20), now)).toBe('5h 20m')
+  expect(until(at(180), now)).toBe('3h')
+  expect(until(at(20), now)).toBe('20m')
+  expect(until(at(-1), now)).toBe('now')
 })
 
 test('pace is on within 5 points, and far over past 25', () => {

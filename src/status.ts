@@ -1,12 +1,17 @@
+import type { Color } from 'claude-code'
 import { http } from '../node_modules/@cmodjs/core/mod.js'
 
 export const PROXY = 'http://127.0.0.1:8317'
 
-export const STATUS_URL = `${PROXY}/v0/resource/plugins/oneclaude/status.json`
+const RESOURCES = `${PROXY}/v0/resource/plugins/oneclaude`
 
-export const DASHBOARD_URL = `${PROXY}/management.html#/plugin-pages/oneclaude/0`
+export const STATUS_URL = `${RESOURCES}/status.json`
 
-export const ACCOUNTS_URL = `${PROXY}/management.html#/auth-files`
+// The dashboard page signs the proxy's panel in with oneclaude's management
+// key, then opens itself inside the panel, at its accounts for "accounts".
+export const DASHBOARD_URL = `${RESOURCES}/dashboard?open=dashboard`
+
+export const ACCOUNTS_URL = `${RESOURCES}/dashboard?open=accounts`
 
 export type Family = 'opus' | 'sonnet' | 'haiku' | 'fable'
 
@@ -43,11 +48,23 @@ export type Warning = {
   readonly detail: string
 }
 
+// A Codex account the proxy holds. oneclaude routes none of its requests and
+// shows only its weekly usage.
+export type Codex = {
+  readonly name: string
+  readonly known: boolean
+  readonly used: number
+  readonly resets_at?: string
+  readonly projected: boolean
+  readonly empty: boolean
+}
+
 export type Status = {
   readonly version: string
   readonly now: string
   readonly pool: Pool
   readonly accounts: readonly Account[]
+  readonly codex: readonly Codex[]
   readonly warnings: readonly Warning[]
 }
 
@@ -100,20 +117,26 @@ export const NEARLY_EMPTY = 0.95
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
-export function evenOf(account: Account, now: string): number | undefined {
+export function evenOf(account: { readonly resets_at?: string }, now: string): number | undefined {
   if (account.resets_at === undefined) return undefined
   return clamp(1 - (Date.parse(account.resets_at) - Date.parse(now)) / WEEK_MS)
 }
 
+// until says how long until iso: days from 2 days on, days and hours under 2
+// days, hours and minutes under a day, and minutes under an hour.
 export function until(iso: string | undefined, now: string): string {
   if (iso === undefined) return 'unknown'
-  const ms = Date.parse(iso) - Date.parse(now)
-  if (ms <= 0) return 'now'
-  const minutes = Math.round(ms / 60_000)
+  const minutes = Math.round((Date.parse(iso) - Date.parse(now)) / 60_000)
+  if (minutes <= 0) return 'now'
   if (minutes < 60) return `${minutes}m`
-  const hours = Math.round(minutes / 60)
-  if (hours < 48) return `${hours}h`
-  return `${Math.round(hours / 24)}d`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return withRest(`${hours}h`, minutes % 60, 'm')
+  if (hours < 48) return withRest('1d', hours % 24, 'h')
+  return `${Math.round(minutes / (24 * 60))}d`
+}
+
+function withRest(head: string, rest: number, unit: string): string {
+  return rest === 0 ? head : `${head} ${rest}${unit}`
 }
 
 export function ago(iso: string, now: string): string {
@@ -121,26 +144,84 @@ export function ago(iso: string, now: string): string {
   return passed === 'now' ? 'just now' : `${passed} ago`
 }
 
-export type Run = { readonly kind: 'fill' | 'empty' | 'marker'; readonly text: string }
+// A bar cell holds one color, or two split at an eighth of the cell: the
+// glyph fills the left part in color and leaves the background showing.
+export type Cell = { readonly text: string; readonly color: Color; readonly background?: Color }
 
-export type BarStyle = 'line' | 'half'
+export const BAR_CELLS = 20
 
-const GLYPHS: Readonly<Record<BarStyle, Readonly<Record<Run['kind'], string>>>> = {
-  line: { fill: '━', empty: '─', marker: '┃' },
-  half: { fill: '▄', empty: '▁', marker: '┃' },
-}
+const STEPS = 8
+const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
+const CAP_LEFT = ''
+const CAP_RIGHT = ''
 
-export function bar(used: number, even: number | undefined, cells: number, style: BarStyle): readonly Run[] {
-  const glyph = GLYPHS[style]
-  const filled = Math.round(clamp(used) * cells)
-  const glyphs: Run[] = Array.from({ length: cells }, (_, cell) => (cell < filled ? { kind: 'fill', text: glyph.fill } : { kind: 'empty', text: glyph.empty }))
-  if (even !== undefined) glyphs[Math.min(cells - 1, Math.floor(clamp(even) * cells))] = { kind: 'marker', text: glyph.marker }
-  return glyphs.reduce<Run[]>((runs, glyph) => {
+// bar draws a rounded pill, exact to an eighth of a cell. The fill runs to
+// the lower of used and pace, and the color change marks pace: over pace
+// fills on in the over color, under pace the headroom shows in a lifted track.
+export function bar(used: number, pace: number, cells: number): readonly Cell[] {
+  const units = cells * STEPS
+  const filled = Math.round(clamp(used) * units)
+  const paced = Math.round(clamp(pace) * units)
+  const isNearlyEmpty = used >= NEARLY_EMPTY
+  const colorAt = (unit: number): Color => {
+    if (unit < Math.min(filled, paced)) return isNearlyEmpty ? 'error' : 'inactive'
+    if (unit < filled) return isNearlyEmpty ? 'diffRemoved' : 'warning'
+    if (unit < paced) return 'promptBorder'
+    return 'subtle'
+  }
+  const drawn: Cell[] = [{ text: CAP_LEFT, color: colorAt(0) }]
+  for (let cell = 0; cell < cells; cell++) {
+    const left = colorAt(cell * STEPS)
+    const right = colorAt(cell * STEPS + STEPS - 1)
+    let edge = 1
+    while (edge < STEPS && colorAt(cell * STEPS + edge) === left) edge++
+    drawn.push(left === right ? { text: '█', color: left } : { text: EIGHTHS[edge] ?? '█', color: left, background: right })
+  }
+  drawn.push({ text: CAP_RIGHT, color: colorAt(units - 1) })
+  return drawn.reduce<Cell[]>((runs, cell) => {
     const last = runs.at(-1)
-    if (last?.kind === glyph.kind) runs[runs.length - 1] = { kind: last.kind, text: last.text + glyph.text }
-    else runs.push(glyph)
+    if (last !== undefined && last.color === cell.color && last.background === cell.background) runs[runs.length - 1] = { ...last, text: last.text + cell.text }
+    else runs.push(cell)
     return runs
   }, [])
+}
+
+// GLIDE is how far a bar moves toward its reading each frame, so a change
+// eases in over about 0.4 s at 30 frames a second.
+export const GLIDE = 0.18
+
+export const FRAME_MS = 33
+
+export type Shown = { readonly used: number; readonly pace: number }
+
+// LINE is the bar under the prompt. The pane's bars are POOL and one per
+// account, so opening the pane grows them from 0 and leaves LINE where it is.
+export const LINE = 'line'
+export const POOL = 'pool'
+
+export const claudeKey = (account: Account): string => `claude:${account.name}`
+export const codexKey = (account: Codex): string => `codex:${account.name}`
+
+// paceOf is where an account's bar marks even pace. An empty account shows
+// none, because pace means nothing once it is spent.
+export function paceOf(account: Account | Codex, now: string): number {
+  return account.empty ? account.used : evenOf(account, now) ?? account.used
+}
+
+// barsOf is what every bar should show for this status.
+export function barsOf(status: Status): Readonly<Record<string, Shown>> {
+  const pool = { used: status.pool.used, pace: status.pool.even }
+  const bars: Record<string, Shown> = { [LINE]: pool, [POOL]: pool }
+  for (const account of status.accounts) if (account.known) bars[claudeKey(account)] = { used: account.used, pace: paceOf(account, status.now) }
+  for (const account of status.codex) if (account.known) bars[codexKey(account)] = { used: account.used, pace: paceOf(account, status.now) }
+  return bars
+}
+
+// glide moves a shown bar one frame toward its reading, and lands on it once
+// it is within 0.05%.
+export function glide(shown: Shown, target: Shown): Shown {
+  const step = (from: number, to: number): number => (Math.abs(to - from) < 0.0005 ? to : from + (to - from) * GLIDE)
+  return { used: step(shown.used, target.used), pace: step(shown.pace, target.pace) }
 }
 
 function clamp(fraction: number): number {

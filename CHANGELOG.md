@@ -4,6 +4,20 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+## [0.3.1]
+
+### Added
+- Installing oneclaude points Claude Code at the proxy, running sessions included, and removing it points Claude Code back. Every other environment setting stays as it was.
+- Installing oneclaude brings the account Claude Code is logged in to into the proxy as its first account.
+- The proxy's management key becomes `oneclaude`, and `[Open dashboard]` and `[Manage accounts]` open the panel already signed in. Removing oneclaude puts the old key back.
+- The accounts pane shows each Codex account's weekly usage and refill.
+
+### Changed
+- Every bar is a rounded two-tone pill, exact to an eighth of a cell, where the color change marks pace. Bars glide to a new reading, grow when the pane opens, and brighten under the pointer.
+- A refill reads in days and hours under 2 days, and in hours and minutes under a day.
+- An empty account's bar shows no pace.
+- Each section title has an empty line under it, and a narrow pane puts each account's details under its bar.
+
 ## [0.2.2]
 
 ### Added

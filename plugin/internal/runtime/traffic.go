@@ -23,7 +23,10 @@ const (
 
 var bridgeHeaders = []string{headerKey, headerFamily}
 
-const claudeProvider = "claude"
+const (
+	claudeProvider = "claude"
+	codexProvider  = "codex"
+)
 
 func (p *Plugin) interceptBefore(payload []byte) ([]byte, error) {
 	var req RequestInterceptRequest

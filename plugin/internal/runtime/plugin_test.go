@@ -368,3 +368,48 @@ func TestHistoryReadsOnlyTheLastWeekOfTheRequestLog(t *testing.T) {
 		t.Fatalf("history holds %d requests in %d hours, want %d in 168", total, len(byHour), 168*20)
 	}
 }
+
+// proxyWithCodex answers the host calls a usage poll makes, for a proxy that
+// holds one Codex account and no Claude account.
+func proxyWithCodex(t *testing.T) HostFunc {
+	return func(method string, payload []byte) ([]byte, error) {
+		switch method {
+		case MethodHostAuthList:
+			return okEnvelope(HostAuthListResponse{Files: []HostAuthFileEntry{{ID: "codex-ada.json", AuthIndex: "c1", Type: "codex", Email: "ada@example.com"}}})
+		case MethodHostAuthGet:
+			return okEnvelope(HostAuthGetResponse{AuthIndex: "c1", JSON: json.RawMessage(`{"access_token":"codex-token","account_id":"chatgpt-account"}`)})
+		case MethodHostHTTPDo:
+			var req HostHTTPRequest
+			_ = json.Unmarshal(payload, &req)
+			if req.URL != codexUsageURL || req.Headers.Get("Authorization") != "Bearer codex-token" || req.Headers.Get("Chatgpt-Account-Id") != "chatgpt-account" {
+				t.Errorf("usage request = %s %v", req.URL, req.Headers)
+				return okEnvelope(HostHTTPResponse{StatusCode: http.StatusBadRequest})
+			}
+			body := fmt.Sprintf(`{"rate_limit":{"allowed":true,"primary_window":{"used_percent":23,"limit_window_seconds":604800,"reset_at":%d}}}`, testNow.Add(50*time.Hour).Unix())
+			return okEnvelope(HostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(body)})
+		}
+		return okEnvelope(emptyResult)
+	}
+}
+
+func TestStatusShowsACodexAccountsWeeklyUsageApartFromThePool(t *testing.T) {
+	p := New(Options{Name: "oneclaude", Version: "test", NoPoller: true, Host: proxyWithCodex(t), Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir()), SchemaVersion: 1})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	if err := p.list(); err != nil {
+		t.Fatal(err)
+	}
+	p.refreshOne(testNow, map[string]time.Time{})
+	st := p.Status()
+	if len(st.Codex) != 1 {
+		t.Fatalf("codex = %+v", st.Codex)
+	}
+	codex := st.Codex[0]
+	if codex.Name != "ada" || !codex.Known || codex.Used != 0.23 || codex.ResetsAt == nil || !codex.ResetsAt.Equal(testNow.Add(50*time.Hour)) || codex.Empty {
+		t.Fatalf("codex account = %+v", codex)
+	}
+	if st.Pool.Accounts != 0 || len(st.Accounts) != 0 {
+		t.Fatalf("a Codex account joined the Claude pool: %+v", st.Pool)
+	}
+}

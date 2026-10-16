@@ -153,31 +153,31 @@ func (h host) authList(ctx context.Context) ([]HostAuthFileEntry, error) {
 	return resp.Files, nil
 }
 
-func (h host) accessToken(ctx context.Context, authIndex string) (string, error) {
-	var resp HostAuthGetResponse
-	if err := h.invokeCtx(ctx, MethodHostAuthGet, HostAuthGetRequest{AuthIndex: authIndex}, &resp); err != nil {
-		return "", err
-	}
-	var file struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.Unmarshal(resp.JSON, &file); err != nil || file.AccessToken == "" {
-		return "", fmt.Errorf("credential %s has no access token", authIndex)
-	}
-	return file.AccessToken, nil
+// credential is what a usage reading needs from a credential file: its token,
+// and for Codex the ChatGPT account it belongs to.
+type credential struct {
+	AccessToken string `json:"access_token"`
+	AccountID   string `json:"account_id"`
 }
 
-func (h host) get(ctx context.Context, url, token string) (int, []byte, error) {
+func (h host) credential(ctx context.Context, authIndex string) (credential, error) {
+	var resp HostAuthGetResponse
+	if err := h.invokeCtx(ctx, MethodHostAuthGet, HostAuthGetRequest{AuthIndex: authIndex}, &resp); err != nil {
+		return credential{}, err
+	}
+	var file credential
+	if err := json.Unmarshal(resp.JSON, &file); err != nil || file.AccessToken == "" {
+		return credential{}, fmt.Errorf("credential %s has no access token", authIndex)
+	}
+	return file, nil
+}
+
+func (h host) get(ctx context.Context, url string, headers http.Header) (int, []byte, error) {
 	var resp HostHTTPResponse
 	err := h.invokeCtx(ctx, MethodHostHTTPDo, HostHTTPRequest{
-		Method: http.MethodGet,
-		URL:    url,
-		Headers: http.Header{
-			"Authorization":  {"Bearer " + token},
-			"Content-Type":   {"application/json"},
-			"Anthropic-Beta": {"oauth-2025-04-20"},
-			"User-Agent":     {"claude-cli/1.0.60 (external, cli)"},
-		},
+		Method:  http.MethodGet,
+		URL:     url,
+		Headers: headers,
 	}, &resp)
 	if err != nil {
 		return 0, nil, err

@@ -1,11 +1,17 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const proxyConfig = `config-version: 8
@@ -32,6 +38,7 @@ management:
 func setUp(t *testing.T) (config, plugins, library, data string) {
 	t.Helper()
 	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
 	plugins = filepath.Join(root, "plugins")
 	config = filepath.Join(root, "config.yaml")
 	if err := os.WriteFile(config, []byte(strings.Replace(proxyConfig, "PLUGINS", plugins, 1)), 0o600); err != nil {
@@ -60,17 +67,33 @@ func TestInstallPlacesTheLibraryAndSwitchesTheProxyToIt(t *testing.T) {
 		"        oneclaude:\n            enabled: true\n            store:\n                version: 0.2.0\n",
 		"        claude-seat-pacer:\n            enabled: false\n",
 		"    strategy: fill-first # keeps one account warm\n",
-		"    secret-key: \"$2y$10$not.a.real.hash\"\n",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("config lacks %q:\n%s", want, text)
 		}
 	}
 	head := string(before)[:strings.Index(string(before), "plugins:")]
-	tail := string(before)[strings.Index(string(before), "server:"):]
-	if !strings.HasPrefix(text, head) || !strings.HasSuffix(text, tail) {
-		t.Fatalf("a byte outside the plugins block changed:\n%s", text)
+	middle := string(before)[strings.Index(string(before), "server:"):strings.Index(string(before), "management:")]
+	if !strings.HasPrefix(text, head) || !strings.Contains(text, middle) {
+		t.Fatalf("a byte outside the plugins and management blocks changed:\n%s", text)
 	}
+	if !isManagementKey(secretKeyOf(t, config)) {
+		t.Fatalf("the management key is not oneclaude:\n%s", text)
+	}
+}
+
+func secretKeyOf(t *testing.T, config string) string {
+	t.Helper()
+	var parsed struct {
+		Management struct {
+			SecretKey string `yaml:"secret-key"`
+		} `yaml:"management"`
+	}
+	raw, _ := os.ReadFile(config)
+	if err := yaml.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	return parsed.Management.SecretKey
 }
 
 func TestInstallAgainChangesNothing(t *testing.T) {
@@ -106,6 +129,101 @@ func TestRemoveTurnsOneclaudeOffAndSeatPacerBackOn(t *testing.T) {
 	if left, _ := filepath.Glob(filepath.Join(plugins, "*", "*", "oneclaude-v*")); len(left) != 0 {
 		t.Fatalf("libraries left: %v", left)
 	}
+	if key := secretKeyOf(t, config); key != "$2y$10$not.a.real.hash" {
+		t.Fatalf("the person's management key is not back: %q", key)
+	}
+}
+
+const claudeState = `{"oauthAccount":{"emailAddress":"ada@example.com","accountUuid":"account-a","organizationUuid":"organization-a","organizationName":"Ada's Organization"}}`
+
+const keychainItem = `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-access","refreshToken":"sk-ant-ort01-refresh","expiresAt":1792000000000,"scopes":["user:inference"],"subscriptionType":"max"}}`
+
+// loggedIn gives the test's home a Claude Code logged in to ada@example.com,
+// with a security program that answers the keychain item as macOS does.
+func loggedIn(t *testing.T) {
+	t.Helper()
+	home := os.Getenv("HOME")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(claudeState), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	security := "#!/bin/sh\n[ \"$1 $2 $3\" = 'find-generic-password -s Claude Code-credentials' ] || exit 44\necho '" + keychainItem + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "security"), []byte(security), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+}
+
+func TestInstallBringsClaudeCodesLoginIntoTheProxy(t *testing.T) {
+	config, _, library, data := setUp(t)
+	loggedIn(t)
+	if err := run(library, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(os.Getenv("HOME"), ".cli-proxy-api", "claude-"+hashOf("organization-a")+"-ada@example.com.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("no credential file: %v", err)
+	}
+	var credential map[string]string
+	if err := json.Unmarshal(raw, &credential); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"type":              "claude",
+		"email":             "ada@example.com",
+		"access_token":      "sk-ant-oat01-access",
+		"refresh_token":     "sk-ant-ort01-refresh",
+		"expired":           time.UnixMilli(1792000000000).Format(time.RFC3339),
+		"account_uuid":      "account-a",
+		"organization_uuid": "organization-a",
+		"organization_name": "Ada's Organization",
+	} {
+		if credential[key] != want {
+			t.Fatalf("credential %s = %q, want %q", key, credential[key], want)
+		}
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Fatalf("credential mode = %v", info.Mode().Perm())
+	}
+}
+
+func TestInstallLeavesAnAccountTheProxyAlreadyHolds(t *testing.T) {
+	config, _, library, data := setUp(t)
+	loggedIn(t)
+	authDir := filepath.Join(os.Getenv("HOME"), ".cli-proxy-api")
+	own := filepath.Join(authDir, "claude-ADA@example.com.json")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(own, []byte(`{"type":"claude","email":"ADA@example.com","refresh_token":"the proxy's own"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(library, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(authDir, "*.json"))
+	if len(files) != 1 || files[0] != own {
+		t.Fatalf("credential files = %v, want only %s", files, own)
+	}
+}
+
+func TestInstallWithoutAClaudeLoginBringsNothing(t *testing.T) {
+	config, _, library, data := setUp(t)
+	if err := run(library, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	if files, _ := filepath.Glob(filepath.Join(os.Getenv("HOME"), ".cli-proxy-api", "*.json")); len(files) != 0 {
+		t.Fatalf("credential files = %v, want none", files)
+	}
+}
+
+func hashOf(identity string) string {
+	digest := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(digest[:])[:8]
 }
 
 func TestSpliceKeepsTheBlankLinesAndCommentsAroundThePluginsBlock(t *testing.T) {
@@ -176,6 +294,7 @@ func TestInstallingTheProxyWithoutHomebrewSaysWhatToDo(t *testing.T) {
 
 func TestInstallKeepsTheFilesTwoSpaceIndent(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
 	config := filepath.Join(root, "config.yaml")
 	original := "server:\n  port: 8318\n\n# loaded from .target\nplugins:\n  enabled: true\n  dir: \"" + filepath.Join(root, "plugins") + "\"\n  configs:\n    oneclaude:\n      enabled: true\n"
 	if err := os.WriteFile(config, []byte(original), 0o600); err != nil {

@@ -463,6 +463,9 @@ const PANEL = '/management.html'
 const MANAGEMENT = '/v8/management'
 const RESOURCE = new URL('.', location.href).pathname
 const OBFUSCATED = 'enc::v1::'
+const MANAGEMENT_KEY = 'oneclaude'
+const PAGE = `${PANEL}#/plugin-pages/oneclaude/0`
+const OPEN_AT = 'oneclaude-open-at'
 const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
 const HOUR = 3600e3
 const WEEK = 7 * 24 * HOUR
@@ -505,7 +508,6 @@ const state = {
   problem: null,
   history: null,
   key: null,
-  keyState: 'missing',
   refused: null,
   proxy: null,
   proxyError: null,
@@ -538,10 +540,36 @@ function applyTheme() {
   document.documentElement.dataset.theme = panelTheme()
 }
 
-function reveal(payload) {
+function storageMask(bytes) {
   const key = new TextEncoder().encode(`cli-proxy-api-webui::secure-storage|${location.host}|${navigator.userAgent}`)
-  const bytes = Uint8Array.from(atob(payload), (char) => char.charCodeAt(0))
-  return new TextDecoder().decode(bytes.map((byte, index) => byte ^ key[index % key.length]))
+  return bytes.map((byte, index) => byte ^ key[index % key.length])
+}
+
+function reveal(payload) {
+  return new TextDecoder().decode(storageMask(Uint8Array.from(atob(payload), (char) => char.charCodeAt(0))))
+}
+
+function conceal(text) {
+  return OBFUSCATED + btoa(String.fromCharCode(...storageMask(new TextEncoder().encode(text))))
+}
+
+// signIn saves the panel's login with oneclaude's management key, the way
+// the panel saves it when Remember password is ticked, so the panel opens
+// signed in.
+function signIn() {
+  localStorage.setItem('cli-proxy-auth', conceal(JSON.stringify({
+    state: { apiBase: location.origin, managementKey: MANAGEMENT_KEY, rememberPassword: true },
+    version: 0,
+  })))
+  localStorage.setItem('isLoggedIn', 'true')
+}
+
+// openedAt is the section a link asked the page to open at, which survives
+// the panel's sign-in redirects in session storage. It answers once.
+function openedAt() {
+  const section = sessionStorage.getItem(OPEN_AT)
+  sessionStorage.removeItem(OPEN_AT)
+  return section
 }
 
 function proxyBase(input) {
@@ -564,9 +592,8 @@ function panelKey() {
 }
 
 function readKey() {
-  const key = panelKey()
-  state.key = key && key !== state.refused ? key : null
-  state.keyState = !key ? 'missing' : key === state.refused ? 'refused' : 'ready'
+  const key = panelKey() ?? MANAGEMENT_KEY
+  state.key = key !== state.refused ? key : null
 }
 
 async function management(path, init = {}) {
@@ -604,6 +631,7 @@ async function resource(name) {
 }
 
 async function loadStatus() {
+  const isFirst = state.status === null
   try {
     state.status = await resource('status.json')
     state.problem = null
@@ -612,6 +640,7 @@ async function loadStatus() {
     state.problem = error.problem || 'proxy-down'
   }
   render()
+  if (isFirst && state.status) document.getElementById(openedAt() ?? '')?.scrollIntoView({ block: 'start' })
 }
 
 async function loadHistory() {
@@ -1264,13 +1293,10 @@ function settingsPanel(config, models) {
 function proxyView() {
   const links = h('nav', { class: 'links', 'aria-label': 'Panel pages' }, PANEL_PAGES.map(([label, route]) => panelLink(label, route)))
   if (!state.key) {
-    const refused = state.keyState === 'refused'
     return [
       head('Proxy'),
       h('div', { class: 'panel login' },
-        note(refused
-          ? 'The proxy refused the management key the panel saved. Log in to the panel again, and this page picks up the new key.'
-          : 'Log in to the management panel with Remember password ticked. This page then reads the key the panel saved, shows the proxy\'s traffic, credentials and settings, and lets you add and disable accounts.'),
+        note('The proxy refused the management key. Log in to the panel with Remember password ticked, and this page picks up the key it saves.'),
         h('a', { class: 'button', href: PANEL, target: '_top' }, 'Open the panel')),
       links,
     ]
@@ -1421,11 +1447,18 @@ addEventListener('storage', (event) => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refreshAll()
 })
-render()
-refreshAll()
-every(15e3, loadStatus)
-every(60e3, loadHistory)
-every(60e3, loadProxy)
+const open = new URLSearchParams(location.search).get('open')
+if (!embedded && open !== null) {
+  signIn()
+  sessionStorage.setItem(OPEN_AT, open)
+  location.replace(PAGE)
+} else {
+  render()
+  refreshAll()
+  every(15e3, loadStatus)
+  every(60e3, loadHistory)
+  every(60e3, loadProxy)
+}
 </script>
 </body>
 </html>

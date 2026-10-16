@@ -5,25 +5,32 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	pluginID    = "oneclaude"
-	seatPacerID = "claude-seat-pacer"
-	defaultPort = "8317"
+	pluginID      = "oneclaude"
+	seatPacerID   = "claude-seat-pacer"
+	defaultPort   = "8317"
+	managementKey = "oneclaude"
+	steps         = 5
 )
 
 func main() {
@@ -39,29 +46,181 @@ func main() {
 }
 
 func run(library, configPath, data string, remove bool) error {
-	installed := false
-	if configPath == "" {
+	isGiven := configPath != ""
+	if !isGiven {
 		found, err := findConfig()
 		if err != nil && remove {
 			return nil
 		}
 		if err != nil {
+			progress(1, "Installing CLIProxyAPI")
 			if found, err = installProxy(); err != nil {
 				return err
 			}
-			installed = true
 		}
 		configPath = found
 	}
-	if err := apply(library, configPath, data, remove); err != nil {
+	if !remove {
+		progress(2, "Adding oneclaude")
+	}
+	authDir, err := apply(library, configPath, data, remove)
+	if err != nil || remove {
 		return err
 	}
-	if installed {
+	progress(3, "Bringing over your Claude login")
+	if err := bringLogin(authDir, home()); err != nil {
+		return err
+	}
+	progress(4, "Starting the proxy")
+	if !isGiven && isHomebrewConfig(configPath) && !isListening(portOf(configPath)) {
 		if out, err := exec.Command("brew", "services", "start", "cliproxyapi").CombinedOutput(); err != nil {
 			return fmt.Errorf("brew services start cliproxyapi failed: %s", lastLine(out))
 		}
 	}
+	progress(steps, "oneclaude routes your Claude accounts")
 	return nil
+}
+
+// progress moves the bar cmod draws while the install step runs.
+func progress(done int, label string) {
+	fmt.Printf("progress %d %d %s\n", done, steps, label)
+}
+
+func home() string {
+	dir, _ := os.UserHomeDir()
+	return dir
+}
+
+func isHomebrewConfig(path string) bool {
+	return filepath.Base(path) == "cliproxyapi.conf" && filepath.Base(filepath.Dir(path)) == "etc"
+}
+
+func portOf(configPath string) string {
+	var config struct {
+		Server struct {
+			Port int `yaml:"port"`
+		} `yaml:"server"`
+	}
+	if raw, err := os.ReadFile(configPath); err == nil && yaml.Unmarshal(raw, &config) == nil && config.Server.Port != 0 {
+		return fmt.Sprint(config.Server.Port)
+	}
+	return defaultPort
+}
+
+func isListening(port string) bool {
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// keychainLogin is the item Claude Code keeps its own login in on macOS.
+const keychainLogin = "Claude Code-credentials"
+
+// bringLogin copies the account Claude Code is logged in to into the proxy
+// as a credential file, the same file the proxy writes after its own login,
+// unless the proxy already holds that account. A Claude Code with no login,
+// such as one that uses an API key, brings nothing.
+func bringLogin(authDir, home string) error {
+	var state struct {
+		Account struct {
+			Email        string `json:"emailAddress"`
+			AccountUUID  string `json:"accountUuid"`
+			Organization string `json:"organizationUuid"`
+			OrgName      string `json:"organizationName"`
+		} `json:"oauthAccount"`
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil || json.Unmarshal(raw, &state) != nil || state.Account.Email == "" {
+		fmt.Println("Claude Code is not logged in to a Claude account, so oneclaude brings no login")
+		return nil
+	}
+	email := state.Account.Email
+	if holds, err := holdsAccount(authDir, email); err != nil || holds {
+		if holds {
+			fmt.Printf("the proxy already holds %s\n", email)
+		}
+		return err
+	}
+	secret, err := exec.Command("security", "find-generic-password", "-s", keychainLogin, "-w").Output()
+	if err != nil {
+		fmt.Printf("the keychain holds no %s item, so oneclaude brings no login\n", keychainLogin)
+		return nil
+	}
+	var login struct {
+		OAuth struct {
+			AccessToken  string `json:"accessToken"`
+			RefreshToken string `json:"refreshToken"`
+			ExpiresAt    int64  `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(secret, &login); err != nil || login.OAuth.RefreshToken == "" {
+		return fmt.Errorf("the keychain's %s item holds no Claude login oneclaude can read", keychainLogin)
+	}
+	credential, err := json.Marshal(map[string]string{
+		"type":              "claude",
+		"email":             email,
+		"access_token":      login.OAuth.AccessToken,
+		"refresh_token":     login.OAuth.RefreshToken,
+		"expired":           time.UnixMilli(login.OAuth.ExpiresAt).Format(time.RFC3339),
+		"last_refresh":      time.Now().Format(time.RFC3339),
+		"account_uuid":      state.Account.AccountUUID,
+		"organization_uuid": state.Account.Organization,
+		"organization_name": state.Account.OrgName,
+	})
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(authDir, credentialName(email, state.Account.Organization, state.Account.AccountUUID))
+	if err := writeAtomically(target, credential, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("the proxy now holds %s, the account Claude Code is logged in to\n", email)
+	return nil
+}
+
+func holdsAccount(authDir, email string) (bool, error) {
+	files, err := filepath.Glob(filepath.Join(authDir, "*.json"))
+	if err != nil {
+		return false, err
+	}
+	for _, path := range files {
+		var credential struct {
+			Type  string `json:"type"`
+			Email string `json:"email"`
+		}
+		if raw, err := os.ReadFile(path); err == nil && json.Unmarshal(raw, &credential) == nil && credential.Type == "claude" && strings.EqualFold(credential.Email, email) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// credentialName names the file as CLIProxyAPI's CredentialFileName does,
+// so a later login to the same account in the proxy replaces it.
+func credentialName(email, organization, account string) string {
+	identity := organization
+	if identity == "" {
+		identity = account
+	}
+	if identity == "" {
+		return "claude-" + email + ".json"
+	}
+	digest := sha256.Sum256([]byte(identity))
+	return "claude-" + hex.EncodeToString(digest[:])[:8] + "-" + email + ".json"
+}
+
+func writeAtomically(path string, content []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	partial := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".partial")
+	if err := os.WriteFile(partial, content, mode); err != nil {
+		return err
+	}
+	return os.Rename(partial, path)
 }
 
 // installProxy installs CLIProxyAPI with Homebrew and makes its example
@@ -116,46 +275,75 @@ func lastLine(out []byte) string {
 	return lines[len(lines)-1]
 }
 
-func apply(library, configPath, data string, remove bool) error {
+// apply adds oneclaude to the proxy config, or takes it out, and answers the
+// folder the proxy keeps its credential files in.
+func apply(library, configPath, data string, remove bool) (string, error) {
 	before, err := os.ReadFile(configPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(before, &doc); err != nil {
-		return fmt.Errorf("%s is not valid YAML: %w", configPath, err)
+		return "", fmt.Errorf("%s is not valid YAML: %w", configPath, err)
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return fmt.Errorf("%s holds no settings", configPath)
+		return "", fmt.Errorf("%s holds no settings", configPath)
 	}
-	plugins := child(doc.Content[0], "plugins")
+	root := doc.Content[0]
+	plugins := child(root, "plugins")
 	configs := child(plugins, "configs")
 	dir := expandHome(scalar(plugins, "dir", "~/.cli-proxy-api/plugins"))
+	authDir := expandHome("~/.cli-proxy-api")
+	if oauth := lookup(root, "oauth"); oauth != nil {
+		authDir = expandHome(scalar(oauth, "auth-dir", authDir))
+	}
 	pacerMark := filepath.Join(data, "seat-pacer-was-on")
+	keyMark := filepath.Join(data, "management-key-was")
 
 	if remove {
 		set(child(configs, pluginID), "enabled", "false", "!!bool")
 		if pacer := lookup(configs, seatPacerID); pacer != nil && data != "" && exists(pacerMark) {
 			set(pacer, "enabled", "true", "!!bool")
 		}
-		if err := write(configPath, before, &doc); err != nil {
-			return err
+		if management := lookup(root, "management"); management != nil {
+			if was, err := os.ReadFile(keyMark); err == nil && isManagementKey(scalar(management, "secret-key", "")) {
+				set(management, "secret-key", string(was), "!!str")
+			}
+		}
+		if err := write(configPath, before, &doc, "plugins", "management"); err != nil {
+			return "", err
 		}
 		libraries, _ := filepath.Glob(filepath.Join(dir, "*", "*", pluginID+"-v*"))
 		for _, path := range libraries {
 			_ = os.Remove(path)
 		}
 		fmt.Printf("oneclaude is out of %s\n", configPath)
-		return nil
+		return authDir, nil
 	}
 
 	version, ext, err := versionOf(library)
 	if err != nil {
-		return err
+		return "", err
 	}
 	target := filepath.Join(dir, runtime.GOOS, runtime.GOARCH, pluginID+"-v"+version+ext)
 	if err := place(library, target); err != nil {
-		return err
+		return "", err
+	}
+	management := child(root, "management")
+	if current := scalar(management, "secret-key", ""); !isManagementKey(current) {
+		hash, err := bcrypt.GenerateFromPassword([]byte(managementKey), bcrypt.DefaultCost)
+		if err != nil {
+			return "", err
+		}
+		if data != "" {
+			if err := os.MkdirAll(data, 0o755); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(keyMark, []byte(current), 0o600); err != nil {
+				return "", err
+			}
+		}
+		set(management, "secret-key", string(hash), "!!str")
 	}
 	set(plugins, "enabled", "true", "!!bool")
 	own := child(configs, pluginID)
@@ -165,18 +353,24 @@ func apply(library, configPath, data string, remove bool) error {
 		set(pacer, "enabled", "false", "!!bool")
 		if data != "" {
 			if err := os.MkdirAll(data, 0o755); err != nil {
-				return err
+				return "", err
 			}
 			if err := os.WriteFile(pacerMark, nil, 0o644); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
-	if err := write(configPath, before, &doc); err != nil {
-		return err
+	if err := write(configPath, before, &doc, "plugins", "management"); err != nil {
+		return "", err
 	}
 	fmt.Printf("oneclaude %s routes through %s\n", version, configPath)
-	return nil
+	return authDir, nil
+}
+
+// isManagementKey says whether the config's secret-key, a bcrypt hash as the
+// proxy keeps it, is oneclaude's own management key.
+func isManagementKey(hash string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(managementKey)) == nil
 }
 
 // findConfig finds the config of the proxy Claude Code talks to: the
