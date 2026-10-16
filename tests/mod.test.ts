@@ -3,7 +3,7 @@ import type { HttpResponse, RenderPropsOf } from 'claude-code'
 import { PromptHint } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { oneclaude, REFRESH_MS } from '../src/mod.js'
-import { bar, evenOf, glide, paceState, PROXY, until, type Cell, type Status } from '../src/status.js'
+import { bar, CAP_LEFT, CAP_RIGHT, evenOf, glide, paceState, PROXY, until, type Cell, type Status } from '../src/status.js'
 
 const hint: RenderPropsOf['PromptHint'] = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
 
@@ -41,7 +41,7 @@ async function hintLines(tested: ReturnType<typeof testMod>): Promise<string> {
   return (await tested.lines(PromptHint, hint)).join('\n')
 }
 
-const BAR = /[█▏▎▍▌▋▊▉]/
+const BAR = /[█▏▎▍▌▋▊▉]/
 
 test('the hint line shows the pool after the engine line', async () => {
   const line = await hintLines(answering({ text: JSON.stringify(status) }))
@@ -196,20 +196,23 @@ function columns(cells: readonly Cell[]): Cell[] {
 
 test('the bar is exact to an eighth of a cell, and the color change marks pace', () => {
   const drawn = columns(bar(0.51, 0.29, 20))
-  expect(drawn).toHaveLength(20)
-  expect(drawn.slice(0, 5).every((cell) => cell.text === '█' && cell.color === 'inactive')).toBe(true)
-  expect(drawn[5]).toEqual({ text: '▊', color: 'inactive', background: 'warning' })
-  expect(drawn.slice(6, 10).every((cell) => cell.text === '█' && cell.color === 'warning')).toBe(true)
-  expect(drawn[10]).toEqual({ text: '▎', color: 'warning', background: 'subtle' })
-  expect(drawn.slice(11).every((cell) => cell.text === '█' && cell.color === 'subtle')).toBe(true)
+  expect(drawn).toHaveLength(22)
+  expect(drawn[0]).toEqual({ text: CAP_LEFT, color: 'inactive' })
+  const cells = drawn.slice(1, 21)
+  expect(cells.slice(0, 5).every((cell) => cell.text === '█' && cell.color === 'inactive')).toBe(true)
+  expect(cells[5]).toEqual({ text: '▊', color: 'inactive', background: 'warning' })
+  expect(cells.slice(6, 10).every((cell) => cell.text === '█' && cell.color === 'warning')).toBe(true)
+  expect(cells[10]).toEqual({ text: '▎', color: 'warning', background: 'subtle' })
+  expect(cells.slice(11).every((cell) => cell.text === '█' && cell.color === 'subtle')).toBe(true)
+  expect(drawn[21]).toEqual({ text: CAP_RIGHT, color: 'subtle' })
 })
 
 test('under pace the headroom shows in a lifted track, and a nearly empty bar turns red', () => {
   const under = columns(bar(0.25, 0.5, 4))
-  expect(under.map((cell) => cell.color)).toEqual(['inactive', 'promptBorder', 'subtle', 'subtle'])
+  expect(under.map((cell) => cell.color)).toEqual(['inactive', 'inactive', 'promptBorder', 'subtle', 'subtle', 'subtle'])
   const spent = columns(bar(1, 1, 4))
   expect(spent.every((cell) => cell.color === 'error' && cell.background === undefined)).toBe(true)
-  const nearly = columns(bar(0.96, 0.5, 4))
+  const nearly = columns(bar(0.96, 0.5, 4)).slice(1, 5)
   expect(nearly.map((cell) => cell.color)).toEqual(['error', 'error', 'diffRemoved', 'diffRemoved'])
   expect(nearly[3]).toEqual({ text: '▉', color: 'diffRemoved', background: 'subtle' })
 })

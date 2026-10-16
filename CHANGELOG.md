@@ -13,7 +13,7 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 - The accounts pane shows each Codex account's weekly usage and refill.
 
 ### Changed
-- Every bar is two-tone and exact to an eighth of a cell, and the color change marks pace. Bars glide to a new reading, grow when the pane opens, and brighten under the pointer.
+- Every bar is a rounded two-tone pill, exact to an eighth of a cell, and the color change marks pace. Bars glide to a new reading, grow when the pane opens, and brighten under the pointer.
 - A refill reads in days and hours under 2 days, and in hours and minutes under a day.
 - An empty account's bar shows no pace.
 - Each section title has an empty line under it, and a narrow pane puts each account's details under its bar.

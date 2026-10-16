@@ -33,7 +33,7 @@ export const accountsPane = definePane<OneclaudeState>({
     const codex = status.codex.map((account) => codexRow(account, status.now, shown[codexKey(account)]))
     const rows = [combined, ...claude, ...codex]
     const width = Math.max(...rows.map((row) => row.name.length))
-    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_CELLS + GAP + factText(row.facts).length > bodyColumns)
+    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_CELLS + 2 + GAP + factText(row.facts).length > bodyColumns)
     const draw = (row: Row): RenderElement => <RowView row={row} width={width} isNarrow={isNarrow} />
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
