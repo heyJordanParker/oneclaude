@@ -4,7 +4,11 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+## [0.2.2]
+
 ### Added
+- A web dashboard in the proxy's panel: the pool, every account's usage, pace, refill and agents, warnings, 7 days of requests, the proxy's traffic, credentials and settings, and adding, disabling or logging in an account again.
+- The accounts pane opens the dashboard and the panel's accounts page.
 - On a machine with no CLIProxyAPI, installing oneclaude installs it with Homebrew, keeps it on this machine only, and starts it.
 
 ### Changed

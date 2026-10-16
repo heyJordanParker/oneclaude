@@ -2,6 +2,7 @@ package usage
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -34,6 +35,45 @@ func ReadJSON(path string, v any) error {
 		return err
 	}
 	return json.Unmarshal(raw, v)
+}
+
+func ReadSince(path string, since time.Time, fn func(line []byte)) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	const chunk = 1 << 20
+	var partial []byte
+	for end := info.Size(); end > 0; {
+		start := max(0, end-chunk)
+		buf := make([]byte, end-start, end-start+int64(len(partial)))
+		if _, err := f.ReadAt(buf, start); err != nil {
+			return err
+		}
+		lines := bytes.Split(append(buf, partial...), []byte{'\n'})
+		if start > 0 {
+			partial, lines = lines[0], lines[1:]
+		}
+		for i := len(lines) - 1; i >= 0; i-- {
+			var line struct {
+				At time.Time `json:"at"`
+			}
+			if json.Unmarshal(lines[i], &line) != nil {
+				continue
+			}
+			if line.At.Before(since) {
+				return nil
+			}
+			fn(lines[i])
+		}
+		end = start
+	}
+	return nil
 }
 
 // Log appends one JSON line per request. Lines queue in memory and a single

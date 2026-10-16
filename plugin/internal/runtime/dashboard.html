@@ -1,0 +1,1431 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>oneclaude</title>
+<style>
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #faf9f5;
+  --surface: #f0eee8;
+  --surface-hover: #e9e6df;
+  --text: #2d2a26;
+  --text-secondary: #6d6760;
+  --text-tertiary: #a29c95;
+  --ring: #e3e1db;
+  --ring-strong: #d5d2cb;
+  --success: #10b981;
+  --success-text: #047857;
+  --failure: #c65746;
+  --failure-text: #8a3a30;
+  --amber: #d97706;
+  --amber-text: #92400e;
+  --claude: #c96442;
+  --claude-text: #a8502f;
+  --shadow-subtle: 0 0 0 1px var(--ring), 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  --radius: 0.675rem;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="white"] {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f6f6f6;
+  --ring: #e5e5e5;
+  --ring-strong: #d9d9d9;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #151412;
+  --surface: #1d1b18;
+  --surface-hover: #262320;
+  --text: #f6f4f1;
+  --text-secondary: #c9c3bb;
+  --text-tertiary: #9c958d;
+  --ring: #3a3530;
+  --ring-strong: #4a453f;
+  --success: #0fae78;
+  --success-text: #6ee7b7;
+  --failure: #cf4b3a;
+  --failure-text: #f1b0a6;
+  --amber: #f59e0b;
+  --amber-text: #fcd34d;
+  --claude: #d97757;
+  --claude-text: #e8a383;
+  --shadow-subtle: 0 0 0 1px var(--ring);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  background: var(--bg);
+  color: var(--text);
+  font: 400 0.875rem/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body { margin: 0; container: page / inline-size; }
+
+h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
+
+.page {
+  display: grid;
+  gap: 2.5rem;
+  max-inline-size: 76rem;
+  margin-inline: auto;
+  padding: 2.5rem 2rem 4rem;
+}
+
+.header { display: grid; gap: 0.25rem; }
+
+.header__title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.header__mark { color: var(--claude); }
+
+.section { display: grid; gap: 1rem; }
+
+.section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  min-block-size: 2.25rem;
+}
+
+.section__title { font-size: 1.125rem; font-weight: 600; text-wrap: balance; }
+
+.subtitle { font-size: 0.875rem; font-weight: 600; }
+
+.note {
+  max-inline-size: 55ch;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.note[data-tone="bad"] { color: var(--failure-text); }
+
+.panel {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+  padding: 1.25rem;
+  border-radius: calc(var(--radius) + 0.25rem);
+  background: var(--surface);
+  box-shadow: var(--shadow-subtle);
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.facts__item:not(:last-child)::after {
+  content: "·";
+  padding-inline: 0.5rem;
+  color: var(--text-tertiary);
+}
+
+.facts__item--lead { color: var(--text); font-weight: 600; }
+.facts__item[data-tone="under"] { color: var(--success-text); }
+.facts__item[data-tone="over"] { color: var(--claude-text); }
+.facts__item[data-tone="far-over"], .facts__item[data-tone="bad"] { color: var(--failure-text); }
+.facts__item[data-tone="warn"] { color: var(--amber-text); }
+
+.meter {
+  position: relative;
+  min-inline-size: 6rem;
+  block-size: 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--text) 10%, transparent);
+}
+
+.meter--pool { block-size: 0.75rem; }
+
+.meter__fill {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: calc(var(--used, 0) * 100%);
+  border-radius: inherit;
+  background: var(--text-secondary);
+}
+
+.meter[data-full="true"] .meter__fill { background: var(--failure); }
+
+.meter__even {
+  position: absolute;
+  inset-block: -0.25rem;
+  inset-inline-start: calc(var(--even) * 100%);
+  inline-size: 0.125rem;
+  border-radius: 0.0625rem;
+  background: var(--text);
+  translate: -50% 0;
+}
+
+.pool { gap: 0.875rem; }
+
+.warnings { display: grid; gap: 0.5rem; list-style: none; }
+
+.warnings[data-open="false"] .warning:nth-child(n + 7) { display: none; }
+
+.warning {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  gap: 1rem;
+  align-items: baseline;
+}
+
+.warning__time {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.warning__detail { display: flex; align-items: baseline; gap: 0.625rem; text-wrap: pretty; }
+
+.warning__dot {
+  flex: none;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: var(--amber);
+  translate: 0 -0.0625rem;
+}
+
+.warning[data-kind="login"] .warning__dot { background: var(--failure); }
+.warning[data-kind="limit"] .warning__dot { background: var(--text-tertiary); }
+
+.scroller { overflow-x: auto; margin-inline: -0.5rem; padding-inline: 0.5rem; }
+
+.accounts {
+  inline-size: 100%;
+  min-inline-size: 52rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.accounts th {
+  padding: 0 0.75rem 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.accounts td { padding: 0.75rem; vertical-align: middle; }
+
+.accounts tbody tr:nth-child(odd) td { background: color-mix(in oklch, var(--text) 3.5%, transparent); }
+.accounts tbody tr td:first-child { border-start-start-radius: var(--radius); border-end-start-radius: var(--radius); }
+.accounts tbody tr td:last-child { border-start-end-radius: var(--radius); border-end-end-radius: var(--radius); }
+
+.accounts__usage { inline-size: 30%; }
+.accounts__actions { text-align: end; }
+
+.account { display: grid; gap: 0.125rem; }
+.account__name { font-weight: 600; overflow-wrap: anywhere; }
+.account__plan, .account__sub { color: var(--text-secondary); font-size: 0.75rem; }
+
+.usage { display: grid; gap: 0.375rem; }
+
+.muted { color: var(--text-secondary); }
+
+.cell-tone[data-tone="warn"] { color: var(--amber-text); }
+.cell-tone[data-tone="bad"] { color: var(--failure-text); }
+
+.state { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem 0.75rem; }
+
+.badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.badge[data-tone="bad"] { background: color-mix(in oklch, var(--failure) 14%, transparent); color: var(--failure-text); }
+.badge[data-tone="warn"] { background: color-mix(in oklch, var(--amber) 14%, transparent); color: var(--amber-text); }
+
+.row-error { color: var(--failure-text); font-size: 0.75rem; text-align: end; }
+
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  min-block-size: 2.25rem;
+  padding-inline: 0.875rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: var(--surface-hover);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease), scale 100ms var(--ease);
+}
+
+.button::after { content: ""; position: absolute; inset: -0.25rem; }
+.button:active:not(:disabled) { scale: 0.96; }
+.button:disabled { opacity: 0.55; cursor: default; }
+.button[data-busy="true"] { cursor: progress; }
+.button--primary { background: var(--text); color: var(--bg); }
+.button--quiet { background: transparent; color: var(--text-secondary); padding-inline: 0.5rem; }
+
+.button:focus-visible, .link:focus-visible, .input:focus-visible {
+  outline: 0.125rem solid var(--text-secondary);
+  outline-offset: 0.125rem;
+}
+
+.link {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--ring-strong);
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 150ms var(--ease);
+}
+
+.links { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+
+.login { display: grid; gap: 0.875rem; justify-items: start; }
+
+.field { display: grid; gap: 0.375rem; inline-size: 100%; max-inline-size: 44rem; }
+.field__label { color: var(--text-secondary); font-size: 0.75rem; }
+.field__row { display: flex; gap: 0.5rem; }
+.field__error { color: var(--failure-text); font-size: 0.75rem; }
+
+.input {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 2.25rem;
+  padding-inline: 0.75rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--ring-strong);
+  color: var(--text);
+  font: inherit;
+}
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+
+.chart {
+  display: grid;
+  grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
+  grid-template-rows: 7rem auto;
+  column-gap: 0.0625rem;
+}
+
+.chart--short { grid-template-rows: 5rem auto; }
+
+.chart__column {
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-radius: 0.125rem 0.125rem 0 0;
+  box-shadow: inset 0 -1px 0 var(--ring-strong);
+  transition: background-color 150ms var(--ease);
+}
+
+.chart__ok { block-size: calc(var(--ok) / var(--peak) * 100%); background: var(--success); }
+.chart__problem { block-size: calc(var(--problem) / var(--peak) * 100%); background: var(--failure); }
+.chart__ok, .chart__problem { border-radius: 0.0625rem; }
+
+.chart__label {
+  grid-row: 2;
+  grid-column: var(--start) / span var(--span);
+  overflow: hidden;
+  padding-block-start: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.chart__label--end { text-align: end; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; color: var(--text-secondary); font-size: 0.75rem; }
+.legend__item { display: inline-flex; align-items: center; gap: 0.375rem; }
+.legend__swatch { inline-size: 0.5rem; block-size: 0.5rem; border-radius: 0.125rem; background: var(--success); }
+.legend__swatch--problem { background: var(--failure); }
+
+.proxy { display: grid; gap: 1rem; }
+
+.providers { display: grid; gap: 0.5rem; list-style: none; font-variant-numeric: tabular-nums; }
+
+.provider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1.5rem;
+  align-items: baseline;
+}
+
+.provider__name { font-weight: 500; }
+.provider__number { color: var(--text-secondary); text-align: end; }
+
+.specs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.5rem 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.specs dt { color: var(--text-secondary); }
+.specs dd { overflow-wrap: anywhere; }
+
+@container page (min-width: 56rem) {
+  .proxy { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+  .proxy__traffic { grid-column: 1 / -1; }
+  .specs { grid-template-columns: repeat(2, max-content minmax(0, 1fr)); }
+}
+
+@container page (max-width: 48rem) {
+  .scroller { overflow: visible; margin-inline: 0; padding-inline: 0; }
+  .accounts { min-inline-size: 0; }
+  .accounts thead { display: none; }
+  .accounts, .accounts tbody, .accounts td { display: block; }
+  .accounts tbody { display: grid; gap: 0.5rem; }
+  .accounts tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+    padding: 0.875rem;
+    border-radius: var(--radius);
+  }
+  .accounts tbody tr:nth-child(odd) { background: color-mix(in oklch, var(--text) 3.5%, transparent); }
+  .accounts tbody tr td { padding: 0; background: none !important; border-radius: 0 !important; }
+  .accounts td:first-child, .accounts__usage, .accounts__actions { grid-column: 1 / -1; inline-size: auto; }
+  .accounts td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+  }
+  .accounts__actions:not(:has(.badge, .button, .row-error)) { display: none; }
+  .state { justify-content: flex-start; }
+  .row-error { text-align: start; }
+}
+
+@container page (max-width: 40rem) {
+  .page { padding: 1.5rem 1rem 3rem; gap: 2rem; }
+  .warning { grid-template-columns: minmax(0, 1fr); gap: 0.125rem; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .button:hover:not(:disabled) { background: var(--ring); }
+  .button--primary:hover:not(:disabled) { background: color-mix(in oklch, var(--text) 86%, var(--bg)); }
+  .button--quiet:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+  .link:hover { text-decoration-color: currentColor; }
+  .chart__column:hover { background: var(--surface-hover); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="header">
+    <h1 class="header__title"><span class="header__mark" aria-hidden="true">✻</span>oneclaude</h1>
+    <p class="facts" id="meta" aria-live="polite"></p>
+  </header>
+  <section class="section" id="pool" aria-label="Combined usage"></section>
+  <section class="section" id="warnings" aria-label="Warnings"></section>
+  <section class="section" id="accounts" aria-label="Claude accounts"></section>
+  <section class="section" id="history" aria-label="Requests in the last 7 days"></section>
+  <section class="section" id="proxy" aria-label="Proxy"></section>
+</main>
+<script>
+'use strict'
+
+const PANEL = '/management.html'
+const MANAGEMENT = '/v8/management'
+const RESOURCE = new URL('.', location.href).pathname
+const OBFUSCATED = 'enc::v1::'
+const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
+const HOUR = 3600e3
+const WEEK = 7 * 24 * HOUR
+const NEARLY_EMPTY = 0.95
+const SHOWN_WARNINGS = 6
+const PROBLEMS = {
+  'proxy-down': 'The proxy is not answering. This page fills in again when it is back.',
+  'plugin-off': 'oneclaude is off in this proxy.',
+  unreadable: 'oneclaude sent a status this page cannot read.',
+}
+const OUTCOMES = [
+  ['throttled', 'throttled'],
+  ['overloaded', 'overloaded'],
+  ['quota', 'refused at the weekly limit'],
+  ['error', 'failed'],
+]
+const ROUTING = {
+  'round-robin': 'Round robin',
+  'weighted-round-robin': 'Weighted round robin',
+  'fill-first': 'Fill first',
+}
+const PROVIDERS = {
+  claude: 'Claude', codex: 'Codex', gemini: 'Gemini', 'gemini-interactions': 'Interactions API',
+  aistudio: 'AI Studio', vertex: 'Vertex AI', openai: 'OpenAI compatible',
+  'openai-compatibility': 'OpenAI compatible', xai: 'xAI', meta: 'Muse (Meta)', devin: 'Devin',
+  qwen: 'Qwen', kimi: 'Kimi', iflow: 'iFlow', antigravity: 'Antigravity',
+}
+const PANEL_PAGES = [
+  ['AI providers', '/ai-providers'],
+  ['Auth files', '/auth-files'],
+  ['OAuth login', '/oauth'],
+  ['Quota', '/quota'],
+  ['Config', '/config'],
+  ['Logs', '/logs'],
+  ['System', '/system'],
+]
+
+const state = {
+  status: null,
+  problem: null,
+  history: null,
+  key: null,
+  keyState: 'missing',
+  refused: null,
+  proxy: null,
+  proxyError: null,
+  server: { version: '', built: '' },
+  updatedAt: 0,
+  warningsOpen: false,
+  login: null,
+  pending: {},
+  rowErrors: {},
+}
+
+const embedded = window.parent !== window
+const darkScheme = matchMedia('(prefers-color-scheme: dark)')
+
+function panelTheme() {
+  if (embedded) {
+    try {
+      return window.parent.document.documentElement.getAttribute('data-theme') || 'light'
+    } catch {}
+  }
+  let theme = 'auto'
+  try {
+    theme = JSON.parse(localStorage.getItem('cli-proxy-theme'))?.state?.theme || 'auto'
+  } catch {}
+  if (theme === 'auto') return darkScheme.matches ? 'dark' : 'white'
+  return theme
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = panelTheme()
+}
+
+function reveal(payload) {
+  const key = new TextEncoder().encode(`cli-proxy-api-webui::secure-storage|${location.host}|${navigator.userAgent}`)
+  const bytes = Uint8Array.from(atob(payload), (char) => char.charCodeAt(0))
+  return new TextDecoder().decode(bytes.map((byte, index) => byte ^ key[index % key.length]))
+}
+
+function proxyBase(input) {
+  let base = String(input || '').trim().replace(/\/+$/, '').replace(/\/v8\/management$/i, '')
+  if (base && !/^https?:\/\//i.test(base)) base = `http://${base}`
+  return base
+}
+
+function panelKey() {
+  try {
+    const raw = localStorage.getItem('cli-proxy-auth')
+    if (!raw) return null
+    const saved = JSON.parse(raw.startsWith(OBFUSCATED) ? reveal(raw.slice(OBFUSCATED.length)) : raw)?.state
+    if (!saved?.managementKey) return null
+    if (saved.apiBase && proxyBase(saved.apiBase) !== location.origin) return null
+    return saved.managementKey
+  } catch {
+    return null
+  }
+}
+
+function readKey() {
+  const key = panelKey()
+  state.key = key && key !== state.refused ? key : null
+  state.keyState = !key ? 'missing' : key === state.refused ? 'refused' : 'ready'
+}
+
+async function management(path, init = {}) {
+  const key = state.key
+  if (!key) throw new Error('The panel has no saved management key.')
+  const response = await fetch(MANAGEMENT + path, {
+    ...init,
+    cache: 'no-store',
+    headers: { Authorization: `Bearer ${key}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
+  })
+  if (response.status === 401 || response.status === 403) {
+    state.refused = key
+    readKey()
+    render()
+    throw new Error('The proxy refused the saved management key.')
+  }
+  const version = response.headers.get('X-CPA-VERSION')
+  const built = response.headers.get('X-CPA-BUILD-DATE')
+  if (version) state.server.version = version
+  if (built) state.server.built = built
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.error || body.message || `The proxy answered ${response.status}.`)
+  return body
+}
+
+async function resource(name) {
+  const response = await fetch(RESOURCE + name, { cache: 'no-store' })
+  if (response.status === 404) throw Object.assign(new Error(), { problem: 'plugin-off' })
+  if (!response.ok) throw Object.assign(new Error(), { problem: 'proxy-down' })
+  try {
+    return await response.json()
+  } catch {
+    throw Object.assign(new Error(), { problem: 'unreadable' })
+  }
+}
+
+async function loadStatus() {
+  try {
+    state.status = await resource('status.json')
+    state.problem = null
+    state.updatedAt = Date.now()
+  } catch (error) {
+    state.problem = error.problem || 'proxy-down'
+  }
+  render()
+}
+
+async function loadHistory() {
+  try {
+    state.history = await resource('history.json')
+  } catch {}
+  render()
+}
+
+async function loadModels(config) {
+  const key = (config.access?.['api-keys'] ?? []).find((entry) => typeof entry === 'string' && entry.trim())
+  if (!key) return null
+  const response = await fetch('/v1/models', { cache: 'no-store', headers: { Authorization: `Bearer ${key}` } })
+  if (!response.ok) return null
+  const body = await response.json()
+  return Array.isArray(body.data) ? body.data.length : null
+}
+
+async function loadProxy() {
+  readKey()
+  if (!state.key) {
+    render()
+    return
+  }
+  try {
+    const config = await management('/config')
+    const [credentials, usage, models] = await Promise.allSettled([
+      management('/credentials'),
+      management('/observability/usage/api-keys'),
+      loadModels(config),
+    ])
+    state.proxy = {
+      config,
+      files: credentials.status === 'fulfilled' ? credentials.value.files ?? [] : null,
+      usage: usage.status === 'fulfilled' ? usage.value : null,
+      models: models.status === 'fulfilled' ? models.value : null,
+    }
+    state.proxyError = null
+  } catch (error) {
+    if (state.key) state.proxyError = error.message
+  }
+  render()
+}
+
+function refreshAll() {
+  void loadStatus()
+  void loadHistory()
+  void loadProxy()
+}
+
+function every(ms, load) {
+  setInterval(() => {
+    if (!document.hidden) void load()
+  }, ms)
+}
+
+function h(tag, props, ...children) {
+  const element = document.createElement(tag)
+  for (const [name, value] of Object.entries(props ?? {})) {
+    const stated = name.startsWith('data-') || name.startsWith('aria-')
+    if (value === undefined || value === null || (value === false && !stated)) continue
+    if (stated) element.setAttribute(name, String(value))
+    else if (name === 'class') element.className = value
+    else if (name === 'vars') for (const [variable, x] of Object.entries(value)) element.style.setProperty(`--${variable}`, String(x))
+    else if (name.startsWith('on')) element.addEventListener(name.slice(2), value)
+    else if (name === 'value') element.value = value
+    else element.setAttribute(name, value === true ? '' : String(value))
+  }
+  element.append(...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
+    .map((child) => (child instanceof Node ? child : document.createTextNode(String(child)))))
+  return element
+}
+
+function percent(fraction) {
+  return `${Math.round(fraction * 100)}%`
+}
+
+function clamp(fraction) {
+  return Math.min(1, Math.max(0, fraction))
+}
+
+function paceState(used, even) {
+  const ahead = used - even
+  if (ahead > 0.25) return 'far-over'
+  if (ahead > 0.05) return 'over'
+  if (ahead < -0.05) return 'under'
+  return 'on'
+}
+
+function pace(used, even) {
+  const ahead = used - even
+  const points = Math.round(Math.abs(ahead) * 100)
+  if (points === 0) return 'on pace'
+  return `${points}% ${ahead < 0 ? 'under' : 'over'} pace`
+}
+
+function evenOf(account, now) {
+  if (!account.resets_at) return undefined
+  return clamp(1 - (Date.parse(account.resets_at) - Date.parse(now)) / WEEK)
+}
+
+function instant(value) {
+  return typeof value === 'number' ? value : Date.parse(value)
+}
+
+function duration(ms) {
+  const minutes = Math.round(ms / 60e3)
+  if (minutes <= 0) return 'now'
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `${hours}h`
+  return `${Math.round(hours / 24)}d`
+}
+
+function until(iso, now) {
+  if (!iso) return 'unknown'
+  return duration(Date.parse(iso) - instant(now))
+}
+
+function ago(iso, now) {
+  const passed = duration(instant(now) - Date.parse(iso))
+  return passed === 'now' ? 'just now' : `${passed} ago`
+}
+
+function plural(count, word) {
+  return `${count.toLocaleString('en')} ${word}${count === 1 ? '' : 's'}`
+}
+
+function compact(count) {
+  return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(count)
+}
+
+function count(value) {
+  const number = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+function planLabel(plan) {
+  if (!plan) return ''
+  return plan.replace(/^default_claude_/, '').replace(/_/g, ' ').replace(/^./, (char) => char.toUpperCase())
+}
+
+function providerLabel(id) {
+  if (!id || id === 'unknown') return 'Unknown'
+  return PROVIDERS[id] ?? id.charAt(0).toUpperCase() + id.slice(1)
+}
+
+function fact(text, tone, lead) {
+  return h('span', { class: lead ? 'facts__item facts__item--lead' : 'facts__item', 'data-tone': tone }, text)
+}
+
+function facts(...items) {
+  return h('p', { class: 'facts' }, items)
+}
+
+function note(text, tone) {
+  return h('p', { class: 'note', 'data-tone': tone }, text)
+}
+
+function head(title, ...actions) {
+  return h('div', { class: 'section__head' }, h('h2', { class: 'section__title' }, title), actions)
+}
+
+function panelLink(label, route) {
+  return h('a', { class: 'link', href: `${PANEL}#${route}`, target: '_top' }, label)
+}
+
+function meter(used, even, label, modifier) {
+  return h('div', {
+    class: modifier ? `meter meter--${modifier}` : 'meter',
+    role: 'meter',
+    'aria-label': label,
+    'aria-valuemin': 0,
+    'aria-valuemax': 100,
+    'aria-valuenow': Math.round(clamp(used) * 100),
+    'data-full': used >= NEARLY_EMPTY,
+    vars: { used: clamp(used), even: even === undefined ? 0 : clamp(even) },
+  }, h('span', { class: 'meter__fill' }), even === undefined ? null : h('span', { class: 'meter__even', title: 'Even pace' }))
+}
+
+function chart(columns, labels, label, modifier) {
+  const peak = Math.max(1, ...columns.map((column) => column.ok + column.problem))
+  return h('div', {
+    class: modifier ? `chart chart--${modifier}` : 'chart',
+    role: 'img',
+    'aria-label': label,
+    vars: { columns: columns.length, peak },
+  },
+  columns.map((column) => h('span', { class: 'chart__column', title: column.title },
+    column.problem > 0 ? h('span', { class: 'chart__problem', vars: { problem: column.problem } }) : null,
+    column.ok > 0 ? h('span', { class: 'chart__ok', vars: { ok: column.ok } }) : null)),
+  labels.map((tick) => h('span', { class: tick.end ? 'chart__label chart__label--end' : 'chart__label', vars: { start: tick.start, span: tick.span } }, tick.text)))
+}
+
+function legend(problemLabel) {
+  return h('p', { class: 'legend', 'aria-hidden': 'true' },
+    h('span', { class: 'legend__item' }, h('span', { class: 'legend__swatch' }), 'Answered'),
+    h('span', { class: 'legend__item' }, h('span', { class: 'legend__swatch legend__swatch--problem' }), problemLabel))
+}
+
+function metaView() {
+  const items = []
+  if (state.status) items.push(fact(`plugin ${state.status.version}`))
+  if (state.server.version) items.push(fact(`proxy ${state.server.version.replace(/^v/i, '')}`))
+  if (state.problem) items.push(fact(state.problem === 'proxy-down' ? 'proxy down' : state.problem === 'plugin-off' ? 'plugin off' : 'status unreadable', 'bad'))
+  else if (state.updatedAt) items.push(fact(`updated ${ago(new Date(state.updatedAt).toISOString(), Date.now())}`))
+  return items
+}
+
+function poolView() {
+  const status = state.status
+  if (!status) return [head('Combined usage'), note(state.problem ? PROBLEMS[state.problem] : 'Reading your accounts', state.problem ? 'bad' : undefined)]
+  const { pool, now } = status
+  const unread = pool.accounts - pool.known
+  const items = pool.known === 0
+    ? [fact('reading accounts'), fact(plural(pool.agents, 'agent'))]
+    : [
+        fact(`${percent(pool.used)} used`, undefined, true),
+        fact(pace(pool.used, pool.even), paceState(pool.used, pool.even)),
+        pool.next_refill ? fact(`next refill in ${until(pool.next_refill, now)} frees ${percent(pool.refill_gain)}`) : null,
+        fact(plural(pool.agents, 'agent')),
+        fact(plural(pool.accounts, 'account')),
+        unread > 0 ? fact(`${plural(unread, 'account')} not read yet`, 'warn') : null,
+      ]
+  return h('div', { class: 'panel pool' },
+    h('h2', { class: 'section__title' }, 'Combined usage'),
+    meter(pool.used, pool.known > 0 ? pool.even : undefined, 'Combined weekly usage', 'pool'),
+    facts(items),
+    state.problem ? note(PROBLEMS[state.problem], 'bad') : null)
+}
+
+function warningsView() {
+  const status = state.status
+  if (!status) return []
+  const warnings = [...status.warnings].reverse()
+  const title = 'Warnings in the last 24 hours'
+  if (warnings.length === 0) return [head(title), note('None. Throttles, refused subagents and expired logins show up here.')]
+  const toggle = warnings.length > SHOWN_WARNINGS
+    ? h('button', {
+        class: 'button button--quiet',
+        type: 'button',
+        'data-focus': 'warnings-toggle',
+        'aria-expanded': state.warningsOpen,
+        onclick: () => { state.warningsOpen = !state.warningsOpen; render() },
+      }, state.warningsOpen ? 'Show fewer' : `Show all ${warnings.length}`)
+    : null
+  return [
+    head(title, toggle),
+    h('ol', { class: 'warnings', 'data-open': state.warningsOpen },
+      warnings.map((warning) => h('li', { class: 'warning', 'data-kind': warning.kind },
+        h('time', { class: 'warning__time', datetime: warning.at, title: new Date(warning.at).toLocaleString() }, ago(warning.at, status.now)),
+        h('span', { class: 'warning__detail' }, h('span', { class: 'warning__dot', 'aria-hidden': 'true' }), warning.detail)))),
+  ]
+}
+
+function claudeFiles() {
+  return (state.proxy?.files ?? []).filter((file) => String(file.type || file.provider || '').toLowerCase() === 'claude')
+}
+
+function weekTotals(history) {
+  const totals = { requests: 0, outcomes: {} }
+  for (const hour of history?.hours ?? []) {
+    totals.requests += hour.requests
+    for (const [outcome, n] of Object.entries(hour.outcomes ?? {})) totals.outcomes[outcome] = (totals.outcomes[outcome] ?? 0) + n
+  }
+  return totals
+}
+
+function accountRows() {
+  const histories = new Map((state.history?.accounts ?? []).map((history) => [history.name, history]))
+  const files = claudeFiles()
+  const byIndex = new Map(files.filter((file) => file.auth_index).map((file) => [file.auth_index, file]))
+  const matched = new Set()
+  const rows = (state.status?.accounts ?? []).map((account) => {
+    const history = histories.get(account.name)
+    const file = history?.auth_index ? byIndex.get(history.auth_index) : undefined
+    if (file) matched.add(file)
+    return { account, history, file }
+  })
+  for (const file of files) if (!matched.has(file)) rows.push({ file })
+  return rows
+}
+
+function loginExpired(account, now) {
+  if (!account) return false
+  return (state.status?.warnings ?? []).some((warning) => warning.kind === 'login' && warning.account === account.name
+    && (!account.observed_at || Date.parse(warning.at) > Date.parse(account.observed_at))
+    && Date.parse(now) - Date.parse(warning.at) < 24 * HOUR)
+}
+
+function rowKey(row) {
+  return row.file?.auth_index || row.file?.name || row.account?.name
+}
+
+function accountState(row, now) {
+  const { account, file } = row
+  if (file?.disabled) return ['Disabled']
+  if (loginExpired(account, now)) return ['Login expired', 'bad']
+  if (file?.unavailable) return ['Unavailable', 'warn', file.status_message]
+  if (account?.empty) return ['Empty', 'bad']
+  if (!account) return ['Not in the pool yet']
+  if (!account.known) return ['Not read yet']
+  if (account.projected) return ['Refilled since its last reading']
+  return null
+}
+
+function accountActions(row, now) {
+  if (!state.key) return null
+  const key = rowKey(row)
+  const busy = Boolean(state.pending[key])
+  const buttons = []
+  if (loginExpired(row.account, now)) {
+    buttons.push(h('button', { class: 'button', type: 'button', 'data-focus': `relogin-${key}`, disabled: Boolean(state.login), onclick: startLogin }, 'Log in again'))
+  }
+  if (row.file) {
+    const disabled = Boolean(row.file.disabled)
+    buttons.push(h('button', {
+      class: 'button button--quiet',
+      type: 'button',
+      'data-focus': `toggle-${key}`,
+      'data-busy': busy,
+      disabled: busy,
+      onclick: () => setDisabled(row, !disabled),
+    }, busy ? (disabled ? 'Enabling' : 'Disabling') : disabled ? 'Enable' : 'Disable'))
+  }
+  return buttons
+}
+
+function accountRow(row, now) {
+  const { account, history, file } = row
+  const name = account?.name ?? file.email ?? file.label ?? file.name
+  const badge = accountState(row, now)
+  const totals = weekTotals(history)
+  const problems = OUTCOMES.map(([outcome]) => totals.outcomes[outcome] ?? 0).reduce((a, b) => a + b, 0)
+  const throttled = totals.outcomes.throttled ?? 0
+  const known = account?.known
+  const even = known && !account.empty ? evenOf(account, now) : undefined
+  const agents = account ? FAMILIES.filter((family) => (account.agents?.[family] ?? 0) > 0) : []
+  const limits = account ? FAMILIES.filter((family) => account.limits?.[family] !== undefined).map((family) => `${account.limits[family]} ${family}`) : []
+  const error = state.rowErrors[rowKey(row)]
+  return h('tr', null,
+    h('td', null, h('div', { class: 'account' },
+      h('span', { class: 'account__name' }, name),
+      account?.plan ? h('span', { class: 'account__plan' }, planLabel(account.plan)) : null)),
+    h('td', { class: 'accounts__usage' }, known
+      ? h('div', { class: 'usage' },
+          meter(account.used, even, `Weekly usage of ${name}`),
+          facts(fact(account.empty ? 'empty' : percent(account.used), account.empty ? 'bad' : undefined, true),
+            even === undefined ? null : fact(pace(account.used, even), paceState(account.used, even))))
+      : h('span', { class: 'muted' }, 'not read yet')),
+    h('td', { 'data-label': 'Refills' }, known ? `in ${until(account.resets_at, now)}` : h('span', { class: 'muted' }, '—')),
+    h('td', { 'data-label': 'Agents', title: limits.length ? `Room for ${limits.join(', ')} agents on this account` : null },
+      agents.length ? agents.map((family) => `${account.agents[family]} ${family}`).join(' · ') : h('span', { class: 'muted' }, 'idle')),
+    h('td', { 'data-label': 'Last 7 days' }, h('div', { class: 'account' },
+      h('span', null, plural(totals.requests, 'request')),
+      problems > 0 ? h('span', { class: 'account__sub cell-tone', 'data-tone': throttled > 0 ? 'warn' : 'bad' },
+        OUTCOMES.filter(([outcome]) => totals.outcomes[outcome]).map(([outcome, label]) => `${totals.outcomes[outcome].toLocaleString('en')} ${label}`).join(' · ')) : null)),
+    h('td', { class: 'accounts__actions' },
+      h('div', { class: 'state' },
+        badge ? h('span', { class: 'badge', 'data-tone': badge[1], title: badge[2] }, badge[0]) : null,
+        accountActions(row, now)),
+      error ? h('p', { class: 'row-error', role: 'alert' }, error) : null))
+}
+
+function loginView() {
+  const login = state.login
+  if (!login) return null
+  if (login.phase === 'starting') return h('div', { class: 'panel login' }, note('Starting a Claude login'))
+  if (login.phase === 'done') return h('div', { class: 'panel login', role: 'status' }, h('p', null, 'Account added. oneclaude reads its usage within a few minutes.'))
+  if (login.phase === 'error') {
+    return h('div', { class: 'panel login', role: 'alert' },
+      note(login.error, 'bad'),
+      h('div', { class: 'actions' },
+        h('button', { class: 'button', type: 'button', 'data-focus': 'login-retry', onclick: startLogin }, 'Try again'),
+        h('button', { class: 'button button--quiet', type: 'button', 'data-focus': 'login-close', onclick: stopLogin }, 'Close')))
+  }
+  return h('div', { class: 'panel login' },
+    h('p', null, 'Log in to the Claude account in the tab that opened. This page adds the account when the login finishes.'),
+    h('div', { class: 'actions' },
+      h('a', { class: 'link', href: login.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open the Claude login'),
+      h('button', { class: 'button button--quiet', type: 'button', 'data-focus': 'login-cancel', onclick: stopLogin }, 'Cancel')),
+    h('form', { class: 'field', onsubmit: submitCallback, novalidate: true },
+      h('label', { class: 'field__label', for: 'callback' }, 'If the login ends on a page that does not load, paste that page\'s address here'),
+      h('div', { class: 'field__row' },
+        h('input', {
+          class: 'input',
+          id: 'callback',
+          type: 'text',
+          inputmode: 'url',
+          'data-focus': 'login-callback',
+          autocomplete: 'off',
+          spellcheck: 'false',
+          placeholder: 'http://localhost:54545/callback?code=…',
+          value: login.callback,
+          'aria-invalid': login.fieldError ? 'true' : null,
+          'aria-describedby': login.fieldError ? 'callback-error' : null,
+          oninput: (event) => { login.callback = event.target.value; login.fieldError = '' },
+        }),
+        h('button', { class: 'button', type: 'submit', 'data-focus': 'login-submit', 'data-busy': Boolean(login.submitting), disabled: Boolean(login.submitting) }, login.submitting ? 'Sending' : 'Send')),
+      login.fieldError ? h('p', { class: 'field__error', id: 'callback-error' }, login.fieldError) : null,
+      login.submitted ? h('p', { class: 'field__label', role: 'status' }, 'Sent. Waiting for the proxy to finish the login.') : null))
+}
+
+function accountsView() {
+  const status = state.status
+  if (!status) return []
+  const add = state.key
+    ? h('button', { class: 'button button--primary', type: 'button', 'data-focus': 'add-account', disabled: Boolean(state.login && state.login.phase !== 'done'), onclick: startLogin }, 'Add account')
+    : panelLink('Add an account in the panel', '/oauth')
+  const rows = accountRows()
+  return [
+    head('Claude accounts', add),
+    loginView(),
+    rows.length === 0
+      ? note('No Claude accounts yet. Add one, and oneclaude places agents on it as soon as the proxy lists it.')
+      : h('div', { class: 'scroller' }, h('table', { class: 'accounts' },
+          h('thead', null, h('tr', null,
+            h('th', { scope: 'col' }, 'Account'),
+            h('th', { scope: 'col' }, 'Weekly usage'),
+            h('th', { scope: 'col' }, 'Refills'),
+            h('th', { scope: 'col' }, 'Agents'),
+            h('th', { scope: 'col' }, 'Last 7 days'),
+            h('th', { scope: 'col', class: 'accounts__actions' }, h('span', { class: 'muted' }, 'State')))),
+          h('tbody', null, rows.map((row) => accountRow(row, status.now))))),
+  ]
+}
+
+function historyView() {
+  const title = 'Requests in the last 7 days'
+  const history = state.history
+  if (!history) return [head(title), note('Reading the request log')]
+  const nowHour = Math.floor(Date.parse(history.now) / HOUR) * HOUR
+  const start = nowHour - 167 * HOUR
+  const slots = Array.from({ length: 168 }, (_, index) => ({ at: start + index * HOUR, ok: 0, problem: 0, outcomes: {} }))
+  const totals = { requests: 0, outcomes: {}, tokens: { input: 0, output: 0, cache_read: 0, cache_write: 0 } }
+  for (const account of history.accounts) {
+    for (const hour of account.hours) {
+      const index = Math.round((Date.parse(hour.at) - start) / HOUR)
+      if (index < 0 || index >= slots.length) continue
+      const slot = slots[index]
+      const ok = hour.outcomes?.ok ?? 0
+      slot.ok += ok
+      slot.problem += hour.requests - ok
+      totals.requests += hour.requests
+      for (const [outcome, n] of Object.entries(hour.outcomes ?? {})) {
+        slot.outcomes[outcome] = (slot.outcomes[outcome] ?? 0) + n
+        totals.outcomes[outcome] = (totals.outcomes[outcome] ?? 0) + n
+      }
+      for (const kind of Object.keys(totals.tokens)) totals.tokens[kind] += hour.tokens?.[kind] ?? 0
+    }
+  }
+  if (totals.requests === 0) return [head(title), note('No requests yet. Each request an agent sends through the proxy lands here by the hour.')]
+  const hourLabel = new Intl.DateTimeFormat('en', { weekday: 'short', hour: 'numeric' })
+  const weekday = new Intl.DateTimeFormat('en', { weekday: 'short' })
+  const columns = slots.map((slot) => {
+    const requests = slot.ok + slot.problem
+    const details = OUTCOMES.filter(([outcome]) => slot.outcomes[outcome]).map(([outcome, label]) => `${slot.outcomes[outcome]} ${label}`)
+    return { ok: slot.ok, problem: slot.problem, title: [`${hourLabel.format(slot.at)}: ${plural(requests, 'request')}`, ...details].join(' · ') }
+  })
+  const ticks = []
+  slots.forEach((slot, index) => {
+    const day = new Date(slot.at)
+    if (day.getHours() === 0) ticks.push({ start: index + 1, span: Math.min(24, slots.length - index), text: `${weekday.format(day)} ${day.getDate()}` })
+  })
+  const tokens = totals.tokens.input + totals.tokens.output + totals.tokens.cache_write
+  return [
+    head(title),
+    h('div', { class: 'panel' },
+      facts(
+        fact(plural(totals.requests, 'request'), undefined, true),
+        OUTCOMES.filter(([outcome]) => totals.outcomes[outcome]).map(([outcome, label]) => fact(`${totals.outcomes[outcome].toLocaleString('en')} ${label}`, outcome === 'throttled' || outcome === 'overloaded' ? 'warn' : 'bad')),
+        fact(`${compact(tokens)} tokens in and out`),
+        fact(`${compact(totals.tokens.cache_read)} tokens from cache`)),
+      chart(columns, ticks, `Requests per hour over the last 7 days: ${plural(totals.requests, 'request')}`),
+      legend('Throttled, overloaded or failed')),
+  ]
+}
+
+function bucketsOf(entry) {
+  const buckets = entry?.recent_requests ?? entry?.recentRequests
+  return Array.isArray(buckets) ? buckets.slice(-20).map((bucket) => ({ time: bucket?.time, success: count(bucket?.success), failed: count(bucket?.failed) })) : []
+}
+
+function mergeBuckets(groups) {
+  const length = Math.min(20, Math.max(0, ...groups.map((group) => group.length)))
+  const merged = Array.from({ length }, () => ({ success: 0, failed: 0 }))
+  for (const group of groups) {
+    const tail = group.slice(-length)
+    tail.forEach((bucket, index) => {
+      const target = merged[length - tail.length + index]
+      target.success += bucket.success
+      target.failed += bucket.failed
+      target.time ??= bucket.time
+    })
+  }
+  return merged
+}
+
+function proxyTraffic(usage, files) {
+  const providers = new Map()
+  const groups = []
+  const usageKeys = new Set()
+  const provider = (id) => {
+    if (!providers.has(id)) providers.set(id, { id, credentials: 0, success: 0, failed: 0 })
+    return providers.get(id)
+  }
+  const add = (id, entry) => {
+    const row = provider(id)
+    row.credentials += 1
+    row.success += count(entry?.success)
+    row.failed += count(entry?.failed)
+    const buckets = bucketsOf(entry)
+    if (buckets.length) groups.push(buckets)
+  }
+  for (const [id, entries] of Object.entries(usage ?? {})) {
+    for (const [composite, entry] of Object.entries(entries ?? {})) {
+      const separator = composite.indexOf('|')
+      if (separator >= 0) usageKeys.add(composite.slice(separator + 1).trim())
+      add(String(id).trim().toLowerCase(), entry)
+    }
+  }
+  for (const file of files ?? []) {
+    if (String(file.account_type ?? '').toLowerCase() === 'api_key' && usageKeys.has(String(file.account ?? '').trim())) continue
+    const id = String(file.type ?? file.provider ?? '').trim().toLowerCase()
+    add(id && id !== 'empty' ? id : 'unknown', file)
+  }
+  const buckets = mergeBuckets(groups)
+  const success = buckets.reduce((sum, bucket) => sum + bucket.success, 0)
+  const failed = buckets.reduce((sum, bucket) => sum + bucket.failed, 0)
+  return {
+    buckets,
+    success,
+    failed,
+    providers: [...providers.values()].sort((a, b) => b.success + b.failed - (a.success + a.failed) || b.credentials - a.credentials || a.id.localeCompare(b.id)),
+  }
+}
+
+function windowLabel(minutes) {
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (hours === 0) return `${rest}m`
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`
+}
+
+function successRate(success, failed) {
+  const total = success + failed
+  return total === 0 ? '—' : `${(Math.round((success / total) * 1000) / 10).toLocaleString('en')}%`
+}
+
+function trafficPanel(traffic) {
+  const span = windowLabel(traffic.buckets.length * 10)
+  const total = traffic.success + traffic.failed
+  const columns = traffic.buckets.map((bucket) => ({
+    ok: bucket.success,
+    problem: bucket.failed,
+    title: `${bucket.time ?? ''} · ${plural(bucket.success, 'success')}${bucket.failed ? ` · ${bucket.failed.toLocaleString('en')} failed` : ''}`,
+  }))
+  const first = traffic.buckets[0]?.time?.split('-')[0]
+  const last = traffic.buckets.at(-1)?.time?.split('-')[1]
+  const half = Math.max(1, Math.floor(columns.length / 2))
+  return h('div', { class: 'panel proxy__traffic' },
+    h('h3', { class: 'subtitle' }, traffic.buckets.length ? `Requests in the last ${span}` : 'Requests'),
+    traffic.buckets.length === 0
+      ? note('No requests counted yet.')
+      : [
+          facts(
+            fact(plural(total, 'request'), undefined, true),
+            fact(`${successRate(traffic.success, traffic.failed)} succeeded`, total > 0 && traffic.success / total < 0.8 ? 'bad' : total > 0 && traffic.success / total < 0.95 ? 'warn' : undefined),
+            traffic.failed ? fact(`${traffic.failed.toLocaleString('en')} failed`, 'bad') : null),
+          chart(columns, [
+            first ? { start: 1, span: half, text: first } : null,
+            last ? { start: half + 1, span: columns.length - half, text: last, end: true } : null,
+          ].filter(Boolean), `Requests per 10 minutes over the last ${span}: ${plural(total, 'request')}`, 'short'),
+          legend('Failed'),
+        ],
+    traffic.providers.length
+      ? [
+          h('h3', { class: 'subtitle' }, 'By provider since the proxy started'),
+          h('ul', { class: 'providers' }, traffic.providers.map((row) => h('li', { class: 'provider' },
+            h('span', null, h('span', { class: 'provider__name' }, providerLabel(row.id)), h('span', { class: 'muted' }, ` · ${plural(row.credentials, 'credential')}`)),
+            h('span', { class: 'provider__number' }, plural(row.success + row.failed, 'request')),
+            h('span', { class: 'provider__number' }, successRate(row.success, row.failed))))),
+        ]
+      : null)
+}
+
+function credentialsPanel(files) {
+  if (!files) return h('div', { class: 'panel' }, h('h3', { class: 'subtitle' }, 'Credentials'), note('The proxy did not list its credentials.', 'bad'))
+  const disabled = files.filter((file) => file.disabled).length
+  const unavailable = files.filter((file) => !file.disabled && file.unavailable).length
+  const types = new Map()
+  for (const file of files) {
+    const id = String(file.type ?? file.provider ?? '').trim().toLowerCase() || 'unknown'
+    types.set(id, (types.get(id) ?? 0) + 1)
+  }
+  return h('div', { class: 'panel' },
+    h('h3', { class: 'subtitle' }, plural(files.length, 'credential')),
+    files.length === 0
+      ? note('No credential files yet. Add an account to log one in.')
+      : [
+          facts(
+            fact(`${(files.length - disabled - unavailable).toLocaleString('en')} active`, undefined, true),
+            fact(`${unavailable.toLocaleString('en')} unavailable`, unavailable ? 'warn' : undefined),
+            fact(`${disabled.toLocaleString('en')} disabled`)),
+          facts([...types.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([id, n]) => fact(`${providerLabel(id)} ${n}`))),
+        ],
+    h('div', { class: 'links' }, panelLink('Auth files', '/auth-files')))
+}
+
+function providerKeys(groups) {
+  let keys = 0
+  for (const [provider, list] of Object.entries(groups ?? {})) {
+    for (const group of Array.isArray(list) ? list : []) {
+      if (!Array.isArray(group?.keys)) continue
+      keys += provider === 'openai-compatibility' ? 1 : group.keys.length
+    }
+  }
+  return keys
+}
+
+function onOff(value) {
+  return value ? 'On' : 'Off'
+}
+
+function settingsPanel(config, models) {
+  const logs = config.observability?.logs ?? {}
+  const wsAuth = config.oauth?.providers?.aistudio?.['ws-auth']
+  const built = state.server.built ? new Date(state.server.built) : null
+  const rows = [
+    ['Routing', ROUTING[config.routing?.strategy] ?? config.routing?.strategy ?? '—'],
+    ['Retries', String(config.routing?.retry?.['request-retry'] ?? 0)],
+    ['Client API keys', String((config.access?.['api-keys'] ?? []).filter((key) => typeof key === 'string').length)],
+    ['Provider keys', String(providerKeys(config['api-keys']))],
+    ['Models', models === null || models === undefined ? '—' : models.toLocaleString('en')],
+    ['Upstream proxy', config.requests?.['proxy-url'] || 'None'],
+    ['Debug', onOff(logs.debug)],
+    ['File logging', onOff(logs['logging-to-file'])],
+    ['Request log', onOff(logs['request-log'])],
+    ['WebSocket auth', onOff(wsAuth ?? true)],
+    ['Model prefix required', onOff(config.routing?.['force-model-prefix'])],
+    ['Version', state.server.version || '—'],
+    ['Built', built && !Number.isNaN(built.getTime()) ? built.toLocaleDateString('en', { dateStyle: 'medium' }) : state.server.built || '—'],
+  ]
+  return h('div', { class: 'panel' },
+    h('h3', { class: 'subtitle' }, 'Settings'),
+    h('dl', { class: 'specs' }, rows.map(([label, value]) => [h('dt', null, label), h('dd', null, value)])),
+    h('div', { class: 'links' }, panelLink('Config', '/config')))
+}
+
+function proxyView() {
+  const links = h('nav', { class: 'links', 'aria-label': 'Panel pages' }, PANEL_PAGES.map(([label, route]) => panelLink(label, route)))
+  if (!state.key) {
+    const refused = state.keyState === 'refused'
+    return [
+      head('Proxy'),
+      h('div', { class: 'panel login' },
+        note(refused
+          ? 'The proxy refused the management key the panel saved. Log in to the panel again, and this page picks up the new key.'
+          : 'Log in to the management panel with Remember password ticked. This page then reads the key the panel saved, shows the proxy\'s traffic, credentials and settings, and lets you add and disable accounts.'),
+        h('a', { class: 'button', href: PANEL, target: '_top' }, 'Open the panel')),
+      links,
+    ]
+  }
+  if (!state.proxy) return [head('Proxy'), note(state.proxyError ?? 'Reading the proxy', state.proxyError ? 'bad' : undefined)]
+  const { config, files, usage, models } = state.proxy
+  return [
+    head('Proxy'),
+    state.proxyError ? note(state.proxyError, 'bad') : null,
+    h('div', { class: 'proxy' },
+      trafficPanel(proxyTraffic(usage, files)),
+      credentialsPanel(files),
+      settingsPanel(config, models)),
+    links,
+  ]
+}
+
+function paint(id, content) {
+  document.getElementById(id).replaceChildren(...[content].flat(Infinity).filter(Boolean))
+}
+
+function render() {
+  const active = document.activeElement
+  const focus = active?.dataset?.focus
+  const caret = active instanceof HTMLInputElement ? [active.selectionStart, active.selectionEnd] : null
+  paint('meta', metaView())
+  paint('pool', poolView())
+  paint('warnings', warningsView())
+  paint('accounts', accountsView())
+  paint('history', historyView())
+  paint('proxy', proxyView())
+  if (!focus) return
+  const target = document.querySelector(`[data-focus="${CSS.escape(focus)}"]`)
+  if (!target) return
+  target.focus({ preventScroll: true })
+  if (caret && target instanceof HTMLInputElement) {
+    try {
+      target.setSelectionRange(caret[0], caret[1])
+    } catch {}
+  }
+}
+
+async function setDisabled(row, disabled) {
+  const key = rowKey(row)
+  state.pending[key] = true
+  delete state.rowErrors[key]
+  render()
+  try {
+    await management('/credentials/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ name: row.file.name, disabled, ...(row.file.auth_index ? { auth_index: row.file.auth_index } : {}) }),
+    })
+    await loadProxy()
+  } catch (error) {
+    state.rowErrors[key] = `${disabled ? 'Disabling' : 'Enabling'} failed: ${error.message}`
+  }
+  delete state.pending[key]
+  render()
+}
+
+function stopLogin() {
+  clearTimeout(state.login?.timer)
+  state.login = null
+  render()
+}
+
+async function startLogin() {
+  clearTimeout(state.login?.timer)
+  const tab = window.open('about:blank', '_blank')
+  const login = { phase: 'starting', callback: '' }
+  state.login = login
+  render()
+  try {
+    const started = await management('/oauth/auth-url?provider=claude&is_webui=true')
+    if (!started.url || !started.state) throw new Error('The proxy did not start a Claude login.')
+    if (state.login !== login) return
+    Object.assign(login, { phase: 'waiting', url: started.url, session: started.state })
+    if (tab) {
+      tab.opener = null
+      tab.location.href = started.url
+    }
+    pollLogin(login)
+  } catch (error) {
+    tab?.close()
+    if (state.login === login) Object.assign(login, { phase: 'error', error: `The login did not start: ${error.message}` })
+  }
+  render()
+}
+
+function pollLogin(login) {
+  login.timer = setTimeout(async () => {
+    if (state.login !== login) return
+    try {
+      const result = await management(`/oauth/status?state=${encodeURIComponent(login.session)}`)
+      if (state.login !== login) return
+      if (result.status === 'ok') {
+        state.login = { phase: 'done' }
+        refreshAll()
+        setTimeout(() => {
+          if (state.login?.phase === 'done') stopLogin()
+        }, 5000)
+      } else if (result.status === 'error') {
+        Object.assign(login, { phase: 'error', error: `The login failed: ${result.error || 'Claude did not finish it.'}` })
+      } else {
+        pollLogin(login)
+      }
+    } catch (error) {
+      if (state.login === login) Object.assign(login, { phase: 'error', error: `The login stopped: ${error.message}` })
+    }
+    render()
+  }, 3000)
+}
+
+async function submitCallback(event) {
+  event.preventDefault()
+  const login = state.login
+  if (!login || login.submitting) return
+  const url = login.callback.trim()
+  if (!url) {
+    login.fieldError = 'Paste the address of the page the login ended on.'
+    render()
+    return
+  }
+  login.submitting = true
+  login.fieldError = ''
+  render()
+  try {
+    await management('/oauth/callback', { method: 'POST', body: JSON.stringify({ provider: 'claude', redirect_url: url }) })
+    login.submitted = true
+  } catch (error) {
+    login.fieldError = `The proxy did not take that address: ${error.message}`
+  }
+  login.submitting = false
+  render()
+}
+
+applyTheme()
+darkScheme.addEventListener('change', applyTheme)
+if (embedded) {
+  try {
+    new MutationObserver(applyTheme).observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+  } catch {}
+}
+addEventListener('storage', (event) => {
+  if (event.key === 'cli-proxy-theme') applyTheme()
+  if (event.key === 'cli-proxy-auth') void loadProxy()
+})
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshAll()
+})
+render()
+refreshAll()
+every(15e3, loadStatus)
+every(60e3, loadHistory)
+every(60e3, loadProxy)
+</script>
+</body>
+</html>

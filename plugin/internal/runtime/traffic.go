@@ -340,6 +340,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 		line.WeeklyAfter = &used
 	}
 	p.mu.Lock()
+	p.history.add(line)
 	log := p.log
 	p.mu.Unlock()
 	if log != nil {

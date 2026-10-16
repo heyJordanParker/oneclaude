@@ -1,9 +1,15 @@
 package runtime
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -196,13 +202,34 @@ func TestAPanicNeverFailsARequest(t *testing.T) {
 	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "r", Provider: "claude", AuthID: "a"})
 }
 
-func TestStatusIsServedOnTheResourceRoute(t *testing.T) {
+func TestTheDashboardIsThePanelsFirstPageAndTheStatusKeepsItsJSON(t *testing.T) {
 	p := newTestPlugin(t, enabled)
 	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"claude-jordan@parkerlabs.co.json"}, weekly(0.58, 48*time.Hour), 200)
 	reg := call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
-	if len(reg.Resources) != 1 || reg.Resources[0].Path != "/v0/resource/plugins/oneclaude/status.json" {
+	var pages []string
+	served := map[string]bool{}
+	for _, r := range reg.Resources {
+		served[r.Path] = true
+		if r.Menu != "" {
+			pages = append(pages, r.Path)
+		}
+	}
+	sort.Strings(pages)
+	if len(pages) == 0 || pages[0] != "/v0/resource/plugins/oneclaude/dashboard" || !served["/v0/resource/plugins/oneclaude/status.json"] {
 		t.Fatalf("resources = %+v", reg.Resources)
 	}
+
+	page := call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "GET", Path: "/v0/resource/plugins/oneclaude/dashboard"})
+	if page.StatusCode != 200 || !strings.HasPrefix(page.Headers.Get("Content-Type"), "text/html") || !bytes.Contains(page.Body, []byte("<title>oneclaude</title>")) {
+		t.Fatalf("dashboard = %d %v", page.StatusCode, page.Headers)
+	}
+	_, rest, _ := bytes.Cut(page.Body, []byte("<script>"))
+	script, _, _ := bytes.Cut(rest, []byte("</script>"))
+	sum := sha256.Sum256(script)
+	if len(script) == 0 || !strings.Contains(page.Headers.Get("Content-Security-Policy"), "'sha256-"+base64.StdEncoding.EncodeToString(sum[:])+"'") {
+		t.Fatalf("the policy %q does not admit the page's script", page.Headers.Get("Content-Security-Policy"))
+	}
+
 	resp := call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "GET", Path: "/v0/resource/plugins/oneclaude/status.json"})
 	var st Status
 	if resp.StatusCode != 200 || json.Unmarshal(resp.Body, &st) != nil {
@@ -244,5 +271,100 @@ func TestUsageSurvivesARestart(t *testing.T) {
 	defer again.Shutdown()
 	if st := again.Status(); st.Pool.Used != 0.42 {
 		t.Fatalf("after restart used = %v, want 0.42", st.Pool.Used)
+	}
+}
+
+func history(t *testing.T, p *Plugin) (History, string) {
+	t.Helper()
+	resp := call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "GET", Path: "/v0/resource/plugins/oneclaude/history.json"})
+	var h History
+	if resp.StatusCode != 200 || json.Unmarshal(resp.Body, &h) != nil {
+		t.Fatalf("history = %d %s", resp.StatusCode, resp.Body)
+	}
+	return h, string(resp.Body)
+}
+
+func requestsIn(h History) (total int, byHour map[int64]int) {
+	byHour = map[int64]int{}
+	for _, a := range h.Accounts {
+		for _, hour := range a.Hours {
+			total += hour.Requests
+			byHour[hour.At.Unix()] += hour.Requests
+		}
+	}
+	return total, byHour
+}
+
+func TestHistoryCountsEachAccountsRequestsByTheHour(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	account := []string{"claude-jordan@parkerlabs.co.json"}
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", account, weekly(0.5, 48*time.Hour), 200)
+	send(t, p, "r2", "s1", "", "claude-opus-5-5", account, nil, http.StatusTooManyRequests)
+	h, body := history(t, p)
+	if len(h.Accounts) != 1 || h.Accounts[0].Name != "jordan" || len(h.Accounts[0].Hours) != 1 {
+		t.Fatalf("history = %+v", h)
+	}
+	hour := h.Accounts[0].Hours[0]
+	if !hour.At.Equal(testNow) || hour.Requests != 2 || hour.Outcomes["ok"] != 1 || hour.Outcomes["throttled"] != 1 {
+		t.Fatalf("hour = %+v", hour)
+	}
+	if strings.Contains(body, "parkerlabs") {
+		t.Fatal("the history leaks an account address")
+	}
+}
+
+func TestHistoryKeepsTheRequestsOfAnEarlierLoad(t *testing.T) {
+	dir := t.TempDir()
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+	account := []string{"claude-jordan@parkerlabs.co.json"}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return testNow }})
+	p.Call(MethodPluginRegister, cfg)
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", account, weekly(0.5, 48*time.Hour), 200)
+	send(t, p, "r2", "s1", "", "claude-opus-5-5", account, weekly(0.51, 48*time.Hour), 200)
+	p.Shutdown()
+
+	later := testNow.Add(time.Hour)
+	again := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return later }})
+	again.Call(MethodPluginRegister, cfg)
+	defer again.Shutdown()
+	call[ManagementRegistrationResponse](t, again, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	send(t, again, "r3", "s1", "", "claude-opus-5-5", account, weekly(0.52, 48*time.Hour), 200)
+	h, _ := history(t, again)
+	total, byHour := requestsIn(h)
+	if total != 3 || byHour[testNow.Unix()] != 2 || byHour[later.Unix()] != 1 || len(h.Accounts) != 1 || h.Accounts[0].Name != "jordan" {
+		t.Fatalf("history = %+v, want 2 requests before the restart and 1 after, each once", h)
+	}
+	second, _ := history(t, again)
+	if total, _ := requestsIn(second); total != 3 {
+		t.Fatalf("a second read counted %d requests, want 3", total)
+	}
+}
+
+func TestHistoryReadsOnlyTheLastWeekOfTheRequestLog(t *testing.T) {
+	dir := t.TempDir()
+	var log bytes.Buffer
+	for hoursAgo := 240; hoursAgo >= 1; hoursAgo-- {
+		for i := 0; i < 20; i++ {
+			line, _ := json.Marshal(requestLine{At: testNow.Add(-time.Duration(hoursAgo)*time.Hour + time.Duration(i)*time.Minute), Family: "opus", Account: "0000beef", Outcome: "ok"})
+			log.Write(append(line, '\n'))
+		}
+	}
+	if log.Len() <= 1<<20 {
+		t.Fatalf("the log is %d bytes, want more than one read chunk", log.Len())
+	}
+	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), log.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+	p := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return testNow }})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	h, _ := history(t, p)
+	total, byHour := requestsIn(h)
+	if total != 168*20 || len(byHour) != 168 || byHour[testNow.Add(-168*time.Hour).Unix()] != 20 || byHour[testNow.Add(-169*time.Hour).Unix()] != 0 {
+		t.Fatalf("history holds %d requests in %d hours, want %d in 168", total, len(byHour), 168*20)
 	}
 }

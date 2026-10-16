@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
@@ -133,5 +134,36 @@ func TestDevProxyReportsAThrottle(t *testing.T) {
 	_ = resp.Body.Close()
 	if !strings.Contains(string(body), `"kind":"throttled"`) {
 		t.Fatalf("status has no throttle warning: %s", body)
+	}
+}
+
+func TestDevProxyServesTheDashboardAndItsHistory(t *testing.T) {
+	devOnly(t)
+	page, err := http.Get(devProxy + "/v0/resource/plugins/oneclaude/dashboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, _ := io.ReadAll(page.Body)
+	_ = page.Body.Close()
+	if page.StatusCode != 200 || !strings.HasPrefix(page.Header.Get("Content-Type"), "text/html") || !strings.Contains(string(html), "<title>oneclaude</title>") {
+		t.Fatalf("dashboard = %d %s", page.StatusCode, page.Header.Get("Content-Type"))
+	}
+	if !strings.Contains(page.Header.Get("Content-Security-Policy"), "frame-ancestors 'self'") {
+		t.Fatalf("dashboard policy = %q", page.Header.Get("Content-Security-Policy"))
+	}
+	resp, err := http.Get(devProxy + "/v0/resource/plugins/oneclaude/history.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	var history struct {
+		Accounts []struct {
+			Name  string            `json:"name"`
+			Hours []json.RawMessage `json:"hours"`
+		} `json:"accounts"`
+	}
+	if resp.StatusCode != 200 || json.Unmarshal(body, &history) != nil || len(history.Accounts) == 0 {
+		t.Fatalf("history = %d %s", resp.StatusCode, body)
 	}
 }

@@ -6,7 +6,7 @@ server:
 
 management:
   secret-key: ""
-  disable-control-panel: true
+  disable-control-panel: false
 
 access:
   api-keys:

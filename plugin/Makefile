@@ -16,7 +16,7 @@ installer:
 	@mkdir -p $(BIN)
 	$(GO) build -trimpath -o $(BIN)/oneclaude-install ./cmd/install
 
-$(LIB): $(shell find . -name '*.go') go.mod go.sum
+$(LIB): $(shell find . -name '*.go' -o -name '*.html') go.mod go.sum
 	@mkdir -p $(DIST)
 	MACOSX_DEPLOYMENT_TARGET=12.0 $(GO) build -trimpath -buildmode=c-shared -ldflags='-s -w' -o $@ .
 	@rm -f $(DIST)/*.h

@@ -71,9 +71,14 @@ type Plugin struct {
 	log          *usage.Log
 	salt         string
 	loadedDir    string
+	loadedAt     time.Time
 	dirty        bool
 	mgmtBase     string
 	resourceBase string
+	history      requestHistory
+	historyRead  bool
+
+	historyMu sync.Mutex
 
 	lifeMu sync.Mutex
 	stop   chan struct{}
@@ -91,6 +96,7 @@ func New(opts Options) *Plugin {
 		book:     limits.NewBook(),
 		accounts: map[string]*accountState{},
 		requests: map[string]request{},
+		history:  requestHistory{},
 	}
 	s := model.Defaults()
 	s.Enabled = false
@@ -233,7 +239,8 @@ func (p *Plugin) load(dir string) {
 		p.mu.Unlock()
 		return
 	}
-	p.loadedDir = dir
+	p.loadedDir, p.loadedAt = dir, p.now()
+	p.history, p.historyRead = requestHistory{}, false
 	old := p.log
 	p.log = usage.NewLog(filepath.Join(dir, "requests.jsonl"), 90*24*time.Hour)
 	p.mu.Unlock()
