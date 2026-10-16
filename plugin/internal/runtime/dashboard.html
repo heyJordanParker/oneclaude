@@ -464,8 +464,11 @@ const MANAGEMENT = '/v8/management'
 const RESOURCE = new URL('.', location.href).pathname
 const OBFUSCATED = 'enc::v1::'
 const MANAGEMENT_KEY = 'oneclaude'
-const PAGE = `${PANEL}#/plugin-pages/oneclaude/0`
-const OPEN_AT = 'oneclaude-open-at'
+// OPENS is where each ?open= link lands once the panel is signed in.
+const OPENS = {
+  dashboard: `${PANEL}#/plugin-pages/oneclaude/0`,
+  'add-account': `${PANEL}#/oauth`,
+}
 const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
 const HOUR = 3600e3
 const WEEK = 7 * 24 * HOUR
@@ -564,14 +567,6 @@ function signIn() {
   localStorage.setItem('isLoggedIn', 'true')
 }
 
-// openedAt is the section a link asked the page to open at, which survives
-// the panel's sign-in redirects in session storage. It answers once.
-function openedAt() {
-  const section = sessionStorage.getItem(OPEN_AT)
-  sessionStorage.removeItem(OPEN_AT)
-  return section
-}
-
 function proxyBase(input) {
   let base = String(input || '').trim().replace(/\/+$/, '').replace(/\/v8\/management$/i, '')
   if (base && !/^https?:\/\//i.test(base)) base = `http://${base}`
@@ -631,7 +626,6 @@ async function resource(name) {
 }
 
 async function loadStatus() {
-  const isFirst = state.status === null
   try {
     state.status = await resource('status.json')
     state.problem = null
@@ -640,7 +634,6 @@ async function loadStatus() {
     state.problem = error.problem || 'proxy-down'
   }
   render()
-  if (isFirst && state.status) document.getElementById(openedAt() ?? '')?.scrollIntoView({ block: 'start' })
 }
 
 async function loadHistory() {
@@ -1450,8 +1443,7 @@ document.addEventListener('visibilitychange', () => {
 const open = new URLSearchParams(location.search).get('open')
 if (!embedded && open !== null) {
   signIn()
-  sessionStorage.setItem(OPEN_AT, open)
-  location.replace(PAGE)
+  location.replace(OPENS[open] ?? OPENS.dashboard)
 } else {
   render()
   refreshAll()

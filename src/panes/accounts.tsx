@@ -4,7 +4,7 @@ import { Box, Link, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import type { OneclaudeState } from '../state.js'
-import { ACCOUNTS_URL, ago, agentsOf, BAR_CELLS, claudeKey, codexKey, DASHBOARD_URL, evenOf, FAMILIES, paceOf, percent, plural, POOL, PROBLEMS, until, type Account, type Codex, type Shown, type Status, type Warning } from '../status.js'
+import { ADD_ACCOUNT_URL, ago, agentsOf, BAR_CELLS, claudeKey, codexKey, DASHBOARD_URL, evenOf, FAMILIES, paceOf, percent, plural, POOL, PROBLEMS, until, type Account, type Codex, type Shown, type Status, type Warning } from '../status.js'
 
 const COMBINED = 'Combined usage'
 const GAP = 2
@@ -13,7 +13,7 @@ const INSET = 3
 // A Row is one bar: its name, the bar, then its facts, the first of which is
 // how full it is. A pane too narrow for every row on one line puts each
 // row's facts but the first on a second line, under the bar.
-type Row = { readonly key: string; readonly name: string; readonly shown?: Shown; readonly facts: readonly Fact[]; readonly color?: string }
+type Row = { readonly name: string; readonly shown?: Shown; readonly facts: readonly Fact[]; readonly color?: string }
 
 export const accountsPane = definePane<OneclaudeState>({
   id: 'accounts',
@@ -50,7 +50,7 @@ export const accountsPane = definePane<OneclaudeState>({
         </Section>
         <Box paddingX={2} gap={2}>
           <Text dimColor>[<Link href={DASHBOARD_URL}>Open dashboard</Link>]</Text>
-          <Text dimColor>[<Link href={ACCOUNTS_URL}>Manage accounts</Link>]</Text>
+          <Text dimColor>[<Link href={ADD_ACCOUNT_URL}>Add account</Link>]</Text>
         </Box>
       </Box>
     )
@@ -73,7 +73,7 @@ function RowView({ row, width, isNarrow }: { readonly row: Row; readonly width: 
   const bar = row.shown === undefined ? null : <Box flexShrink={0}>{poolBar(row.shown)}</Box>
   if (!isNarrow || row.shown === undefined) {
     return (
-      <Box key={row.key} gap={GAP}>
+      <Box gap={GAP}>
         {name}
         {bar}
         <Facts facts={row.facts} color={row.color} />
@@ -82,7 +82,7 @@ function RowView({ row, width, isNarrow }: { readonly row: Row; readonly width: 
   }
   const [first, ...rest] = row.facts
   return (
-    <Box key={row.key} flexDirection="column">
+    <Box flexDirection="column">
       <Box gap={GAP}>
         {name}
         {bar}
@@ -99,7 +99,6 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
   const { pool, now } = status
   const unread = pool.accounts - pool.known
   return {
-    key: POOL,
     name: COMBINED,
     shown: shown ?? { used: pool.used, pace: pool.even },
     facts: [
@@ -113,11 +112,9 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
 }
 
 function claudeRow(account: Account, now: string, shown: Shown | undefined): Row {
-  const key = claudeKey(account)
-  if (!account.known) return { key, name: account.name, facts: ['not read yet'] }
+  if (!account.known) return { name: account.name, facts: ['not read yet'] }
   const agents = FAMILIES.filter((family) => (account.agents[family] ?? 0) > 0).map((family) => `${account.agents[family]} ${family}`)
   return {
-    key,
     name: account.name,
     shown: shown ?? { used: account.used, pace: paceOf(account, now) },
     color: account.empty ? 'error' : undefined,
@@ -130,10 +127,8 @@ function claudeRow(account: Account, now: string, shown: Shown | undefined): Row
 }
 
 function codexRow(account: Codex, now: string, shown: Shown | undefined): Row {
-  const key = codexKey(account)
-  if (!account.known) return { key, name: account.name, facts: ['not read yet'] }
+  if (!account.known) return { name: account.name, facts: ['not read yet'] }
   return {
-    key,
     name: account.name,
     shown: shown ?? { used: account.used, pace: paceOf(account, now) },
     color: account.empty ? 'error' : undefined,

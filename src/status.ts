@@ -8,10 +8,11 @@ const RESOURCES = `${PROXY}/v0/resource/plugins/oneclaude`
 export const STATUS_URL = `${RESOURCES}/status.json`
 
 // The dashboard page signs the proxy's panel in with oneclaude's management
-// key, then opens itself inside the panel, at its accounts for "accounts".
+// key, then opens the panel at the dashboard, or at its OAuth login page to
+// add an account.
 export const DASHBOARD_URL = `${RESOURCES}/dashboard?open=dashboard`
 
-export const ACCOUNTS_URL = `${RESOURCES}/dashboard?open=accounts`
+export const ADD_ACCOUNT_URL = `${RESOURCES}/dashboard?open=add-account`
 
 export type Family = 'opus' | 'sonnet' | 'haiku' | 'fable'
 

@@ -40,7 +40,7 @@ export function PoolLine({ reading, shown, isOpen, onToggle, onWarnings }: { rea
       ]
   return (
     <Box gap={2}>
-      <Box key="pool" flexShrink={0}>{poolBar(shown ?? { used: pool.used, pace: pool.even })}</Box>
+      <Box flexShrink={0}>{poolBar(shown ?? { used: pool.used, pace: pool.even })}</Box>
       <Box gap={1}>
         <Facts facts={facts} wrap="truncate-end" />
         {warnings.length > 0 ? (

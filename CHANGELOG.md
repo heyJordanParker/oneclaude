@@ -4,6 +4,12 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+## [0.3.2]
+
+### Changed
+- The accounts pane's `[Add account]` opens the proxy panel's OAuth login, signed in, in place of a second link to the dashboard.
+- Bars no longer brighten under the pointer, because nothing happens when they are pressed.
+
 ## [0.3.1]
 
 ### Added

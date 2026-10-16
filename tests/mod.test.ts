@@ -104,7 +104,7 @@ test('/accounts shows the combined usage, every account with its pace, and every
   expect(pane.trimStart().startsWith('✻ oneclaude\n\n')).toBe(true)
   expect(pane).toContain('Combined usage')
   expect(pane).toContain('[Open dashboard]')
-  expect(pane).toContain('[Manage accounts]')
+  expect(pane).toContain('[Add account]')
   expect(pane).toContain('refills in 3h · idle')
   expect(pane).toContain('not read yet')
   expect(pane).toContain('30m ago')
