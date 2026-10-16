@@ -3,7 +3,7 @@ import type { HttpResponse, RenderPropsOf } from 'claude-code'
 import { PromptHint } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { oneclaude } from '../src/mod.js'
-import { bar, type Status } from '../src/status.js'
+import { bar, evenOf, type Status } from '../src/status.js'
 
 const hint: RenderPropsOf['PromptHint'] = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
 
@@ -41,8 +41,17 @@ async function hintLines(tested: ReturnType<typeof testMod>): Promise<string> {
 test('the hint line shows the pool after the engine line', async () => {
   const line = await hintLines(answering({ text: JSON.stringify(status) }))
   expect(line.indexOf('PromptHint')).toBeLessThan(line.indexOf('███'))
-  expect(line).toContain('58% · 9% under pace')
-  expect(line).toContain('[ 2')
+  expect(line).toContain('58% · 9% under')
+  expect(line).toContain('[ 2 warnings ]')
+  expect(line).toContain('[+]')
+})
+
+test('the toggle after the line shows [-] while the accounts pane is open', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  expect(await hintLines(tested)).toContain('[-]')
+  await tested.type('/accounts')
+  expect(await hintLines(tested)).toContain('[+]')
 })
 
 test('the hint line leaves warnings out when there are none', async () => {
@@ -77,16 +86,21 @@ test('the hint line refreshes on its timer', async () => {
   expect(await hintLines(tested)).toContain('oneclaude: proxy down')
   answer = { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
   await tick?.()
-  expect(await hintLines(tested)).toContain('58% · 9% under pace')
+  expect(await hintLines(tested)).toContain('58% · 9% under')
 })
 
-test('/accounts shows the pool, every account and every warning', async () => {
+test('/accounts shows the combined usage, every account with its pace, and every warning', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const pane = (await tested.lines('accounts')).join('\n')
-  expect(pane).toContain('58% used · 9% under pace')
-  expect(pane).toContain('next refill in 2d frees 11% · 14 agents on 3 accounts · 2 read')
-  expect(pane).toContain('40% used · refills in 6d · 9/19 opus, 2/19 haiku')
+  expect(pane).toContain('Claude accounts')
+  expect(pane).toContain('58% · 9% under pace · next refill in 2d')
+  expect(pane).toContain('11% · 14 agents · 1 account not read')
+  expect(pane).toContain('40% · 26% over pace · refills in 6d')
+  expect(pane).toContain('opus, 2 haiku')
+  expect(pane).not.toContain('/19')
+  expect(pane).not.toContain('every Claude account as one')
+  expect(pane.trimStart().startsWith('oneclaude')).toBe(true)
   expect(pane).toContain('empty · refills in 3h · idle')
   expect(pane).toContain('not read yet')
   expect(pane).toContain('30m ago')
@@ -94,8 +108,36 @@ test('/accounts shows the pool, every account and every warning', async () => {
   expect(pane.indexOf('subagent refused')).toBeLessThan(pane.indexOf('throttled on jordan'))
 })
 
-test('the bar marks even pace and fills to the usage', () => {
-  expect(bar(0.5, 0.75, 8).map((run) => run.text).join('')).toBe('████░░┃░░')
+test('the header keeps its name and bar on one row, and every bar starts in the header bar\'s column', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  const rows = await tested.lines('accounts')
+  const barStart = (row: string): number => row.search(/[█░]/)
+  const borderTheTestKitLeavesOut = 1
+  const header = rows.find((row) => row.includes('oneclaude'))!
+  expect(barStart(header)).toBeGreaterThan(header.indexOf('oneclaude'))
+  for (const name of ['jordan ', 'jordan4']) {
+    const row = rows.find((each) => each.includes(name) && barStart(each) >= 0)!
+    expect(barStart(row)).toBe(barStart(header) + borderTheTestKitLeavesOut)
+  }
+})
+
+test('/accounts closes the pane it opened', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  expect(await tested.lines('accounts')).not.toHaveLength(0)
+  await tested.type('/accounts')
+  await expect(tested.lines('accounts')).rejects.toThrow()
+})
+
+test('an account marks its own even pace', () => {
+  expect(evenOf(status.accounts[0]!, now)).toBeCloseTo(1 / 7)
+  expect(evenOf(status.accounts[2]!, now)).toBeUndefined()
+})
+
+test('the bar fills whole cells to the usage, and even pace takes one cell of its own', () => {
+  expect(bar(0.5, 0.75, 8).map((run) => `${run.kind}:${run.text.length}`)).toEqual(['fill:4', 'empty:2', 'marker:1', 'empty:1'])
   expect(bar(0.5, undefined, 8).map((run) => run.text).join('')).toBe('████░░░░')
   expect(bar(1, 0.25, 4).map((run) => run.kind)).toEqual(['fill', 'marker', 'fill'])
+  expect(bar(0.2, 1, 4).map((run) => run.kind)).toEqual(['fill', 'empty', 'marker'])
 })

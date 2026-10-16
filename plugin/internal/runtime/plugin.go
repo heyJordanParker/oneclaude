@@ -260,6 +260,10 @@ func (p *Plugin) load(dir string) {
 	if usage.ReadJSON(filepath.Join(dir, "limits.json"), &book) == nil {
 		p.book.Restore(book)
 	}
+	var pins []session.Pin
+	if usage.ReadJSON(filepath.Join(dir, "agents.json"), &pins) == nil {
+		p.agents.Restore(pins)
+	}
 	salt, err := os.ReadFile(filepath.Join(dir, "install.key"))
 	if err != nil || len(salt) < 16 {
 		buf := make([]byte, 32)
@@ -274,6 +278,9 @@ func (p *Plugin) load(dir string) {
 }
 
 func (p *Plugin) save() {
+	if p.agents != nil {
+		_ = usage.WriteJSON(p.path("agents.json"), p.agents.Pins())
+	}
 	p.mu.Lock()
 	if !p.dirty {
 		p.mu.Unlock()

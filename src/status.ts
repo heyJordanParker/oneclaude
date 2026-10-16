@@ -75,10 +75,18 @@ export function percent(fraction: number): string {
   return `${Math.round(fraction * 100)}%`
 }
 
-export function pace(pool: Pool): string {
-  const points = Math.round(Math.abs(pool.pace) * 100)
+export function pace(used: number, even: number): string {
+  const ahead = used - even
+  const points = Math.round(Math.abs(ahead) * 100)
   if (points === 0) return 'on pace'
-  return `${points}% ${pool.pace < 0 ? 'under' : 'over'} pace`
+  return `${points}% ${ahead < 0 ? 'under' : 'over'} pace`
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+export function evenOf(account: Account, now: string): number | undefined {
+  if (account.resets_at === undefined) return undefined
+  return clamp(1 - (Date.parse(account.resets_at) - Date.parse(now)) / WEEK_MS)
 }
 
 export function until(iso: string | undefined, now: string): string {
@@ -99,14 +107,10 @@ export function ago(iso: string, now: string): string {
 
 export type Run = { readonly kind: 'fill' | 'empty' | 'marker'; readonly text: string }
 
-const BLOCKS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
-
 export function bar(used: number, even: number | undefined, cells: number): readonly Run[] {
-  const eighths = Math.round(clamp(used) * cells * 8)
-  const fill = '█'.repeat(Math.floor(eighths / 8)) + BLOCKS[eighths % 8]
-  const glyphs: Run[] = [...fill].map((text) => ({ kind: 'fill', text }))
-  while (glyphs.length < cells) glyphs.push({ kind: 'empty', text: '░' })
-  if (even !== undefined) glyphs.splice(Math.round(clamp(even) * cells), 0, { kind: 'marker', text: '┃' })
+  const filled = Math.round(clamp(used) * cells)
+  const glyphs: Run[] = Array.from({ length: cells }, (_, cell) => (cell < filled ? { kind: 'fill', text: '█' } : { kind: 'empty', text: '░' }))
+  if (even !== undefined) glyphs[Math.min(cells - 1, Math.floor(clamp(even) * cells))] = { kind: 'marker', text: '█' }
   return glyphs.reduce<Run[]>((runs, glyph) => {
     const last = runs.at(-1)
     if (last?.kind === glyph.kind) runs[runs.length - 1] = { kind: last.kind, text: last.text + glyph.text }

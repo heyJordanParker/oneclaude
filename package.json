@@ -1,17 +1,22 @@
 {
   "name": "oneclaude",
   "private": true,
+  "os": ["darwin"],
+  "cpu": ["arm64"],
   "type": "module",
   "scripts": {
     "test": "bun test"
   },
   "cmod": {
+    "install": "./setup/install.sh",
+    "uninstall": "./setup/uninstall.sh",
     "permissions": {
       "network": ["127.0.0.1"]
     }
   },
   "files": [
     "hooks",
+    "setup",
     "src"
   ],
   "dependencies": {

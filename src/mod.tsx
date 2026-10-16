@@ -17,13 +17,14 @@ export const oneclaude = defineMod({
     const refresh = async (): Promise<void> => {
       mod.state.memory.reading = await read()
     }
-    const open = async (): Promise<void> => {
-      await refresh()
-      await pane.open({ focus: true })
+    const toggle = async (): Promise<void> => {
+      if (!pane.isOpen) await refresh()
+      await pane.toggle({ focus: true })
+      mod.state.memory.isOpen = pane.isOpen
     }
-    const openWarnings = async (): Promise<void> => {
-      await open()
-      await mod.ui.scroll({ to: { key: 'warnings' }, in: accountsPane.id, block: 'start' })
+    const toggleWarnings = async (): Promise<void> => {
+      await toggle()
+      if (pane.isOpen) await mod.ui.scroll({ to: { key: 'warnings' }, in: accountsPane.id, block: 'start' })
     }
 
     mod.ui.render(PromptHint, ({ Default }) => {
@@ -32,17 +33,14 @@ export const oneclaude = defineMod({
       return (
         <Box gap={3}>
           <Default />
-          <PoolLine reading={reading} onOpen={open} onWarnings={openWarnings} />
+          <PoolLine reading={reading} isOpen={mod.state.memory.isOpen} onToggle={toggle} onWarnings={toggleWarnings} />
         </Box>
       )
     })
     mod.use(slashCommand({
       name: 'accounts',
-      description: 'Show the pool of Claude accounts: usage, pace, agents and warnings',
-      reply: async () => {
-        await refresh()
-        await pane.toggle({ focus: true })
-      },
+      description: 'Show every Claude account: combined usage, pace, agents and warnings',
+      reply: toggle,
     }))
     mod.every(REFRESH_MS, refresh)
     void refresh()

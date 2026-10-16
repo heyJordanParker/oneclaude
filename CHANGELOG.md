@@ -4,6 +4,21 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+## [0.2.1]
+
+### Fixed
+- An update of oneclaude keeps every running conversation on its account, so its prompt cache keeps hitting.
+
+## [0.2.0]
+
+### Added
+- Installing oneclaude adds its routing plugin to the CLIProxyAPI that Claude Code talks to, and each update switches the proxy to the new version without dropping a reply.
+- Each account shows its own pace, and the bar of an empty account is red.
+- `[+]` after the line under the prompt opens the accounts pane, and `[-]` closes it.
+
+### Changed
+- The accounts pane leads with oneclaude's total usage, and an account's agents read as `3 opus`.
+
 ## [0.1.0]
 
 ### Added

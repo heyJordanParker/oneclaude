@@ -3,13 +3,18 @@ VERSION := $(shell sed -n 's/^[[:space:]]*pluginVersion[[:space:]]*= "\(.*\)"/\1
 GO      ?= $(abspath ../.target/toolchain/go/bin/go)
 DIST    := ../.target/dist
 LIB     := $(DIST)/$(NAME)-v$(VERSION).dylib
+BIN     ?= ../.target/bin
 
 export GOTOOLCHAIN := local
 export CGO_ENABLED := 1
 
-.PHONY: build test vet clean
+.PHONY: build installer test vet clean
 
 build: $(LIB)
+
+installer:
+	@mkdir -p $(BIN)
+	$(GO) build -trimpath -o $(BIN)/oneclaude-install ./cmd/install
 
 $(LIB): $(shell find . -name '*.go') go.mod go.sum
 	@mkdir -p $(DIST)

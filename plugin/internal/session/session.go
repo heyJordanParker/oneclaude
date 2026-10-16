@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -164,6 +165,40 @@ func (a *Agents) RecentlyFailed(key string, now time.Time) bool {
 	defer a.mu.Unlock()
 	ag, ok := a.agents[key]
 	return ok && !ag.failedAt.IsZero() && now.Sub(ag.failedAt) < 2*time.Minute
+}
+
+// Pin is one agent's account, saved so a reload of the plugin keeps every
+// running conversation on the account that holds its cache.
+type Pin struct {
+	Key      string       `json:"key"`
+	Account  string       `json:"account"`
+	Family   model.Family `json:"family,omitempty"`
+	LastSeen time.Time    `json:"last_seen"`
+}
+
+func (a *Agents) Pins() []Pin {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	pins := make([]Pin, 0, len(a.agents))
+	for key, ag := range a.agents {
+		if ag.account != "" {
+			pins = append(pins, Pin{Key: key, Account: ag.account, Family: ag.family, LastSeen: ag.lastSeen})
+		}
+	}
+	sort.Slice(pins, func(i, j int) bool { return pins[i].Key < pins[j].Key })
+	return pins
+}
+
+// Restore adds saved pins, keeping any agent seen since.
+func (a *Agents) Restore(pins []Pin) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, pin := range pins {
+		if ag, ok := a.agents[pin.Key]; ok && !ag.lastSeen.Before(pin.LastSeen) {
+			continue
+		}
+		a.agents[pin.Key] = &agent{account: pin.Account, family: pin.Family, lastSeen: pin.LastSeen}
+	}
 }
 
 // Active counts agents seen within model.ActiveWindow, per account and family.

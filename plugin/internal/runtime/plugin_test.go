@@ -216,6 +216,22 @@ func TestStatusIsServedOnTheResourceRoute(t *testing.T) {
 	}
 }
 
+func TestAConversationKeepsItsAccountAcrossAReload(t *testing.T) {
+	dir := t.TempDir()
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+	p := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return testNow }})
+	p.Call(MethodPluginRegister, cfg)
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"behind"}, weekly(0.6, 20*time.Hour), 200)
+	p.Shutdown()
+	again := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return testNow }})
+	again.Call(MethodPluginRegister, cfg)
+	defer again.Shutdown()
+	send(t, again, "r2", "s2", "", "claude-opus-5-5", []string{"ahead"}, weekly(0.1, 6*24*time.Hour), 200)
+	if got, _ := send(t, again, "r3", "s1", "", "claude-opus-5-5", []string{"ahead", "behind"}, nil, 200); got != "behind" {
+		t.Fatalf("after a reload the conversation moved to %q, want behind", got)
+	}
+}
+
 func TestUsageSurvivesARestart(t *testing.T) {
 	dir := t.TempDir()
 	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
