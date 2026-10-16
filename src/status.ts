@@ -152,10 +152,8 @@ export const BAR_CELLS = 20
 
 const STEPS = 8
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
-const CAP_LEFT = ''
-const CAP_RIGHT = ''
 
-// bar draws a rounded pill, exact to an eighth of a cell. The fill runs to
+// bar draws a two-tone bar, exact to an eighth of a cell. The fill runs to
 // the lower of used and pace, and the color change marks pace: over pace
 // fills on in the over color, under pace the headroom shows in a lifted track.
 export function bar(used: number, pace: number, cells: number): readonly Cell[] {
@@ -169,7 +167,7 @@ export function bar(used: number, pace: number, cells: number): readonly Cell[] 
     if (unit < paced) return 'promptBorder'
     return 'subtle'
   }
-  const drawn: Cell[] = [{ text: CAP_LEFT, color: colorAt(0) }]
+  const drawn: Cell[] = []
   for (let cell = 0; cell < cells; cell++) {
     const left = colorAt(cell * STEPS)
     const right = colorAt(cell * STEPS + STEPS - 1)
@@ -177,7 +175,6 @@ export function bar(used: number, pace: number, cells: number): readonly Cell[] 
     while (edge < STEPS && colorAt(cell * STEPS + edge) === left) edge++
     drawn.push(left === right ? { text: '█', color: left } : { text: EIGHTHS[edge] ?? '█', color: left, background: right })
   }
-  drawn.push({ text: CAP_RIGHT, color: colorAt(units - 1) })
   return drawn.reduce<Cell[]>((runs, cell) => {
     const last = runs.at(-1)
     if (last !== undefined && last.color === cell.color && last.background === cell.background) runs[runs.length - 1] = { ...last, text: last.text + cell.text }

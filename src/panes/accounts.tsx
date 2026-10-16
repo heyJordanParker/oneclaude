@@ -7,7 +7,6 @@ import type { OneclaudeState } from '../state.js'
 import { ACCOUNTS_URL, ago, agentsOf, BAR_CELLS, claudeKey, codexKey, DASHBOARD_URL, evenOf, FAMILIES, paceOf, percent, plural, POOL, PROBLEMS, until, type Account, type Codex, type Shown, type Status, type Warning } from '../status.js'
 
 const COMBINED = 'Combined usage'
-const BAR_WIDTH = BAR_CELLS + 2
 const GAP = 2
 const INSET = 3
 
@@ -34,7 +33,7 @@ export const accountsPane = definePane<OneclaudeState>({
     const codex = status.codex.map((account) => codexRow(account, status.now, shown[codexKey(account)]))
     const rows = [combined, ...claude, ...codex]
     const width = Math.max(...rows.map((row) => row.name.length))
-    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_WIDTH + GAP + factText(row.facts).length > bodyColumns)
+    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_CELLS + GAP + factText(row.facts).length > bodyColumns)
     const draw = (row: Row): RenderElement => <RowView row={row} width={width} isNarrow={isNarrow} />
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>

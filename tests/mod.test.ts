@@ -41,11 +41,11 @@ async function hintLines(tested: ReturnType<typeof testMod>): Promise<string> {
   return (await tested.lines(PromptHint, hint)).join('\n')
 }
 
-const CAP = ''
+const BAR = /[█▏▎▍▌▋▊▉]/
 
 test('the hint line shows the pool after the engine line', async () => {
   const line = await hintLines(answering({ text: JSON.stringify(status) }))
-  expect(line.indexOf('PromptHint')).toBeLessThan(line.indexOf(CAP))
+  expect(line.indexOf('PromptHint')).toBeLessThan(line.search(BAR))
   expect(line).toContain('58% · 9% under')
   expect(line).toContain('[ 2 warnings ]')
   expect(line).toMatch(/\S \[\+\]/)
@@ -127,7 +127,8 @@ test('every section title has an empty line under it, and every bar an empty lin
   expect(pane).toContain('Claude accounts\n\njordan ')
   expect(pane).toContain('Codex accounts\n\nada ')
   expect(pane).toContain('Warnings in the last 24 hours\n\n')
-  const barRows = pane.split('\n').map((row, index) => (row.includes(CAP) ? index : -1)).filter((index) => index >= 0)
+  const barRows = pane.split('\n').map((row, index) => (BAR.test(row) ? index : -1)).filter((index) => index >= 0)
+  expect(barRows).toHaveLength(4)
   for (let i = 1; i < barRows.length; i++) expect(barRows[i]! - barRows[i - 1]!).toBeGreaterThan(1)
 })
 
@@ -135,7 +136,7 @@ test('a pane too narrow for one line puts each row\'s facts under its bar, and e
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const rows = await tested.lines('accounts')
-  const barStart = (row: string): number => row.indexOf(CAP)
+  const barStart = (row: string): number => row.search(BAR)
   const borderTheTestKitLeavesOut = 1
   const header = rows.find((row) => row.includes('Combined usage'))!
   expect(header.trimEnd().endsWith('58%')).toBe(true)
@@ -195,24 +196,22 @@ function columns(cells: readonly Cell[]): Cell[] {
 
 test('the bar is exact to an eighth of a cell, and the color change marks pace', () => {
   const drawn = columns(bar(0.51, 0.29, 20))
-  expect(drawn).toHaveLength(22)
-  expect(drawn[0]).toEqual({ text: CAP, color: 'inactive' })
-  expect(drawn.slice(1, 6).every((cell) => cell.text === '█' && cell.color === 'inactive')).toBe(true)
-  expect(drawn[6]).toEqual({ text: '▊', color: 'inactive', background: 'warning' })
-  expect(drawn.slice(7, 11).every((cell) => cell.text === '█' && cell.color === 'warning')).toBe(true)
-  expect(drawn[11]).toEqual({ text: '▎', color: 'warning', background: 'subtle' })
-  expect(drawn.slice(12, 21).every((cell) => cell.text === '█' && cell.color === 'subtle')).toBe(true)
-  expect(drawn[21]).toEqual({ text: '', color: 'subtle' })
+  expect(drawn).toHaveLength(20)
+  expect(drawn.slice(0, 5).every((cell) => cell.text === '█' && cell.color === 'inactive')).toBe(true)
+  expect(drawn[5]).toEqual({ text: '▊', color: 'inactive', background: 'warning' })
+  expect(drawn.slice(6, 10).every((cell) => cell.text === '█' && cell.color === 'warning')).toBe(true)
+  expect(drawn[10]).toEqual({ text: '▎', color: 'warning', background: 'subtle' })
+  expect(drawn.slice(11).every((cell) => cell.text === '█' && cell.color === 'subtle')).toBe(true)
 })
 
 test('under pace the headroom shows in a lifted track, and a nearly empty bar turns red', () => {
   const under = columns(bar(0.25, 0.5, 4))
-  expect(under.map((cell) => cell.background ?? cell.color)).toEqual(['inactive', 'inactive', 'promptBorder', 'subtle', 'subtle', 'subtle'])
+  expect(under.map((cell) => cell.color)).toEqual(['inactive', 'promptBorder', 'subtle', 'subtle'])
   const spent = columns(bar(1, 1, 4))
   expect(spent.every((cell) => cell.color === 'error' && cell.background === undefined)).toBe(true)
   const nearly = columns(bar(0.96, 0.5, 4))
-  expect(nearly[1]!.color).toBe('error')
-  expect(nearly[3]!.color).toBe('diffRemoved')
+  expect(nearly.map((cell) => cell.color)).toEqual(['error', 'error', 'diffRemoved', 'diffRemoved'])
+  expect(nearly[3]).toEqual({ text: '▉', color: 'diffRemoved', background: 'subtle' })
 })
 
 test('a bar glides toward its reading and lands on it', () => {
