@@ -1,10 +1,10 @@
 import type { RenderElement } from 'claude-code'
 import { definePane } from '../../node_modules/@cmodjs/core/ui/define-pane.js'
-import { Box, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
+import { Box, Link, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
 import { Facts, type Fact } from '../components/pool-line.js'
 import type { OneclaudeState } from '../state.js'
-import { ago, agentsOf, evenOf, FAMILIES, percent, plural, PROBLEMS, until, type Account, type Status, type Warning } from '../status.js'
+import { ACCOUNTS_URL, ago, agentsOf, DASHBOARD_URL, evenOf, FAMILIES, percent, plural, PROBLEMS, until, type Account, type Status, type Warning } from '../status.js'
 
 const BAR = 20
 const COMBINED = 'Combined usage'
@@ -24,8 +24,8 @@ export const accountsPane = definePane<OneclaudeState>({
     const width = Math.max(...status.accounts.map((account) => account.name.length), COMBINED.length)
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
-        <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column">
-          <Text bold>oneclaude</Text>
+        <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column" gap={1}>
+          <Text bold><Text color="claude">✻</Text> oneclaude</Text>
           <CombinedRow status={status} width={width} />
         </Box>
         <Box flexDirection="column" paddingX={2}>
@@ -34,6 +34,10 @@ export const accountsPane = definePane<OneclaudeState>({
         </Box>
         <Box paddingX={2}>
           <WarningsSection status={status} />
+        </Box>
+        <Box paddingX={2} gap={2}>
+          <Text dimColor>[<Link href={DASHBOARD_URL}>Open dashboard</Link>]</Text>
+          <Text dimColor>[<Link href={ACCOUNTS_URL}>Manage accounts</Link>]</Text>
         </Box>
       </Box>
     )

@@ -100,8 +100,10 @@ test('/accounts shows the combined usage, every account with its pace, and every
   expect(pane).toContain('9 opus, 2 haiku')
   expect(pane).not.toContain('/19')
   expect(pane).not.toContain('every Claude account as one')
-  expect(pane.trimStart().startsWith('oneclaude\n')).toBe(true)
+  expect(pane.trimStart().startsWith('✻ oneclaude\n\n')).toBe(true)
   expect(pane).toContain('Combined usage')
+  expect(pane).toContain('[Open dashboard]')
+  expect(pane).toContain('[Manage accounts]')
   expect(pane).toContain('empty · refills in 3h · idle')
   expect(pane).toContain('not read yet')
   expect(pane).toContain('30m ago')
@@ -113,7 +115,7 @@ test('the combined usage keeps its name and bar on one row, and every bar starts
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const rows = await tested.lines('accounts')
-  const barStart = (row: string): number => row.search(/[▄▁█]/)
+  const barStart = (row: string): number => row.search(/[▄▁┃]/)
   const borderTheTestKitLeavesOut = 1
   const header = rows.find((row) => row.includes('Combined usage'))!
   expect(barStart(header)).toBeGreaterThan(header.indexOf('Combined usage'))

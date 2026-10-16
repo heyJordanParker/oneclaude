@@ -4,6 +4,10 @@ export const PROXY = 'http://127.0.0.1:8317'
 
 export const STATUS_URL = `${PROXY}/v0/resource/plugins/oneclaude/status.json`
 
+export const DASHBOARD_URL = `${PROXY}/management.html#/plugin-pages/oneclaude/0`
+
+export const ACCOUNTS_URL = `${PROXY}/management.html#/auth-files`
+
 export type Family = 'opus' | 'sonnet' | 'haiku' | 'fable'
 
 export type Pool = {
@@ -123,7 +127,7 @@ export type BarStyle = 'line' | 'half'
 
 const GLYPHS: Readonly<Record<BarStyle, Readonly<Record<Run['kind'], string>>>> = {
   line: { fill: '━', empty: '─', marker: '┃' },
-  half: { fill: '▄', empty: '▁', marker: '█' },
+  half: { fill: '▄', empty: '▁', marker: '┃' },
 }
 
 export function bar(used: number, even: number | undefined, cells: number, style: BarStyle): readonly Run[] {
