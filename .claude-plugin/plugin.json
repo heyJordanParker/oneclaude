@@ -1,6 +1,6 @@
 {
   "name": "oneclaude",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Every Claude account you have, as one: usage, pace and agents under the prompt",
   "author": {
     "name": "Jordan Parker",
@@ -10,7 +10,7 @@
   "dependencies": [
     {
       "name": "cmod",
-      "version": "^1.5.0"
+      "version": "^2.0.0"
     }
   ]
 }

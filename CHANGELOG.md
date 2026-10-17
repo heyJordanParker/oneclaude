@@ -4,6 +4,11 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+## [0.3.3]
+
+### Changed
+- oneclaude runs on cmod 2.0.
+
 ## [0.3.2]
 
 ### Changed
