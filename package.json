@@ -1,0 +1,27 @@
+{
+  "name": "oneclaude",
+  "private": true,
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "cmod": {
+    "install": "./setup/install.sh",
+    "uninstall": "./setup/uninstall.sh",
+    "program": "oneclaude",
+    "permissions": {
+      "network": ["127.0.0.1"],
+      "config": ["env.ANTHROPIC_BASE_URL"]
+    }
+  },
+  "files": [
+    "hooks",
+    "setup",
+    "src"
+  ],
+  "dependencies": {
+    "@cmodjs/core": "^2.0.0"
+  }
+}
