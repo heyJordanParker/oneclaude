@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+
+      - name: Install Claude Code and cmod, which check and publish the mod
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          npm install -g @cmodjs/cli
+
+      - name: Check that the plugin and the mod share one version
+        id: version
+        run: |
+          version=$(node -p "require('./.claude-plugin/plugin.json').version")
+          plugin=$(sed -n 's/^[[:space:]]*pluginVersion[[:space:]]*= "\(.*\)"/\1/p' cli/main.go)
+          [ "$plugin" = "$version" ] || { echo "cli/main.go is $plugin but .claude-plugin/plugin.json is $version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Test the routing plugin and the oneclaude program
+        run: make -C cli test
+
+      - name: Check and test the mod
+        run: cmod check .
+
+      - name: Release the version when it is new
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "$tag is released already"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cmod publish .

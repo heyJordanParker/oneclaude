@@ -1,7 +1,7 @@
 {
   "name": "oneclaude",
-  "version": "0.3.3",
-  "description": "Every Claude account you have, as one: usage, pace and agents under the prompt",
+  "version": "0.4.0",
+  "description": "Every Claude subscription you have, as one pool: routing, usage, pace and agents under the prompt",
   "author": {
     "name": "Jordan Parker",
     "email": "jordan@parkerlabs.co"

@@ -10,6 +10,7 @@
   "cmod": {
     "install": "./setup/install.sh",
     "uninstall": "./setup/uninstall.sh",
+    "program": "oneclaude",
     "permissions": {
       "network": ["127.0.0.1"],
       "config": ["env.ANTHROPIC_BASE_URL"]

@@ -14,15 +14,15 @@ const status: Status = {
   now,
   pool: { used: 0.58, even: 0.67, pace: -0.09, next_refill: '2026-10-17T16:00:00Z', refill_gain: 0.11, agents: 14, accounts: 3, known: 2 },
   accounts: [
-    { name: 'jordan', plan: 'default_claude_max_20x', known: true, used: 0.4, resets_at: '2026-10-21T16:00:00Z', projected: false, empty: false, agents: { opus: 9, haiku: 2 }, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
-    { name: 'jordan4', known: true, used: 1, resets_at: '2026-10-15T19:00:00Z', projected: false, empty: true, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
+    { name: 'turing', plan: 'default_claude_max_20x', known: true, used: 0.4, resets_at: '2026-10-21T16:00:00Z', projected: false, empty: false, agents: { opus: 9, haiku: 2 }, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
+    { name: 'lamport', known: true, used: 1, resets_at: '2026-10-15T19:00:00Z', projected: false, empty: true, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
     { name: 'jarvis', known: false, used: 0, projected: false, empty: false, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
   ],
   codex: [
     { name: 'ada', known: true, used: 0.3, resets_at: '2026-10-16T21:30:00Z', projected: false, empty: false },
   ],
   warnings: [
-    { at: '2026-10-15T13:00:00Z', kind: 'throttled', account: 'jordan', family: 'opus', agents: 12, detail: 'throttled on jordan with 12 opus agents on the account' },
+    { at: '2026-10-15T13:00:00Z', kind: 'throttled', account: 'turing', family: 'opus', agents: 12, detail: 'throttled on turing with 12 opus agents on the account' },
     { at: '2026-10-15T15:30:00Z', kind: 'refused', family: 'fable', agents: 6, detail: 'subagent refused, every account at its Fable limit, told to retry in 3 minutes' },
   ],
 }
@@ -109,7 +109,7 @@ test('/accounts shows the combined usage, every account with its pace, and every
   expect(pane).toContain('not read yet')
   expect(pane).toContain('30m ago')
   expect(pane).toContain('subagent refused, every account at its Fable limit')
-  expect(pane.indexOf('subagent refused')).toBeLessThan(pane.indexOf('throttled on jordan'))
+  expect(pane.indexOf('subagent refused')).toBeLessThan(pane.indexOf('throttled on turing'))
 })
 
 test('/accounts shows each Codex account apart from the Claude pool', async () => {
@@ -124,7 +124,7 @@ test('every section title has an empty line under it, and every bar an empty lin
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const pane = (await tested.lines('accounts')).map((row) => row.trim()).join('\n')
-  expect(pane).toContain('Claude accounts\n\njordan ')
+  expect(pane).toContain('Claude accounts\n\nturing ')
   expect(pane).toContain('Codex accounts\n\nada ')
   expect(pane).toContain('Warnings in the last 24 hours\n\n')
   const barRows = pane.split('\n').map((row, index) => (BAR.test(row) ? index : -1)).filter((index) => index >= 0)
@@ -140,10 +140,10 @@ test('a pane too narrow for one line puts each row\'s facts under its bar, and e
   const borderTheTestKitLeavesOut = 1
   const header = rows.find((row) => row.includes('Combined usage'))!
   expect(header.trimEnd().endsWith('58%')).toBe(true)
-  const jordan = rows.findIndex((row) => row.includes('jordan ') && barStart(row) >= 0)
-  expect(rows[jordan]!.trimEnd().endsWith('40%')).toBe(true)
-  expect(rows[jordan + 1]!.indexOf('26% over pace')).toBe(barStart(rows[jordan]!))
-  for (const name of ['jordan ', 'jordan4', 'ada ']) {
+  const turing = rows.findIndex((row) => row.includes('turing ') && barStart(row) >= 0)
+  expect(rows[turing]!.trimEnd().endsWith('40%')).toBe(true)
+  expect(rows[turing + 1]!.indexOf('26% over pace')).toBe(barStart(rows[turing]!))
+  for (const name of ['turing ', 'lamport', 'ada ']) {
     const row = rows.find((each) => each.includes(name) && barStart(each) >= 0)!
     expect(barStart(row)).toBe(barStart(header) + borderTheTestKitLeavesOut)
   }

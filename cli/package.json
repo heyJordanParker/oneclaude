@@ -1,0 +1,5 @@
+{
+  "name": "oneclaude",
+  "private": true,
+  "cmod": { "build": "make dist", "output": "../.target/release" }
+}

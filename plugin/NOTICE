@@ -1,5 +1,0 @@
-oneclaude plugin
-
-main.go and internal/runtime/{wire.go,envelope.go,host.go} are adapted from
-cpa-plugin-claude-seat-pacer (https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer),
-Copyright (c) 2026 Yuya Iwabuchi, used under the MIT License.

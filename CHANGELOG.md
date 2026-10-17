@@ -4,6 +4,16 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Added
+- oneclaude installs on any Mac with Apple silicon: `cmod install heyJordanParker/oneclaude` downloads one program from the GitHub release, checked against its `SHA256SUMS`, with nothing to build.
+- `oneclaude install` and `oneclaude remove` in a terminal add the routing plugin to the proxy and take it out again, and `oneclaude --version` names the version.
+- Documentation for installing, using, and configuring oneclaude, and how it picks an account.
+
+### Fixed
+- An expired login's warning says to log it in again with `[Add account]` in `/accounts`.
+
 ## [0.3.3]
 
 ### Changed

@@ -1,3 +1,5 @@
 .target/
 node_modules/
 .claude-plugin/types/
+cli/cmd/oneclaude/oneclaude.dylib
+dev/static/
