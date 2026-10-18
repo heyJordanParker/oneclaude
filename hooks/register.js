@@ -9093,7 +9093,7 @@ function oneLine(error) {
   return messageOf(error).replace(/\s*\n\s*/g, " ");
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-buFDeD/release/src/status.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/status.ts
 var PROXY = "http://127.0.0.1:8317";
 var RESOURCES = `${PROXY}/v0/resource/plugins/oneclaude`;
 var STATUS_URL = `${RESOURCES}/status.json`;
@@ -9243,7 +9243,7 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-buFDeD/release/src/components/pool-bar.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/components/pool-bar.tsx
 function poolBar({ used, pace: pace2 }) {
   return bar(used, pace2, BAR_CELLS).map((cell) => cell.background === undefined ? /* @__PURE__ */ h(Text, {
     color: cell.color
@@ -9253,7 +9253,7 @@ function poolBar({ used, pace: pace2 }) {
   }, cell.text));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-buFDeD/release/src/components/pool-line.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/components/pool-line.tsx
 var PACE_COLORS = {
   on: undefined,
   under: "success",
@@ -9333,7 +9333,7 @@ function definePane(pane) {
   return pane;
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-buFDeD/release/src/usage.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/usage.ts
 var PERIODS = [["today", "Today"], ["yesterday", "Yesterday"], ["week", "7 days"], ["month", "30 days"]];
 var BREAKDOWNS = [["account", "Account"], ["model", "Model"], ["agent", "Agent"], ["project", "Project"], ["day", "Day"]];
 var UNITS = [["cost", "Cost"], ["tokens", "Tokens"]];
@@ -9446,7 +9446,7 @@ function optimizePrompt(agents, projects, models) {
 `);
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-buFDeD/release/src/panes/accounts.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/panes/accounts.tsx
 var COMBINED = "Combined usage";
 var GAP = 2;
 var INSET = 3;
@@ -9817,12 +9817,12 @@ function WarningRow({ warning, now }) {
   }, warning.detail));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-buFDeD/release/src/state.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/state.ts
 var initialState = {
   memory: { reading: null, isOpen: false, shown: {}, usage: { period: "today", by: "account", units: "cost" }, table: null, isConfirming: false }
 };
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-buFDeD/release/src/mod.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/mod.tsx
 var REFRESH_MS = 15000;
 async function baseUrlOf() {
   const env = (await settings.user.read())["env"];
@@ -9916,7 +9916,7 @@ var oneclaude = defineMod({
   }
 });
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-buFDeD/release/hooks/register.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/hooks/register.ts
 function register(addHook, options) {
   registerMod(addHook, oneclaude, options);
 }

@@ -4,6 +4,11 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+## [0.5.3]
+
+### Fixed
+- Usage names the agent type and project of requests logged before oneclaude recorded them, from Claude Code's transcripts, once, in the background. Requests no transcript records stay Not recorded.
+
 ## [0.5.2]
 
 ### Added
