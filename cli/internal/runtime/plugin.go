@@ -29,6 +29,9 @@ type Options struct {
 	Host         HostFunc
 	Now          func() time.Time
 	NoPoller     bool
+	// ClaudeProjects is Claude Code's projects folder, where the plugin reads
+	// each subagent's type and each session's project; empty reads none.
+	ClaudeProjects string
 }
 
 type accountState struct {
@@ -47,10 +50,9 @@ type codexAccount struct {
 }
 
 type request struct {
-	key      string
-	family   model.Family
-	subagent bool
-	at       time.Time
+	id     session.Identity
+	family model.Family
+	at     time.Time
 }
 
 type Warning struct {
@@ -70,8 +72,9 @@ type Plugin struct {
 	host   host
 	now    func() time.Time
 	cfg    atomic.Pointer[model.Settings]
-	agents *session.Agents
-	book   *limits.Book
+	agents  *session.Agents
+	book    *limits.Book
+	records *session.Records
 
 	mu           sync.Mutex
 	accounts     map[string]*accountState
@@ -104,10 +107,11 @@ func New(opts Options) *Plugin {
 		now:      opts.Now,
 		agents:   session.NewAgents(),
 		book:     limits.NewBook(),
+		records:  session.NewRecords(opts.ClaudeProjects),
 		accounts: map[string]*accountState{},
 		codex:    map[string]*codexAccount{},
 		requests: map[string]request{},
-		history:  requestHistory{},
+		history:  newRequestHistory(),
 	}
 	s := model.Defaults()
 	s.Enabled = false
@@ -251,9 +255,9 @@ func (p *Plugin) load(dir string) {
 		return
 	}
 	p.loadedDir, p.loadedAt = dir, p.now()
-	p.history, p.historyRead = requestHistory{}, false
+	p.history, p.historyRead = newRequestHistory(), false
 	old := p.log
-	p.log = usage.NewLog(filepath.Join(dir, "requests.jsonl"), 90*24*time.Hour)
+	p.log = usage.NewLog(filepath.Join(dir, "requests.jsonl"), daysKept*24*time.Hour)
 	p.mu.Unlock()
 	if old != nil {
 		old.Close()
@@ -293,6 +297,7 @@ func (p *Plugin) load(dir string) {
 	p.mu.Lock()
 	p.salt = string(salt)
 	p.mu.Unlock()
+	p.host.spawn(p.readRequestLog)
 }
 
 func (p *Plugin) save() {

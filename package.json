@@ -13,7 +13,8 @@
     "program": "oneclaude",
     "permissions": {
       "network": ["127.0.0.1"],
-      "config": ["env.ANTHROPIC_BASE_URL"]
+      "config": ["env.ANTHROPIC_BASE_URL"],
+      "prompt": true
     }
   },
   "files": [

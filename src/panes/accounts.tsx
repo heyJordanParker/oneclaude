@@ -1,14 +1,37 @@
 import type { RenderElement } from 'claude-code'
+import { Prompt, sessions, type Mod } from '../../node_modules/@cmodjs/core/mod.js'
 import { definePane } from '../../node_modules/@cmodjs/core/ui/define-pane.js'
-import { Box, Link, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
+import { Box, Button, Link, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
-import type { OneclaudeState } from '../state.js'
+import type { OneclaudeState, UsageView } from '../state.js'
 import { ADD_ACCOUNT_URL, ago, agentsOf, BAR_CELLS, claudeKey, codexKey, DASHBOARD_URL, evenOf, FAMILIES, paceOf, percent, plural, POOL, PROBLEMS, until, type Account, type Codex, type Shown, type Status, type Warning } from '../status.js'
+import { BREAKDOWNS, dailyChart, dayLabel, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
 const GAP = 2
 const INSET = 3
+const CONTROL = 7
+
+// usageColumns is the width the pane asks for when it docks: the Usage table
+// with every column, and its controls.
+function usageColumns(state: OneclaudeState): number | undefined {
+  const { table, usage } = state.memory
+  if (table === null) return undefined
+  const controls = CONTROL + BREAKDOWNS.reduce((width, [, label]) => width + label.length + 3, 0)
+  return INSET * 2 + Math.max(usageLayout(table, usage.units, true).width, controls)
+}
+
+// showUsage reads the Usage table for the view, after a change to it, and
+// keeps the answer only while the view is still the one asked for. A table
+// that does not come keeps the last one on screen.
+export async function showUsage(mod: Mod<OneclaudeState>, change: Partial<UsageView> = {}): Promise<void> {
+  const view = { ...mod.state.memory.usage, ...change }
+  mod.state.memory.usage = view
+  const table = await readUsage(view.period, view.by, view.units)
+  const { period, by, units } = mod.state.memory.usage
+  if (table !== null && period === view.period && by === view.by && units === view.units) mod.state.memory.table = table
+}
 
 // A Row is one bar: its name, the bar, then its facts, the first of which is
 // how full it is. A pane too narrow for every row on one line puts each
@@ -18,9 +41,11 @@ type Row = { readonly name: string; readonly shown?: Shown; readonly facts: read
 export const accountsPane = definePane<OneclaudeState>({
   id: 'accounts',
   title: 'Accounts',
+  columns: usageColumns,
   closeOnEscape: true,
   onClose: (mod) => {
     mod.state.memory.isOpen = false
+    mod.state.memory.isConfirming = false
   },
   render: (mod, { bodyColumns }) => {
     const reading = mod.state.memory.reading
@@ -43,6 +68,8 @@ export const accountsPane = definePane<OneclaudeState>({
         </Box>
         <Section title="Claude accounts">{claude.map(draw)}</Section>
         {codex.length > 0 ? <Section title="Codex accounts">{codex.map(draw)}</Section> : null}
+        <UsageSection mod={mod} table={mod.state.memory.table} view={mod.state.memory.usage} columns={bodyColumns - INSET * 2} />
+        {mod.state.memory.table === null ? null : <ChartSection table={mod.state.memory.table} view={mod.state.memory.usage} />}
         <Section key="warnings" title="Warnings in the last 24 hours">
           {status.warnings.length === 0
             ? [<Text dimColor>None</Text>]
@@ -146,6 +173,125 @@ function usageFacts(account: Account | Codex, now: string): Fact[] {
     ...(account.empty || even === undefined ? [] : [{ used: account.used, even }]),
     `refills in ${until(account.resets_at, now)}`,
   ]
+}
+
+// Choices is one row of the Usage controls: its name, then a button per
+// choice, the chosen one bright in brackets.
+function Choices<Choice extends string>({ name, choices, chosen, onChoose }: { readonly name: string; readonly choices: readonly (readonly [Choice, string])[]; readonly chosen: Choice; readonly onChoose: (choice: Choice) => void }): RenderElement {
+  return (
+    <Box>
+      <Box flexShrink={0}><Text dimColor>{name.padEnd(CONTROL)}</Text></Box>
+      <Box gap={1} flexWrap="wrap">
+        {choices.map(([choice, label]) => (
+          <Button key={`${name.toLowerCase()}-${choice}`} plain dimColor={choice !== chosen} onPress={() => onChoose(choice)}>
+            {choice === chosen ? `[${label}]` : ` ${label} `}
+          </Button>
+        ))}
+      </Box>
+    </Box>
+  )
+}
+
+// TableRow draws one line of the Usage table. Total, the last column, is in
+// Claude's color, and a cache share under 90% in the warning color, so the
+// eye lands on what each row costs and on where it starts cold.
+function TableRow({ line, isHeader = false, isTotal = false }: { readonly line: TableLine; readonly isHeader?: boolean; readonly isTotal?: boolean }): RenderElement {
+  const last = line.cells.length - 1
+  const cached = last - 2
+  const cells = line.cells.map((cell, index) => {
+    const text = index === 0 ? cell : `${GUTTER}${cell}`
+    if (isHeader) return text
+    if (index === last) return <Text color="claude">{text}</Text>
+    if (index === cached && line.cold) return <Text color="warning">{text}</Text>
+    return text
+  })
+  return <Text dimColor={isHeader} bold={isTotal}>{cells}</Text>
+}
+
+function UsageSection({ mod, table, view, columns }: { readonly mod: Mod<OneclaudeState>; readonly table: UsageTable | null; readonly view: UsageView; readonly columns: number }): RenderElement {
+  if (table === null) return <Section title="Usage">{[<Text dimColor>Reading the request log</Text>]}</Section>
+  const wide = usageLayout(table, view.units, true)
+  const layout = wide.width <= columns ? wide : usageLayout(table, view.units, false)
+  const isUnrecorded = (view.by === 'agent' || view.by === 'project') && table.rows.some((row) => row.key === '')
+  return (
+    <Section key="usage" title="Usage">
+      {[
+        <Box flexDirection="column">
+          <Choices name="Period" choices={PERIODS} chosen={view.period} onChoose={(period) => void showUsage(mod, { period })} />
+          <Choices name="By" choices={BREAKDOWNS} chosen={view.by} onChoose={(by) => void showUsage(mod, { by })} />
+          <Choices name="Show" choices={UNITS} chosen={view.units} onChoose={(units) => void showUsage(mod, { units })} />
+        </Box>,
+        <Box flexDirection="column">
+          <TableRow line={layout.header} isHeader />
+          {layout.rows.map((line) => <TableRow line={line} />)}
+          <TableRow line={layout.total} isTotal />
+        </Box>,
+        ...(table.since === undefined && !isUnrecorded
+          ? []
+          : [
+              <Box flexDirection="column">
+                {table.since === undefined ? null : <Text dimColor>{`oneclaude's log starts on ${dayLabel(table.since)}.`}</Text>}
+                {isUnrecorded ? <Text dimColor wrap="wrap">Not recorded: requests from before oneclaude recorded agent types and projects.</Text> : null}
+              </Box>,
+            ]),
+        ...(mod.permissions.prompt ? [<Optimize mod={mod} />] : []),
+      ]}
+    </Section>
+  )
+}
+
+// Optimize asks the person's agent to optimize their usage. It asks first,
+// in its own place, because the prompt becomes a turn in the conversation
+// they are in.
+function Optimize({ mod }: { readonly mod: Mod<OneclaudeState> }): RenderElement {
+  if (!mod.state.memory.isConfirming) {
+    return <Box><Button key="optimize" plain dimColor onPress={() => { mod.state.memory.isConfirming = true }}>[Optimize usage]</Button></Box>
+  }
+  const send = async (): Promise<void> => {
+    const [agents, projects, models] = await Promise.all((['agent', 'project', 'model'] as const).map((by) => readUsage('month', by, 'cost')))
+    mod.state.memory.isConfirming = false
+    if (!agents || !projects || !models) {
+      mod.ui.toast('oneclaude could not read the usage, so nothing was sent')
+      return
+    }
+    await sessions.current.send({ type: Prompt, text: optimizePrompt(agents, projects, models) })
+  }
+  return (
+    <Box flexDirection="column">
+      <Text bold>Ask your agent to optimize your usage?</Text>
+      <Text dimColor wrap="wrap">We'll send it your last 30 days of usage, by agent, project and model.</Text>
+      <Box gap={2}>
+        <Button key="optimize-send" plain onPress={send}><Text color="claude">[Ask your agent]</Text></Button>
+        <Button key="optimize-cancel" plain dimColor onPress={() => { mod.state.memory.isConfirming = false }}>[Cancel]</Button>
+      </Box>
+    </Box>
+  )
+}
+
+function ChartSection({ table, view }: { readonly table: UsageTable; readonly view: UsageView }): RenderElement {
+  const chart = dailyChart(table, view.units)
+  const pad = ' '.repeat(chart.peak.length)
+  const span = chart.rows[0]!.length * 2 - 1
+  return (
+    <Section title="Usage per day, last 30 days">
+      {[
+        <Box flexDirection="column">
+          {chart.rows.map((cells, index) => (
+            <Text>
+              <Text dimColor>{index === 0 ? chart.peak : pad}</Text>
+              {GUTTER}
+              {cells.map((cell, day) => {
+                const text = day === 0 ? cell : ` ${cell}`
+                if (cell === '·') return <Text dimColor>{text}</Text>
+                return cell === ' ' ? text : <Text color="claude">{text}</Text>
+              })}
+            </Text>
+          ))}
+          <Text dimColor>{`${pad}${GUTTER}${chart.first}${chart.last.padStart(span - chart.first.length)}`}</Text>
+        </Box>,
+      ]}
+    </Section>
+  )
 }
 
 function WarningRow({ warning, now }: { readonly warning: Warning; readonly now: string }): RenderElement {

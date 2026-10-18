@@ -2,7 +2,7 @@ import { defineMod, PromptHint, settings, type Disposable } from '../node_module
 import { slashCommand } from '../node_modules/@cmodjs/core/jobs/slash-command.js'
 import { Box } from '../node_modules/@cmodjs/core/ui/elements.js'
 import { PoolLine } from './components/pool-line.js'
-import { accountsPane } from './panes/accounts.js'
+import { accountsPane, showUsage } from './panes/accounts.js'
 import { initialState } from './state.js'
 import { barsOf, FRAME_MS, glide, LINE, PROXY, read, type Shown } from './status.js'
 
@@ -56,15 +56,18 @@ export const oneclaude = defineMod({
       }
       await settings.user.update({ env: { ANTHROPIC_BASE_URL: PROXY } })
     }
+    // refresh reads the status, and the Usage table while the pane shows it.
     const refresh = async (): Promise<void> => {
       const reading = await read()
       mod.state.memory.reading = reading
+      if (pane.isOpen) await showUsage(mod)
       if ('status' in reading) await useProxy()
       animate()
     }
     const toggle = async (): Promise<void> => {
       if (!pane.isOpen) {
         await refresh()
+        await showUsage(mod)
         mod.state.memory.shown = Object.fromEntries(Object.entries(mod.state.memory.shown).map(([key, shown]) => [key, key === LINE ? shown : { used: 0, pace: 0 }]))
         animate()
       }

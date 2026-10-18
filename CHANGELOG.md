@@ -4,6 +4,15 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+## [0.5.2]
+
+### Added
+- Usage in `/accounts` adds up what the pool used today, yesterday, or over 7 or 30 days, by account, model, agent type, project, or day. Each row splits into input, output, cache writes, and cache reads, then how much of its input came from the cache, its share, and its total, in dollars at API list prices or in tokens.
+- Usage per day in `/accounts` draws the last 30 days, one column a day.
+- `[Optimize usage]` asks your agent to optimize your usage, with your last 30 days of usage, after you confirm. It asks for one new permission: to add text Claude reads.
+- The dashboard shows the same Usage table and a daily chart stacked by the chosen breakdown.
+- The request log records each request's model, subagent type, and project, and usage.json serves the Usage table for any period and breakdown.
+
 ## [0.4.0]
 
 ### Added

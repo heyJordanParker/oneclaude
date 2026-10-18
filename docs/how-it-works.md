@@ -65,8 +65,12 @@ The plugin keeps its files in `~/.cli-proxy-api/plugins/oneclaude/`, or in its `
 - `usage.json`: each account's last weekly usage reading;
 - `limits.json`: the limits it lowered, and the throttles behind them;
 - `agents.json`: each conversation's account;
-- `requests.jsonl`: one line per request, kept for 90 days, which the dashboard's 7 days of history reads;
+- `requests.jsonl`: one line per request, kept for 90 days, with its account, model, agent type, project, and tokens, which Usage and the dashboard's history add up;
 - `install.key`: a random salt for the account ids it writes there.
+
+A request's agent type and project come from the files Claude Code keeps in `~/.claude/projects/`. Claude Code sends a custom agent's type only as `custom`, so the plugin reads the type from the file Claude Code writes as it starts each subagent, `<session>/subagents/agent-<id>.meta.json`. A session's project is the last folder of the working directory its transcript records. The plugin reads each once, and nothing else in those files.
+
+The plugin adds up the log when the proxy starts, in the background, and counts each request as it comes in, so Usage never waits on the file.
 
 The install step keeps the management key it replaced, and whether Seat Pacer was on, in cmod's data folder for oneclaude, `~/.local/share/cmod/data/oneclaude/`. cmod records the one Claude Code setting the mod changed, `env.ANTHROPIC_BASE_URL`, so removing the mod takes out only that value.
 
@@ -88,4 +92,5 @@ The plugin adds these addresses to the proxy, which answer anyone who reaches th
 
 - `/v0/resource/plugins/oneclaude/status.json`: the pool, every account, and the warnings, which the mod reads. Each account shows as the part of its address before the `@`.
 - `/v0/resource/plugins/oneclaude/history.json`: each account's requests by the hour for the last 7 days.
+- `/v0/resource/plugins/oneclaude/usage.json`: the Usage table for `?period=today`, `yesterday`, `week`, or `month`, by `?by=account`, `model`, `agent`, `project`, or `day`, sorted by `?units=cost` or `tokens`, with the last 30 days for the chart. The pane, the dashboard, and `[Optimize usage]` read it.
 - `/v0/resource/plugins/oneclaude/dashboard`: the dashboard page, which the control panel shows under oneclaude in its plugin menu.

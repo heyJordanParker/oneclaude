@@ -6,13 +6,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/heyJordanParker/oneclaude/cli/internal/model"
 )
 
 var testNow = time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
@@ -366,6 +370,121 @@ func TestHistoryReadsOnlyTheLastWeekOfTheRequestLog(t *testing.T) {
 	total, byHour := requestsIn(h)
 	if total != 168*20 || len(byHour) != 168 || byHour[testNow.Add(-168*time.Hour).Unix()] != 20 || byHour[testNow.Add(-169*time.Hour).Unix()] != 0 {
 		t.Fatalf("history holds %d requests in %d hours, want %d in 168", total, len(byHour), 168*20)
+	}
+}
+
+// spend runs one answered request that used tokens.
+func spend(t *testing.T, p *Plugin, rid, session, agent, model, account string, detail UsageDetail) {
+	t.Helper()
+	in := call[RequestInterceptResponse](t, p, MethodRequestInterceptBefore, RequestInterceptRequest{RequestID: "client-" + rid, TraceID: rid, Model: model, Headers: agentHeaders(session, agent)})
+	pick := call[SchedulerPickResponse](t, p, MethodSchedulerPick, SchedulerPickRequest{Provider: "claude", Model: model, Options: SchedulerOptions{Headers: in.Headers}, Candidates: []SchedulerAuthCandidate{{ID: account, Provider: "claude"}}})
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "attempt-" + rid, TraceID: rid, Provider: "claude", Model: model, AuthID: pick.AuthID, Detail: detail})
+}
+
+// claudeProjects writes what Claude Code keeps for session s1 in the project
+// dotfiles, with its subagent a7, a code-reviewer.
+func claudeProjects(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	folder := filepath.Join(root, "-Users-turing-dotfiles")
+	files := map[string]string{
+		filepath.Join(folder, "s1.jsonl"):                                `{"type":"user","cwd":"/Users/turing/dotfiles"}`,
+		filepath.Join(folder, "s1", "subagents", "agent-a7.meta.json"): `{"agentType":"code-reviewer"}`,
+	}
+	for path, text := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func usageOf(t *testing.T, p *Plugin, period, by string) UsageTable {
+	t.Helper()
+	resp := call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "GET", Path: "/v0/resource/plugins/oneclaude/usage.json", Query: url.Values{"period": {period}, "by": {by}, "units": {"cost"}}})
+	var table UsageTable
+	if resp.StatusCode != 200 || json.Unmarshal(resp.Body, &table) != nil {
+		t.Fatalf("usage = %d %s", resp.StatusCode, resp.Body)
+	}
+	return table
+}
+
+func costOf(row UsageRow) float64 {
+	return row.amount("cost")
+}
+
+func TestUsageSplitsAPeriodByAccountModelAgentAndProjectAtListPrices(t *testing.T) {
+	p := New(Options{Name: "oneclaude", NoPoller: true, ClaudeProjects: claudeProjects(t), Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	account := "claude-turing@example.com.json"
+	spend(t, p, "r1", "s1", "", "claude-opus-5-5", account, UsageDetail{InputTokens: 2, OutputTokens: 127, CacheCreationTokens: 43544})
+	spend(t, p, "r2", "s1", "", "claude-opus-5-5", account, UsageDetail{InputTokens: 2, OutputTokens: 127, CacheCreationTokens: 43544})
+	spend(t, p, "r3", "s1", "a7", "claude-sonnet-5-5-20261001", account, UsageDetail{CacheReadTokens: 1_000_000})
+	spend(t, p, "r4", "elsewhere", "", "claude-haiku-5-5", account, UsageDetail{OutputTokens: 1_000_000})
+
+	agents := usageOf(t, p, "today", "agent")
+	if agents.Today != testNow.In(time.Local).Format("2006-01-02") || len(agents.Rows) != 2 || agents.Total.Label != "All agents" {
+		t.Fatalf("by agent = %+v", agents)
+	}
+	main, review := agents.Rows[0], agents.Rows[1]
+	if main.Label != "Main sessions" || main.Tokens.CacheWrite != 87088 || math.Abs(costOf(main)-(2*0.3509+0.5)) > 1e-9 {
+		t.Fatalf("main sessions = %+v, want both Opus requests and the Haiku one", main)
+	}
+	if review.Label != "code-reviewer" || math.Abs(costOf(review)-0.1) > 1e-9 {
+		t.Fatalf("subagent = %+v", review)
+	}
+	projects := usageOf(t, p, "today", "project")
+	if projects.Rows[0].Label != "dotfiles" || projects.Rows[1].Label != "Not recorded" || projects.Rows[1].Key != "" {
+		t.Fatalf("by project = %+v, want dotfiles, then the session Claude Code wrote nothing for", projects.Rows)
+	}
+	models := usageOf(t, p, "today", "model")
+	if models.Rows[0].Label != "Opus 5.5" || models.Rows[1].Label != "Haiku 5.5" || models.Rows[2].Label != "Sonnet 5.5" {
+		t.Fatalf("by model = %+v, want the costliest first", models.Rows)
+	}
+	accounts := usageOf(t, p, "yesterday", "account")
+	if len(accounts.Rows) != 1 || accounts.Rows[0].Label != "turing" || costOf(accounts.Rows[0]) != 0 || len(accounts.Days) != chartDays {
+		t.Fatalf("yesterday = %+v, want turing with nothing, and 30 chart days", accounts)
+	}
+	if last := accounts.Days[chartDays-1]; last.Day != agents.Today || len(last.Rows) != 1 || last.Rows[0].Label != "turing" {
+		t.Fatalf("today's chart day = %+v, by account", last)
+	}
+}
+
+func TestUsageKeepsNinetyDaysAndPricesALineWithoutItsModelAsItsFamilysNewest(t *testing.T) {
+	dir := t.TempDir()
+	var log bytes.Buffer
+	for _, daysAgo := range []int{100, 20} {
+		line, _ := json.Marshal(requestLine{At: testNow.AddDate(0, 0, -daysAgo), Family: "opus", Account: "0000beef", Outcome: "ok", Tokens: model.Tokens{Output: 1_000_000}})
+		log.Write(append(line, '\n'))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), log.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+	p := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return testNow }})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	table := usageOf(t, p, "month", "model")
+	twentyDaysAgo := testNow.AddDate(0, 0, -20).In(time.Local).Format("2006-01-02")
+	if table.Since != twentyDaysAgo {
+		t.Fatalf("since = %q, want %s: the line 100 days old is past the 90 days kept", table.Since, twentyDaysAgo)
+	}
+	if len(table.Rows) != 1 || table.Rows[0].Label != "Opus 5.5" || math.Abs(costOf(table.Rows[0])-20) > 1e-9 {
+		t.Fatalf("rows = %+v, want Opus 5.5 output at $20", table.Rows)
+	}
+	byDay := usageOf(t, p, "month", "day")
+	if len(byDay.Rows) != 1 || byDay.Rows[0].Label != testNow.AddDate(0, 0, -20).In(time.Local).Format("Jan 2") || byDay.Rows[0].Key != twentyDaysAgo {
+		t.Fatalf("by day = %+v", byDay.Rows)
+	}
+	if agents := usageOf(t, p, "month", "agent"); agents.Rows[0].Label != "Main sessions" {
+		t.Fatalf("an old main-session line = %+v", agents.Rows)
 	}
 }
 

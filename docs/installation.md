@@ -27,7 +27,10 @@ cmod install heyJordanParker/oneclaude
 `cmod install` adds oneclaude's marketplace to Claude Code and installs the oneclaude plugin and the cmod plugin it needs. Then it asks before it changes anything. It lists the commands it runs, `./setup/install.sh` now and `./setup/uninstall.sh` when you remove oneclaude, the `oneclaude` program it installs, and what oneclaude asks to do:
 
 - connect to `127.0.0.1`, where the proxy listens;
-- change `env.ANTHROPIC_BASE_URL` in your Claude Code settings.
+- change `env.ANTHROPIC_BASE_URL` in your Claude Code settings;
+- add text Claude reads and start turns, which `[Optimize usage]` uses to send Claude your usage, once you confirm ([Usage](usage.md#usage)).
+
+An update from a version before 0.5.2 asks only for the last one.
 
 In a terminal it ends with `Set up oneclaude? [y/N]`. In Claude Code the same list opens as the `Install oneclaude` pane, with `Accept` and `Not now`, and adds `Update oneclaude automatically from the oneclaude marketplace` when you haven't chosen an update setting for it yet.
 

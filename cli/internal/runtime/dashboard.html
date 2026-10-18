@@ -28,6 +28,13 @@
   --shadow-subtle: 0 0 0 1px var(--ring), 0 1px 2px 0 rgb(0 0 0 / 0.08);
   --radius: 0.675rem;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --series-1: var(--claude);
+  --series-2: oklch(from var(--claude) l c calc(h + 120));
+  --series-3: oklch(from var(--claude) l c calc(h + 240));
+  --series-4: oklch(from var(--claude) l c calc(h + 60));
+  --series-5: oklch(from var(--claude) l c calc(h + 180));
+  --series-6: oklch(from var(--claude) l c calc(h + 300));
+  --series-other: var(--text-tertiary);
 }
 
 [data-theme="white"] {
@@ -368,6 +375,62 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
 .legend__item { display: inline-flex; align-items: center; gap: 0.375rem; }
 .legend__swatch { inline-size: 0.5rem; block-size: 0.5rem; border-radius: 0.125rem; background: var(--success); }
 .legend__swatch--problem { background: var(--failure); }
+.legend__swatch[data-series] { background: var(--series); }
+
+.chart__part { block-size: calc(var(--value) / var(--peak) * 100%); background: var(--series); border-radius: 0.0625rem; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+
+.segmented {
+  display: inline-flex;
+  gap: 0.125rem;
+  padding: 0.125rem;
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: var(--surface-hover);
+}
+
+.segmented__option {
+  min-block-size: 1.875rem;
+  padding-inline: 0.75rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 0.25rem);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease), color 150ms var(--ease);
+}
+
+.segmented__option[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-subtle); }
+.segmented__option:focus-visible { outline: 0.125rem solid var(--text-secondary); outline-offset: 0.125rem; }
+
+.ledger {
+  inline-size: 100%;
+  min-inline-size: 44rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger th {
+  padding: 0 0.75rem 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: end;
+  white-space: nowrap;
+}
+
+.ledger td { padding: 0.5rem 0.75rem; text-align: end; white-space: nowrap; }
+.ledger th:first-child, .ledger td:first-child { text-align: start; white-space: normal; overflow-wrap: anywhere; }
+.ledger tbody tr:nth-child(odd) td { background: color-mix(in oklch, var(--text) 3.5%, transparent); }
+.ledger tbody tr td:first-child { border-start-start-radius: var(--radius); border-end-start-radius: var(--radius); }
+.ledger tbody tr td:last-child { border-start-end-radius: var(--radius); border-end-end-radius: var(--radius); }
+.ledger tfoot td { padding-block-start: 0.75rem; font-weight: 600; }
+.ledger__total { color: var(--claude-text); font-weight: 600; }
+.ledger__cached[data-cold="true"] { color: var(--amber-text); }
 
 .proxy { display: grid; gap: 1rem; }
 
@@ -437,6 +500,7 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
   .button--quiet:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
   .link:hover { text-decoration-color: currentColor; }
   .chart__column:hover { background: var(--surface-hover); }
+  .segmented__option:hover { color: var(--text); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -453,6 +517,7 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
   <section class="section" id="pool" aria-label="Combined usage"></section>
   <section class="section" id="warnings" aria-label="Warnings"></section>
   <section class="section" id="accounts" aria-label="Claude accounts"></section>
+  <section class="section" id="usage" aria-label="Usage"></section>
   <section class="section" id="history" aria-label="Requests in the last 7 days"></section>
   <section class="section" id="proxy" aria-label="Proxy"></section>
 </main>
@@ -517,6 +582,8 @@ const state = {
   server: { version: '', built: '' },
   updatedAt: 0,
   warningsOpen: false,
+  usage: { period: 'today', by: 'account', units: 'cost' },
+  usageTable: null,
   login: null,
   pending: {},
   rowErrors: {},
@@ -681,6 +748,7 @@ async function loadProxy() {
 function refreshAll() {
   void loadStatus()
   void loadHistory()
+  void loadUsage()
   void loadProxy()
 }
 
@@ -1112,6 +1180,154 @@ function historyView() {
   ]
 }
 
+const PERIODS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', '7 days'], ['month', '30 days']]
+const BREAKDOWNS = [['account', 'Account'], ['model', 'Model'], ['agent', 'Agent'], ['project', 'Project'], ['day', 'Day']]
+const UNITS = [['cost', 'Cost'], ['tokens', 'Tokens']]
+const KINDS = [['input', 'Input'], ['output', 'Output'], ['cache_write', 'Cache write'], ['cache_read', 'Cache read']]
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const SERIES = 6
+const COLD = 0.9
+const COUNT = new Intl.NumberFormat('en', { notation: 'compact', maximumSignificantDigits: 3 })
+
+function counted(row, units) {
+  return units === 'cost' ? row.cost : row.tokens
+}
+
+function totalOf(row, units) {
+  const kinds = counted(row, units)
+  return kinds.input + kinds.output + kinds.cache_write + kinds.cache_read
+}
+
+function cachedOf(tokens) {
+  const input = tokens.input + tokens.cache_write + tokens.cache_read
+  return input === 0 ? undefined : tokens.cache_read / input
+}
+
+function dayLabel(day) {
+  const [, month, date] = day.split('-').map(Number)
+  return `${MONTHS[month - 1]} ${date}`
+}
+
+function money(dollars) {
+  if (dollars < 0.005) return '$0'
+  if (dollars < 1) return `$${dollars.toFixed(2)}`
+  return `$${Math.round(dollars).toLocaleString('en')}`
+}
+
+function amount(value, units) {
+  return units === 'cost' ? money(value) : COUNT.format(value)
+}
+
+// loadUsage reads the plugin's Usage table for the chosen period, breakdown
+// and units, and keeps it only while that choice is still the one shown.
+async function loadUsage() {
+  const view = { ...state.usage }
+  try {
+    const table = await resource(`usage.json?period=${view.period}&by=${view.by}&units=${view.units}`)
+    if (view.period === state.usage.period && view.by === state.usage.by && view.units === state.usage.units) state.usageTable = table
+  } catch {}
+  render()
+}
+
+function segmented(name, choices, chosen, onChoose) {
+  return h('div', { class: 'segmented', role: 'group', 'aria-label': name },
+    choices.map(([value, label]) => h('button', {
+      class: 'segmented__option',
+      type: 'button',
+      'data-focus': `${name}-${value}`,
+      'aria-pressed': value === chosen,
+      onclick: () => onChoose(value),
+    }, label)))
+}
+
+function chooseUsage(change) {
+  Object.assign(state.usage, change)
+  render()
+  void loadUsage()
+}
+
+// usageChart stacks each of the last 30 days by the largest rows over the
+// 30 days, the rest as Other.
+function usageChart(table, units) {
+  const sums = new Map()
+  for (const day of table.days) {
+    for (const row of day.rows) {
+      const sum = sums.get(row.key) ?? { key: row.key, label: row.label, total: 0 }
+      sum.total += totalOf(row, units)
+      sums.set(row.key, sum)
+    }
+  }
+  const ranked = [...sums.values()].filter((sum) => sum.total > 0).sort((a, b) => b.total - a.total)
+  const shown = ranked.slice(0, ranked.length > SERIES ? SERIES - 1 : SERIES)
+  const series = new Map(shown.map((sum, index) => [sum.key, index + 1]))
+  const parts = [...shown.map((sum, index) => ({ id: index + 1, label: sum.label })), ...(ranked.length > shown.length ? [{ id: 'other', label: 'Other' }] : [])]
+  const stacks = table.days.map((day) => {
+    const stack = new Map()
+    for (const row of day.rows) {
+      const part = series.get(row.key) ?? 'other'
+      stack.set(part, (stack.get(part) ?? 0) + totalOf(row, units))
+    }
+    return stack
+  })
+  const totals = stacks.map((stack) => [...stack.values()].reduce((a, b) => a + b, 0))
+  const peak = Math.max(0, ...totals)
+  const color = (id) => `var(--series-${id})`
+  const half = table.days.length / 2
+  return [
+    h('div', { class: 'chart', role: 'img', 'aria-label': `Usage per day over the last 30 days, the highest ${amount(peak, units)}`, vars: { columns: table.days.length, peak: peak || 1 } },
+      table.days.map((day, index) => h('span', { class: 'chart__column', title: `${dayLabel(day.day)}: ${amount(totals[index], units)}` },
+        [...parts].reverse().map((part) => {
+          const value = stacks[index].get(part.id) ?? 0
+          return value > 0 ? h('span', { class: 'chart__part', vars: { value, series: color(part.id) } }) : null
+        }))),
+      h('span', { class: 'chart__label', vars: { start: 1, span: half } }, dayLabel(table.days[0].day)),
+      h('span', { class: 'chart__label chart__label--end', vars: { start: half + 1, span: half } }, dayLabel(table.days.at(-1).day))),
+    h('p', { class: 'legend', 'aria-hidden': 'true' }, parts.map((part) => h('span', { class: 'legend__item' },
+      h('span', { class: 'legend__swatch', 'data-series': part.id, vars: { series: color(part.id) } }), part.label))),
+  ]
+}
+
+function usageView() {
+  const title = 'Usage'
+  const table = state.usageTable
+  if (!table) return [head(title), note('Reading the request log')]
+  const { by, units } = state.usage
+  const grand = totalOf(table.total, units)
+  const unrecorded = (by === 'agent' || by === 'project') && table.rows.some((row) => row.key === '')
+  const cells = (row, isTotal) => {
+    const cached = cachedOf(row.tokens)
+    return [
+      ...KINDS.map(([kind]) => h('td', null, amount(counted(row, units)[kind], units))),
+      h('td', { class: 'ledger__cached', 'data-cold': cached !== undefined && cached < COLD }, cached === undefined ? '' : percent(cached)),
+      h('td', null, isTotal ? '' : grand === 0 ? '0%' : percent(totalOf(row, units) / grand)),
+      h('td', { class: 'ledger__total' }, amount(totalOf(row, units), units)),
+    ]
+  }
+  return [
+    head(title, h('div', { class: 'controls' },
+      segmented('period', PERIODS, state.usage.period, (value) => chooseUsage({ period: value })),
+      segmented('by', BREAKDOWNS, by, (value) => chooseUsage({ by: value })),
+      segmented('show', UNITS, units, (value) => chooseUsage({ units: value })))),
+    h('div', { class: 'panel' },
+      h('div', { class: 'scroller' }, h('table', { class: 'ledger' },
+        h('thead', null, h('tr', null,
+          h('th', { scope: 'col' }, BREAKDOWNS.find(([value]) => value === by)[1]),
+          KINDS.map(([, label]) => h('th', { scope: 'col' }, label)),
+          h('th', { scope: 'col', title: 'Cache reads out of all input: input, cache writes and cache reads' }, 'Cached'),
+          h('th', { scope: 'col' }, 'Share'),
+          h('th', { scope: 'col' }, 'Total'))),
+        h('tbody', null, table.rows.map((row) => h('tr', null, h('td', null, row.label), cells(row, false)))),
+        h('tfoot', null, h('tr', null, h('td', null, table.total.label), cells(table.total, true))))),
+      facts(
+        fact(units === 'cost' ? 'At API list prices, cache writes at the 1-hour rate' : 'Tokens as Anthropic counts them'),
+        table.since ? fact(`oneclaude's log starts on ${dayLabel(table.since)}`) : null,
+        unrecorded ? fact('Not recorded: requests from before oneclaude recorded agent types and projects') : null)),
+    h('div', { class: 'panel' },
+      h('h3', { class: 'subtitle' }, 'Usage per day, last 30 days'),
+      usageChart(table, units)),
+  ]
+}
+
 function bucketsOf(entry) {
   const buckets = entry?.recent_requests ?? entry?.recentRequests
   return Array.isArray(buckets) ? buckets.slice(-20).map((bucket) => ({ time: bucket?.time, success: count(bucket?.success), failed: count(bucket?.failed) })) : []
@@ -1319,6 +1535,7 @@ function render() {
   paint('pool', poolView())
   paint('warnings', warningsView())
   paint('accounts', accountsView())
+  paint('usage', usageView())
   paint('history', historyView())
   paint('proxy', proxyView())
   if (!focus) return
@@ -1449,6 +1666,7 @@ if (!embedded && open !== null) {
   refreshAll()
   every(15e3, loadStatus)
   every(60e3, loadHistory)
+  every(60e3, loadUsage)
   every(60e3, loadProxy)
 }
 </script>

@@ -71,11 +71,12 @@ import (
 	"unsafe"
 
 	"github.com/heyJordanParker/oneclaude/cli/internal/runtime"
+	"github.com/heyJordanParker/oneclaude/cli/internal/session"
 )
 
 const (
 	pluginName    = "oneclaude"
-	pluginVersion = "0.4.0"
+	pluginVersion = "0.5.2"
 	pluginAuthor  = "heyJordanParker"
 	pluginRepo    = "https://github.com/heyJordanParker/oneclaude"
 )
@@ -90,12 +91,13 @@ var configFields = []runtime.ConfigField{
 }
 
 var plugin = runtime.New(runtime.Options{
-	Name:         pluginName,
-	Version:      pluginVersion,
-	Author:       pluginAuthor,
-	Repository:   pluginRepo,
-	ConfigFields: configFields,
-	Host:         callHost,
+	Name:           pluginName,
+	Version:        pluginVersion,
+	Author:         pluginAuthor,
+	Repository:     pluginRepo,
+	ConfigFields:   configFields,
+	Host:           callHost,
+	ClaudeProjects: session.ClaudeProjects(),
 })
 
 func main() {}

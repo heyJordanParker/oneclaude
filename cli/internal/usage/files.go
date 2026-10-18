@@ -37,7 +37,8 @@ func ReadJSON(path string, v any) error {
 	return json.Unmarshal(raw, v)
 }
 
-func ReadSince(path string, since time.Time, fn func(line []byte)) error {
+// ReadBack hands fn each line of a log, newest first, until fn returns false.
+func ReadBack(path string, fn func(line []byte) bool) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -60,16 +61,9 @@ func ReadSince(path string, since time.Time, fn func(line []byte)) error {
 			partial, lines = lines[0], lines[1:]
 		}
 		for i := len(lines) - 1; i >= 0; i-- {
-			var line struct {
-				At time.Time `json:"at"`
-			}
-			if json.Unmarshal(lines[i], &line) != nil {
-				continue
-			}
-			if line.At.Before(since) {
+			if len(lines[i]) > 0 && !fn(lines[i]) {
 				return nil
 			}
-			fn(lines[i])
 		}
 		end = start
 	}

@@ -56,7 +56,7 @@ func (p *Plugin) interceptBefore(payload []byte) ([]byte, error) {
 
 	if rid := requestKey(req.TraceID, req.RequestID); rid != "" {
 		p.mu.Lock()
-		p.requests[rid] = request{key: key, family: family, subagent: id.Subagent(), at: now}
+		p.requests[rid] = request{id: id, family: family, at: now}
 		if len(p.requests) > 20000 {
 			for rid, r := range p.requests {
 				if now.Sub(r.at) > 30*time.Minute {
@@ -227,27 +227,26 @@ func contains(ids []string, id string) bool {
 	return false
 }
 
+// requestLine is one request in requests.jsonl. Agent is a subagent's type,
+// and Project the folder its session runs in; either is empty when Claude
+// Code had not written it down.
 type requestLine struct {
 	At             time.Time    `json:"at"`
 	Plan           string       `json:"plan"`
+	Model          string       `json:"model,omitempty"`
 	Family         model.Family `json:"family"`
 	Account        string       `json:"account"`
 	Subagent       bool         `json:"subagent"`
+	Agent          string       `json:"agent,omitempty"`
+	Project        string       `json:"project,omitempty"`
 	Agents         int          `json:"agents_on_account"`
 	Outcome        string       `json:"outcome"`
 	Status         int          `json:"status,omitempty"`
 	RetryOfFailure bool         `json:"retry_of_failure"`
 	LatencyMS      int64        `json:"latency_ms"`
 	FirstTokenMS   int64        `json:"first_token_ms"`
-	Tokens         tokens       `json:"tokens"`
+	Tokens         model.Tokens `json:"tokens"`
 	WeeklyAfter    *float64     `json:"weekly_after,omitempty"`
-}
-
-type tokens struct {
-	Input      int64 `json:"input"`
-	Output     int64 `json:"output"`
-	CacheRead  int64 `json:"cache_read"`
-	CacheWrite int64 `json:"cache_write"`
 }
 
 func (p *Plugin) usageEnvelope(payload []byte) ([]byte, error) {
@@ -303,11 +302,11 @@ func (p *Plugin) observe(rec UsageRecord) {
 
 	outcome := outcomeOf(rec)
 	retry := false
-	if tracked && r.key != "" {
+	if key := r.id.Key(); tracked && key != "" {
 		if outcome == "ok" {
-			p.agents.Touch(r.key, rec.AuthID, family, now)
+			p.agents.Touch(key, rec.AuthID, family, now)
 		} else {
-			retry = p.agents.Failed(r.key, now)
+			retry = p.agents.Failed(key, now)
 		}
 	}
 	agents := p.agents.Active(now)[rec.AuthID][family]
@@ -319,19 +318,23 @@ func (p *Plugin) observe(rec UsageRecord) {
 		}
 	}
 
+	agentType, project := p.records.Of(r.id, now)
 	line := requestLine{
 		At:             now,
 		Plan:           plan,
+		Model:          model.Canonical(rec.Model),
 		Family:         family,
 		Account:        p.hash(rec.AuthID),
-		Subagent:       r.subagent,
+		Subagent:       r.id.Subagent(),
+		Agent:          agentType,
+		Project:        project,
 		Agents:         agents,
 		Outcome:        outcome,
 		Status:         rec.Failure.StatusCode,
 		RetryOfFailure: retry,
 		LatencyMS:      rec.Latency.Milliseconds(),
 		FirstTokenMS:   rec.TTFT.Milliseconds(),
-		Tokens: tokens{
+		Tokens: model.Tokens{
 			Input:      rec.Detail.InputTokens,
 			Output:     rec.Detail.OutputTokens,
 			CacheRead:  rec.Detail.CacheReadTokens,
@@ -343,7 +346,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 		line.WeeklyAfter = &used
 	}
 	p.mu.Lock()
-	p.history.add(line)
+	p.history.add(line, true)
 	log := p.log
 	p.mu.Unlock()
 	if log != nil {

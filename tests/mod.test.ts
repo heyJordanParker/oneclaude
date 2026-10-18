@@ -4,6 +4,7 @@ import { PromptHint } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { oneclaude, REFRESH_MS } from '../src/mod.js'
 import { bar, CAP_LEFT, CAP_RIGHT, evenOf, glide, paceState, PROXY, until, type Cell, type Status } from '../src/status.js'
+import { dailyChart, GUTTER, money, tokenCount, usageLayout, type TableLine, type Tokens, type UsageRow, type UsageTable } from '../src/usage.js'
 
 const hint: RenderPropsOf['PromptHint'] = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
 
@@ -235,6 +236,161 @@ test('a refill reads in days, then days and hours under 2 days, then hours and m
   expect(until(at(180), now)).toBe('3h')
   expect(until(at(20), now)).toBe('20m')
   expect(until(at(-1), now)).toBe('now')
+})
+
+const OPUS = { input: 4, output: 20, cache_write: 8, cache_read: 0.2 }
+
+// row is a Usage row the plugin would send for these tokens of Opus 5.5.
+function row(key: string, label: string, tokens: Tokens): UsageRow {
+  return {
+    key,
+    label,
+    tokens,
+    cost: { input: tokens.input * OPUS.input / 1e6, output: tokens.output * OPUS.output / 1e6, cache_write: tokens.cache_write * OPUS.cache_write / 1e6, cache_read: tokens.cache_read * OPUS.cache_read / 1e6 },
+  }
+}
+
+const NONE = { input: 0, output: 0, cache_write: 0, cache_read: 0 }
+const chartDays = Array.from({ length: 30 }, (_, index) => {
+  const day = new Date(Date.UTC(2026, 8, 16 + index)).toISOString().slice(0, 10)
+  const spent: Record<string, Tokens> = { '2026-10-03': { ...NONE, output: 1_000_000 }, '2026-10-14': { input: 1_000_000, output: 100_000, cache_write: 1_000_000, cache_read: 20_000_000 }, '2026-10-15': { input: 2, output: 254, cache_write: 87_088, cache_read: 1_000_000 } }
+  return { day, rows: spent[day] === undefined ? [] : [row('turing', 'turing', spent[day]!)] }
+})
+
+function table(rows: readonly UsageRow[], total: string, since?: string): UsageTable {
+  const sum = (kind: keyof Tokens, of: 'tokens' | 'cost'): number => rows.reduce((all, each) => all + each[of][kind], 0)
+  const kinds = (of: 'tokens' | 'cost'): Tokens => ({ input: sum('input', of), output: sum('output', of), cache_write: sum('cache_write', of), cache_read: sum('cache_read', of) })
+  return { today: '2026-10-15', ...(since === undefined ? {} : { since }), rows, total: { key: '', label: total, tokens: kinds('tokens'), cost: kinds('cost') }, days: chartDays }
+}
+
+const tables: Record<string, UsageTable> = {
+  'today account': table([row('turing', 'turing', { input: 2, output: 254, cache_write: 87_088, cache_read: 0 }), row('lamport', 'lamport', { ...NONE, cache_read: 500_000 }), row('jarvis', 'jarvis', NONE)], 'All accounts'),
+  'month day': table([row('2026-10-15', 'Oct 15', { input: 2, output: 254, cache_write: 87_088, cache_read: 1_000_000 }), row('2026-10-14', 'Oct 14', { input: 1_000_000, output: 100_000, cache_write: 1_000_000, cache_read: 20_000_000 }), row('2026-10-03', 'Oct 3', { ...NONE, output: 1_000_000 })], 'All days', '2026-10-03'),
+  'month agent': table([row('explorer', 'explorer', { ...NONE, output: 1_000_000 }), row('', 'Not recorded', { ...NONE, cache_write: 1_000_000, input: 100_000 }), row('main', 'Main sessions', { input: 2, output: 254, cache_write: 87_088, cache_read: 1_000_000 })], 'All agents'),
+  'month project': table([row('dotfiles', 'dotfiles', { ...NONE, output: 40_000 })], 'All projects'),
+  'month model': table([row('claude-opus-5-5', 'Opus 5.5', { ...NONE, output: 1_950_000 })], 'All models'),
+}
+
+// withUsage answers the status, and each Usage table the plugin would serve,
+// and keeps every Usage address the mod asked for.
+function withUsage(permissions?: readonly string[]) {
+  const tested = testMod(oneclaude, permissions === undefined ? undefined : { permissions })
+  const asked: string[] = []
+  tested.fakes.http.fetch = async (url) => {
+    if (!url.includes('usage.json')) return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
+    asked.push(url)
+    const query = new URL(url).searchParams
+    const answer = tables[`${query.get('period')} ${query.get('by')}`]
+    return answer === undefined ? { status: 404, ok: false, headers: {}, text: '' } : { status: 200, ok: true, headers: {}, text: JSON.stringify(answer) }
+  }
+  return { tested, asked }
+}
+
+async function usagePane(tested: ReturnType<typeof testMod>): Promise<string> {
+  if (!tested.shown.openPanes.has('accounts')) await tested.type('/accounts')
+  return (await tested.lines('accounts')).map((line) => line.trimEnd()).join('\n')
+}
+
+test('/accounts shows today\'s usage by account, with the total last in each row', async () => {
+  const { tested, asked } = withUsage()
+  const pane = await usagePane(tested)
+  expect(asked[0]).toContain('usage.json?period=today&by=account&units=cost')
+  expect(pane).toMatch(/Period +\[Today\]/)
+  expect(pane).toContain('[Account]')
+  expect(pane).toContain('[Cost]')
+  expect(pane).toMatch(/Input +Output +Cache write +Cache read +Cached +Share +Total\n/)
+  expect(pane).toMatch(/turing +\$0 +\$0\.01 +\$0\.70 +\$0 +0% +88% +\$0\.70\n/)
+  expect(pane).toMatch(/lamport +\$0 +\$0 +\$0 +\$0\.10 +100% +12% +\$0\.10\n/)
+  expect(pane).toMatch(/jarvis( +\$0){4} +0% +\$0\n/)
+  expect(pane).toMatch(/All accounts +\$0 +\$0\.01 +\$0\.70 +\$0\.10 +85% +\$0\.80\n/)
+  expect(pane.indexOf('Claude accounts')).toBeLessThan(pane.indexOf('Usage'))
+  expect(pane.indexOf('Usage per day, last 30 days')).toBeLessThan(pane.indexOf('Warnings in the last 24 hours'))
+})
+
+test('the Usage controls read the table for the chosen period, breakdown and units', async () => {
+  const { tested, asked } = withUsage()
+  await usagePane(tested)
+  await tested.press('accounts', 'period-month')
+  await tested.press('accounts', 'by-day')
+  const pane = await usagePane(tested)
+  expect(asked.at(-1)).toContain('period=month&by=day&units=cost')
+  expect(pane).toMatch(/Oct 15( +\S+){5} +2% +\$0\.90\n +Oct 14( +\S+){5} +46% +\$18\n +Oct 3( +\S+){4} +51% +\$20\n/)
+  expect(pane).toContain("oneclaude's log starts on Oct 3.")
+  await tested.press('accounts', 'show-tokens')
+  await tested.settle()
+  expect(asked.at(-1)).toContain('period=month&by=day&units=tokens')
+})
+
+test('Usage says what Not recorded means when a row has no agent type or project', async () => {
+  const { tested } = withUsage()
+  await usagePane(tested)
+  await tested.press('accounts', 'period-month')
+  await tested.press('accounts', 'by-agent')
+  const pane = await usagePane(tested)
+  expect(pane).toMatch(/Not recorded( +\S+){6}/)
+  expect(pane).toContain('Not recorded: requests from before oneclaude recorded agent types and projects.')
+})
+
+test('a wide Usage table puts Cached, Share and Total after the token kinds, each column aligned', () => {
+  const layout = usageLayout(tables['month day']!, 'cost', true)
+  const text = (line: TableLine): string => line.cells.join(GUTTER)
+  expect(text(layout.header)).toMatch(/^ +Input +Output +Cache write +Cache read +Cached +Share +Total$/)
+  expect(text(layout.rows[1]!)).toMatch(/^Oct 14 +\$4 +\$2 +\$8 +\$4 +91% +46% +\$18$/)
+  for (const line of [...layout.rows, layout.total]) expect(text(line).length).toBe(layout.width)
+  expect(layout.rows[2]!.cold).toBe(false)
+  expect(usageLayout(tables['month agent']!, 'cost', true).rows[1]!.cold).toBe(true)
+})
+
+test('a narrow Usage table keeps the cache, the share and the total, and leaves out the token kinds', () => {
+  const layout = usageLayout(tables['today account']!, 'cost', false)
+  expect(layout.header.cells.join(GUTTER)).toMatch(/^ +Cached +Share +Total$/)
+  expect(layout.rows[0]!.cells.join(GUTTER)).toMatch(/^turing +0% +88% +\$0\.70$/)
+})
+
+test('the daily chart stands each day on the baseline, exact to an eighth, with a dot for a day with no request', () => {
+  const chart = dailyChart(tables['today account']!, 'cost')
+  expect(chart.peak).toBe('$20')
+  expect(chart.rows).toHaveLength(4)
+  const bottom = chart.rows[3]!
+  expect(bottom).toHaveLength(30)
+  expect(bottom.filter((cell) => cell === '·')).toHaveLength(27)
+  expect([bottom[17], chart.rows[0]![17], chart.rows[0]![28], bottom[29]]).toEqual(['█', '█', '▅', '▁'])
+  expect([chart.first, chart.last]).toEqual(['Sep 16', 'Oct 15'])
+})
+
+test('[Optimize usage] asks before it sends this session the last 30 days by agent type, project and model', async () => {
+  const { tested } = withUsage()
+  await usagePane(tested)
+  await tested.press('accounts', 'optimize')
+  const asking = await usagePane(tested)
+  expect(asking).toContain('Ask your agent to optimize your usage?')
+  expect(asking).toContain("We'll send it your last 30 days of usage, by agent, project and model.")
+  expect(asking).toContain('[Ask your agent]')
+  expect(tested.shown.prompts).toHaveLength(0)
+  await tested.press('accounts', 'optimize-cancel')
+  expect(await usagePane(tested)).toContain('[Optimize usage]')
+  await tested.press('accounts', 'optimize')
+  await tested.press('accounts', 'optimize-send')
+  const [prompt] = tested.shown.prompts
+  expect(prompt).toContain('Optimize my Claude usage')
+  expect(prompt).toContain('- explorer: $20 (cache writes $0, cache reads $0, output $20, input $0), 1M tokens')
+  expect(prompt).toContain('- Not recorded: $8')
+  expect(prompt).toContain('- dotfiles: $0.80')
+  expect(prompt).toContain('- Opus 5.5: $39')
+  expect(prompt).toContain('Change nothing until I approve.')
+  expect(await usagePane(tested)).toContain('[Optimize usage]')
+})
+
+test('[Optimize usage] stays hidden while the person has the prompt permission off', async () => {
+  const { tested } = withUsage(['network:127.0.0.1', 'config:env.ANTHROPIC_BASE_URL'])
+  const pane = await usagePane(tested)
+  expect(pane).toContain('All accounts')
+  expect(pane).not.toContain('Optimize usage')
+})
+
+test('a count reads in 3 figures, and dollars in whole dollars from $1', () => {
+  expect([1_400_000, 32_700_000, 832_000_000, 1_050_000_000, 999, 0].map(tokenCount)).toEqual(['1.4M', '32.7M', '832M', '1.05B', '999', '0'])
+  expect([0, 0.104, 5.4, 1193.2].map(money)).toEqual(['$0', '$0.10', '$5', '$1,193'])
 })
 
 test('pace is on within 5 points, and far over past 25', () => {

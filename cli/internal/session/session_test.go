@@ -2,6 +2,8 @@ package session
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -46,6 +48,74 @@ func TestAgentsBindAndCount(t *testing.T) {
 	active := a.Active(now)
 	if active["acct"][model.Opus] != 1 || active["acct"][model.Haiku] != 1 || active["other"][model.Opus] != 0 {
 		t.Fatalf("active = %v", active)
+	}
+}
+
+// claudeProjects writes the files Claude Code keeps for one session in
+// project, and for each of its subagents, named by id, with its type.
+func claudeProjects(t *testing.T, session, project string, subagents map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	folder := filepath.Join(root, "-Users-turing-"+project)
+	transcript := `{"type":"file-history-snapshot"}` + "\n" + `{"type":"user","cwd":"/Users/turing/` + project + `","sessionId":"` + session + `"}` + "\n"
+	write(t, filepath.Join(folder, session+".jsonl"), transcript)
+	for id, agentType := range subagents {
+		write(t, filepath.Join(folder, session, "subagents", "agent-"+id+".meta.json"), `{"agentType":"`+agentType+`","description":"a task"}`)
+	}
+	return root
+}
+
+func write(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRecordsNameASubagentsTypeAndItsSessionsProject(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	r := NewRecords(claudeProjects(t, "s1", "dotfiles", map[string]string{"a7": "code-reviewer"}))
+	if agentType, project := r.Of(Identity{Session: "s1", Agent: "a7"}, now); agentType != "code-reviewer" || project != "dotfiles" {
+		t.Fatalf("subagent = %q in %q", agentType, project)
+	}
+	if agentType, project := r.Of(Identity{Session: "s1"}, now); agentType != "" || project != "dotfiles" {
+		t.Fatalf("main session = %q in %q", agentType, project)
+	}
+	if agentType, _ := r.Of(Identity{Session: "s1", Agent: "b2", Type: "Explore"}, now); agentType != "Explore" {
+		t.Fatalf("a subagent with no meta file = %q, want the type Claude Code sent", agentType)
+	}
+}
+
+func TestRecordsLookAgainForASessionWrittenLater(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	r := NewRecords(root)
+	if _, project := r.Of(Identity{Session: "late"}, now); project != "" {
+		t.Fatalf("project = %q before the transcript exists", project)
+	}
+	write(t, filepath.Join(root, "-Users-turing-oneclaude", "late.jsonl"), `{"cwd":"/Users/turing/oneclaude"}`+"\n")
+	if _, project := r.Of(Identity{Session: "late"}, now.Add(10*time.Second)); project != "" {
+		t.Fatalf("project = %q, want the miss kept for a minute", project)
+	}
+	if _, project := r.Of(Identity{Session: "late"}, now.Add(lookAgain)); project != "oneclaude" {
+		t.Fatalf("project = %q a minute later", project)
+	}
+}
+
+func TestACustomAgentTypeIsNotItsName(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Claude-Code-Session-Id", "s1")
+	h.Set("X-Claude-Code-Agent-Id", "a7")
+	h.Set("X-Claude-Code-Agent-Type", "custom")
+	if id := FromRequest(h, nil); id.Type != "" {
+		t.Fatalf("type = %q, want none for a custom agent", id.Type)
+	}
+	h.Set("X-Claude-Code-Agent-Type", "Explore")
+	if id := FromRequest(h, nil); id.Type != "Explore" {
+		t.Fatalf("type = %q", id.Type)
 	}
 }
 

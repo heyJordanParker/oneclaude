@@ -21,8 +21,11 @@ const (
 	resourceDashboardPath = "/dashboard"
 	resourceStatusPath    = "/status.json"
 	resourceHistoryPath   = "/history.json"
+	resourceUsagePath     = "/usage.json"
 	routeStatus           = "/status"
 	historyWindow         = 7 * 24 * time.Hour
+	daysKept              = 90
+	dayLayout             = "2006-01-02"
 )
 
 //go:embed dashboard.html
@@ -72,9 +75,23 @@ type AccountStatus struct {
 	Limits     map[model.Family]int `json:"limits"`
 }
 
+// History is each account's requests by the hour for the last 7 days.
 type History struct {
 	Now      time.Time        `json:"now"`
 	Accounts []AccountHistory `json:"accounts"`
+}
+
+// dayKey is one day's requests for one account, by its hashed id, model,
+// agent type and project. agent is "main" for a main session and empty for a
+// subagent whose type Claude Code had not written down; project is empty
+// likewise.
+type dayKey struct {
+	day, account, model, agent, project string
+}
+
+type dayUsage struct {
+	tokens model.Tokens
+	cost   model.Cost
 }
 
 type AccountHistory struct {
@@ -87,10 +104,19 @@ type HourHistory struct {
 	At       time.Time      `json:"at"`
 	Requests int            `json:"requests"`
 	Outcomes map[string]int `json:"outcomes"`
-	Tokens   tokens         `json:"tokens"`
+	Tokens   model.Tokens   `json:"tokens"`
 }
 
-type requestHistory map[string]map[int64]*HourHistory
+// requestHistory holds the request log as History serves it: hours per
+// account, and days per account, model, agent type and project.
+type requestHistory struct {
+	hours map[string]map[int64]*HourHistory
+	days  map[dayKey]*dayUsage
+}
+
+func newRequestHistory() requestHistory {
+	return requestHistory{hours: map[string]map[int64]*HourHistory{}, days: map[dayKey]*dayUsage{}}
+}
 
 // Status is the pool as the mod draws it. Every account counts equally; an
 // account whose week reset since its last reading shows as projected.
@@ -163,22 +189,27 @@ func (p *Plugin) Status() Status {
 	return st
 }
 
-func (p *Plugin) History() History {
-	p.readRequestLog()
-	now := p.now()
-	cutoff := now.Add(-historyWindow).Truncate(time.Hour)
+func (p *Plugin) accountList() []model.Account {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	accounts := make([]model.Account, 0, len(p.accounts))
 	for _, a := range p.accounts {
 		accounts = append(accounts, a.Account)
 	}
-	p.mu.Unlock()
+	return accounts
+}
+
+func (p *Plugin) History() History {
+	p.readRequestLog()
+	now := p.now()
+	cutoff := now.Add(-historyWindow).Truncate(time.Hour)
 	rows := map[string]AccountHistory{}
-	for _, a := range accounts {
+	for _, a := range p.accountList() {
 		rows[p.hash(a.ID)] = AccountHistory{Name: a.Name, AuthIndex: a.AuthIndex, Hours: []HourHistory{}}
 	}
+	hist := History{Now: now, Accounts: make([]AccountHistory, 0, len(rows))}
 	p.mu.Lock()
-	for account, hours := range p.history {
+	for account, hours := range p.history.hours {
 		row, ok := rows[account]
 		if !ok {
 			row = AccountHistory{Name: account, Hours: []HourHistory{}}
@@ -194,7 +225,6 @@ func (p *Plugin) History() History {
 		rows[account] = row
 	}
 	p.mu.Unlock()
-	hist := History{Now: now, Accounts: make([]AccountHistory, 0, len(rows))}
 	for _, row := range rows {
 		sort.Slice(row.Hours, func(i, j int) bool { return row.Hours[i].At.Before(row.Hours[j].At) })
 		hist.Accounts = append(hist.Accounts, row)
@@ -203,47 +233,90 @@ func (p *Plugin) History() History {
 	return hist
 }
 
+// readRequestLog adds the lines earlier loads wrote to requests.jsonl, the
+// last 90 days of them, once per load. load starts it in the background, so
+// the first History waits for it only while it is still reading.
 func (p *Plugin) readRequestLog() {
 	p.historyMu.Lock()
 	defer p.historyMu.Unlock()
 	p.mu.Lock()
 	read, dir, loadedAt := p.historyRead, p.loadedDir, p.loadedAt
 	p.mu.Unlock()
-	if read {
+	if read || dir == "" {
 		return
 	}
-	earlier := requestHistory{}
-	if dir != "" {
-		_ = usage.ReadSince(filepath.Join(dir, "requests.jsonl"), loadedAt.Add(-historyWindow), func(raw []byte) {
-			var line requestLine
-			if json.Unmarshal(raw, &line) == nil && line.At.Before(loadedAt) {
-				earlier.add(line)
-			}
-		})
-	}
+	earlier := newRequestHistory()
+	hoursFrom := loadedAt.Add(-historyWindow)
+	daysFrom := loadedAt.AddDate(0, 0, -daysKept)
+	current := true
+	lines := 0
+	_ = usage.ReadBack(filepath.Join(dir, "requests.jsonl"), func(raw []byte) bool {
+		if lines++; lines%4096 == 0 {
+			p.mu.Lock()
+			current = p.loadedDir == dir && p.loadedAt.Equal(loadedAt)
+			p.mu.Unlock()
+		}
+		var line requestLine
+		if json.Unmarshal(raw, &line) != nil {
+			return current
+		}
+		if line.At.Before(daysFrom) {
+			return false
+		}
+		if line.At.Before(loadedAt) {
+			earlier.add(line, !line.At.Before(hoursFrom))
+		}
+		return current
+	})
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.loadedDir != dir || !p.loadedAt.Equal(loadedAt) {
 		return
 	}
-	for account, hours := range earlier {
+	for account, hours := range earlier.hours {
 		for _, h := range hours {
 			p.history.bucket(account, h.At).merge(h)
 		}
 	}
+	for key, d := range earlier.days {
+		p.history.day(key).merge(d)
+	}
 	p.historyRead = true
 }
 
-func (h requestHistory) add(line requestLine) {
-	hour := h.bucket(line.Account, line.At.Truncate(time.Hour).UTC())
-	hour.merge(&HourHistory{Requests: 1, Outcomes: map[string]int{line.Outcome: 1}, Tokens: line.Tokens})
+// add counts one request, in its hour when withHour, and in its day.
+func (h requestHistory) add(line requestLine, withHour bool) {
+	if withHour {
+		h.bucket(line.Account, line.At.Truncate(time.Hour).UTC()).merge(&HourHistory{Requests: 1, Outcomes: map[string]int{line.Outcome: 1}, Tokens: line.Tokens})
+	}
+	agent := line.Agent
+	if !line.Subagent {
+		agent = "main"
+	}
+	modelID := model.ModelOf(line.Model, line.Family)
+	h.day(dayKey{day: line.At.In(time.Local).Format(dayLayout), account: line.Account, model: modelID, agent: agent, project: line.Project}).
+		merge(&dayUsage{tokens: line.Tokens, cost: model.CostOf(modelID, line.Tokens)})
+}
+
+func (h requestHistory) day(key dayKey) *dayUsage {
+	d := h.days[key]
+	if d == nil {
+		d = &dayUsage{}
+		h.days[key] = d
+	}
+	return d
+}
+
+func (d *dayUsage) merge(other *dayUsage) {
+	d.tokens.Add(other.tokens)
+	d.cost.Add(other.cost)
 }
 
 func (h requestHistory) bucket(account string, at time.Time) *HourHistory {
-	hours := h[account]
+	hours := h.hours[account]
 	if hours == nil {
 		hours = map[int64]*HourHistory{}
-		h[account] = hours
+		h.hours[account] = hours
 	}
 	hour := hours[at.Unix()]
 	if hour == nil {
@@ -263,10 +336,7 @@ func (h *HourHistory) merge(other *HourHistory) {
 	for outcome, n := range other.Outcomes {
 		h.Outcomes[outcome] += n
 	}
-	h.Tokens.Input += other.Tokens.Input
-	h.Tokens.Output += other.Tokens.Output
-	h.Tokens.CacheRead += other.Tokens.CacheRead
-	h.Tokens.CacheWrite += other.Tokens.CacheWrite
+	h.Tokens.Add(other.Tokens)
 }
 
 func scriptHash(page []byte) string {
@@ -298,6 +368,7 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 			{Path: resource + resourceDashboardPath, Menu: "oneclaude", Description: "Your Claude pool, its accounts and the proxy"},
 			{Path: resource + resourceStatusPath, Description: "The pool's usage, pace, accounts and warnings as JSON, for the oneclaude mod."},
 			{Path: resource + resourceHistoryPath, Description: "Each account's requests per hour over the last 7 days as JSON, for the dashboard."},
+			{Path: resource + resourceUsagePath, Description: "Usage at API list prices for ?period=today|yesterday|week|month by ?by=account|model|agent|project|day, sorted by ?units=cost|tokens, as JSON."},
 		},
 	})
 }
@@ -327,6 +398,8 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 		return okEnvelope(jsonResponse(http.StatusOK, p.Status()))
 	case req.Path == resource+resourceHistoryPath:
 		return okEnvelope(jsonResponse(http.StatusOK, p.History()))
+	case req.Path == resource+resourceUsagePath:
+		return okEnvelope(jsonResponse(http.StatusOK, p.Usage(req.Query.Get("period"), req.Query.Get("by"), req.Query.Get("units"))))
 	default:
 		return okEnvelope(jsonResponse(http.StatusNotFound, map[string]string{"error": "unknown path"}))
 	}

@@ -84,15 +84,16 @@ Run `/accounts` and press `[Add account]`. The proxy's control panel opens, alre
 Nothing changes in how you work. Every new conversation goes to the account that most needs spending, and a running conversation stays where it is.
 
 - **The line under the prompt** shows the pool's weekly usage, how far ahead or behind an even pace it is, the next refill, and the agents running now. `[+]` opens the pane.
-- **`/accounts`** shows each account, the Codex accounts, and the warnings of the last 24 hours.
-- **`[Open dashboard]`** opens the dashboard in the proxy's control panel: 7 days of requests, each account's agents, the proxy's traffic, and adding, turning off, or logging in again to an account.
+- **`/accounts`** shows each account, the Codex accounts, the pool's usage, and the warnings of the last 24 hours.
+- **Usage** in `/accounts` adds up what the pool used today, yesterday, or over 7 or 30 days, by account, model, agent type, project, or day: input, output, cache writes, and cache reads, at API prices or in tokens. `[Optimize usage]` asks Claude to make it cost less.
+- **`[Open dashboard]`** opens the dashboard in the proxy's control panel: usage, 7 days of requests, each account's agents, the proxy's traffic, and adding, turning off, or logging in again to an account.
 
 [Usage](docs/usage.md) explains every number on screen.
 
 ## Documentation
 
 - [Installation](docs/installation.md): what the install changes, updates, and removal
-- [Usage](docs/usage.md): the line under the prompt, the pane, and the dashboard
+- [Usage](docs/usage.md): the line under the prompt, the pane, its Usage table, and the dashboard
 - [How it works](docs/how-it-works.md): how oneclaude picks an account, holds back subagents, and reads usage
 - [Configuration](docs/configuration.md): every setting of the routing plugin
 - [Contributing](CONTRIBUTING.md): build, test, and run oneclaude from a checkout

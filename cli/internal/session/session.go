@@ -1,8 +1,11 @@
 package session
 
 import (
+	"bufio"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -13,17 +16,20 @@ import (
 )
 
 const (
-	headerSession = "X-Claude-Code-Session-Id"
-	headerAgent   = "X-Claude-Code-Agent-Id"
+	headerSession   = "X-Claude-Code-Session-Id"
+	headerAgent     = "X-Claude-Code-Agent-Id"
+	headerAgentType = "X-Claude-Code-Agent-Type"
 )
 
 var userIDSession = regexp.MustCompile(`_session_([a-f0-9-]+)$`)
 
 // Identity names one agent: a Claude Code session plus, for a subagent, its
-// agent id. Claude Code sends the agent id only for subagents.
+// agent id and the type Claude Code sends, which names a built-in type such
+// as Explore and calls every custom one "custom".
 type Identity struct {
 	Session string
 	Agent   string
+	Type    string
 }
 
 func (i Identity) Key() string {
@@ -41,14 +47,146 @@ func (i Identity) Subagent() bool {
 }
 
 func FromRequest(headers http.Header, body []byte) Identity {
-	id := Identity{Session: header(headers, headerSession), Agent: header(headers, headerAgent)}
+	id := Identity{Session: header(headers, headerSession), Agent: header(headers, headerAgent), Type: header(headers, headerAgentType)}
 	if id.Session == "" {
 		id.Session = fromBody(body)
 	}
 	if id.Agent == "main" {
 		id.Agent = ""
 	}
+	if id.Agent == "" || id.Type == "custom" {
+		id.Type = ""
+	}
 	return id
+}
+
+// Records reads what Claude Code writes about its sessions under its
+// projects folder: the folder a session runs in, from the cwd its transcript
+// records, and a subagent's type, from the meta file Claude Code writes as it
+// starts the subagent. Each answer is read once; a session or subagent not
+// written yet is looked for again a minute later.
+type Records struct {
+	root string
+
+	mu       sync.Mutex
+	sessions map[string]lookup[sessionRecord]
+	types    map[string]lookup[string]
+}
+
+// sessionRecord is where a session's transcript lives and the project it
+// runs in.
+type sessionRecord struct {
+	folder  string
+	project string
+}
+
+// lookup is one answer read from Claude Code's files, or a miss and when it
+// was looked for.
+type lookup[T any] struct {
+	value   T
+	found   bool
+	checked time.Time
+}
+
+const (
+	lookAgain  = time.Minute
+	remembered = 10000
+)
+
+// NewRecords reads the projects folder at root, Claude Code's
+// ~/.claude/projects.
+func NewRecords(root string) *Records {
+	return &Records{root: root, sessions: map[string]lookup[sessionRecord]{}, types: map[string]lookup[string]{}}
+}
+
+// remember answers key from cache, or reads it when it was never looked for
+// or was missing a minute or more ago.
+func remember[T any](r *Records, cache map[string]lookup[T], key string, now time.Time, read func() (T, bool)) T {
+	r.mu.Lock()
+	known, ok := cache[key]
+	r.mu.Unlock()
+	if ok && (known.found || now.Sub(known.checked) < lookAgain) {
+		return known.value
+	}
+	value, found := read()
+	r.mu.Lock()
+	if len(cache) >= remembered {
+		clear(cache)
+	}
+	cache[key] = lookup[T]{value: value, found: found, checked: now}
+	r.mu.Unlock()
+	return value
+}
+
+// ClaudeProjects is where Claude Code keeps its transcripts.
+func ClaudeProjects() string {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return filepath.Join(dir, "projects")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "projects")
+}
+
+// Of answers an agent's type and its session's project: the folder name of
+// the session's working directory. A main session's type is empty.
+func (r *Records) Of(id Identity, now time.Time) (agentType, project string) {
+	if id.Session == "" || r.root == "" {
+		return id.Type, ""
+	}
+	record := remember(r, r.sessions, id.Session, now, func() (sessionRecord, bool) { return r.session(id.Session) })
+	if id.Agent == "" || id.Type != "" || record.folder == "" {
+		return id.Type, record.project
+	}
+	return remember(r, r.types, id.Key(), now, func() (string, bool) { return agentTypeIn(record.folder, id) }), record.project
+}
+
+func (r *Records) session(sessionID string) (sessionRecord, bool) {
+	entries, err := os.ReadDir(r.root)
+	if err != nil {
+		return sessionRecord{}, false
+	}
+	for _, entry := range entries {
+		folder := filepath.Join(r.root, entry.Name())
+		if cwd := cwdOf(filepath.Join(folder, sessionID+".jsonl")); cwd != "" {
+			return sessionRecord{folder: folder, project: filepath.Base(cwd)}, true
+		}
+	}
+	return sessionRecord{}, false
+}
+
+func agentTypeIn(folder string, id Identity) (string, bool) {
+	var meta struct {
+		AgentType string `json:"agentType"`
+	}
+	raw, err := os.ReadFile(filepath.Join(folder, id.Session, "subagents", "agent-"+id.Agent+".meta.json"))
+	if err != nil || json.Unmarshal(raw, &meta) != nil {
+		return "", false
+	}
+	return meta.AgentType, meta.AgentType != ""
+}
+
+// cwdOf reads a transcript's first lines for the working directory the
+// session started in.
+func cwdOf(transcript string) string {
+	f, err := os.Open(transcript)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for lines := 0; lines < 50 && scanner.Scan(); lines++ {
+		var entry struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &entry) == nil && entry.Cwd != "" {
+			return entry.Cwd
+		}
+	}
+	return ""
 }
 
 func header(h http.Header, name string) string {

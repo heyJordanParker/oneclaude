@@ -42,6 +42,27 @@ Codex accounts
 work              █▋████▌█████████████  8%
                   24% under pace · refills in 5d
 
+Usage
+
+Period  [Today]  Yesterday   7 days   30 days
+By      [Account]  Model   Agent   Project   Day
+Show    [Cost]  Tokens
+
+               Input   Output   Cache write   Cache read   Cached   Share   Total
+work              $5      $48          $257         $208      97%     62%    $518
+spare             $2      $13          $232          $68      82%     38%    $315
+All accounts      $7      $61          $489         $276      94%            $833
+
+[Optimize usage]
+
+Usage per day, last 30 days
+
+$3,053                                                    █ █
+                                                          █ █ ▅
+                                                          █ █ █
+       · · · · · · · · · · · · · · · · · · · · · · · · · █ █ █ █
+       Sep 19                                                Oct 18
+
 Warnings in the last 24 hours
 
 None
@@ -52,11 +73,37 @@ None
 - **Combined usage** is the pool, as the line under the prompt shows it. "frees 17%" is how much of the pool's quota the next refill gives back.
 - **Claude accounts** lists each account by the part of its address before the `@`. Each row shows its weekly usage, its pace, when its week resets, and the agents on it by model, such as `2 opus`, or `idle`. An account that used its whole week says `empty`, and new conversations skip it until it refills.
 - **Codex accounts** shows each Codex (ChatGPT) account the proxy holds, with its weekly usage. oneclaude shows these accounts only, and routes none of their requests.
+- **Usage** is what the pool's requests used. [Usage](#usage) explains it.
+- **Usage per day** is one column a day for the last 30 days, in Claude's color: the whole pool's cost, or its tokens when Usage shows tokens. A dot is a day with no request.
 - **Warnings in the last 24 hours** lists each subagent oneclaude held back, each throttle Anthropic sent, and each limit oneclaude lowered. [How it works](how-it-works.md) explains each one.
 
 A refill time reads in days from 2 days out, such as `4d`, in days and hours under 2 days, such as `1d 6h`, in hours and minutes under a day, such as `5h 20m`, and in minutes under an hour.
 
 In a narrow pane, each row puts its details on a second line under the bar, as above. A wide pane keeps each row on one line.
+
+## Usage
+
+The Usage table adds up every request the pool answered, from oneclaude's request log:
+
+- **Period** is today, yesterday, the last 7 days, or the last 30 days. Days start at midnight on your Mac. When the log starts inside the period, the table says when.
+- **By** splits the period into one row per account, per model such as Opus 5.5, per agent type, per project, or per day. An agent type is a subagent's type, such as `code-reviewer`, and every conversation you talk to adds up as Main sessions. A project is the folder its session runs in. Requests from before oneclaude recorded agent types and projects add up as Not recorded, and the table says so under it.
+- **Show** writes every cell as dollars or as tokens.
+
+Each row splits into input, output, cache writes, and cache reads. Then come **Cached**, how much of its input came from the cache, cache reads out of all input; its **Share** of the period's total; and its **Total**, last and in Claude's color, because it matters most. A Cached share under 90% shows in the warning color: it marks conversations and subagents that start cold, and so write their whole prompt to the cache again.
+
+A dollar figure is what the same tokens cost on the Claude API at [Anthropic's list prices](https://platform.claude.com/docs/en/about-claude/pricing), with cache writes at the 1-hour rate, the cache Claude Code writes. Your subscriptions are flat-priced, so it shows what they give you, not what you pay. A model with no list price adds its tokens and no dollars.
+
+The pane asks for the table's width when it docks beside the conversation. A pane narrower than the table leaves out the four token kinds.
+
+`[Optimize usage]` asks your agent, in the conversation you are in, to optimize your usage. It asks you first, in its place:
+
+```text
+Ask your agent to optimize your usage?
+We'll send it your last 30 days of usage, by agent, project and model.
+[Ask your agent]  [Cancel]
+```
+
+The prompt holds the last 30 days by agent type, project, and model, with every column. It asks Claude to read the agent definitions, Skills, and settings behind the most expensive rows, to propose changes ranked by what each saves per day, and to change nothing until you approve. Claude Code holds the prompt until the conversation is idle. The button needs the mod's permission to add text Claude reads, which you can turn off in `/mods oneclaude`, and then it hides.
 
 ## The bars
 
@@ -76,6 +123,7 @@ The rounded ends of each bar are [Nerd Font](https://www.nerdfonts.com) glyphs. 
 
 - the pool and every account's usage, pace, refill, and agents;
 - the warnings;
+- the Usage table, with the same choices as the pane, and every day of the last 30 stacked by the breakdown's largest rows;
 - each account's requests by the hour for the last 7 days;
 - the proxy's traffic, its credential files, and its settings;
 - buttons to add an account, turn one off, or log in to one again.
