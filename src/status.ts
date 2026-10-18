@@ -7,6 +7,8 @@ const RESOURCES = `${PROXY}/v0/resource/plugins/oneclaude`
 
 export const STATUS_URL = `${RESOURCES}/status.json`
 
+export const USAGE_URL = `${RESOURCES}/usage.json`
+
 // The dashboard page signs the proxy's panel in with oneclaude's management
 // key, then opens the panel at the dashboard, or at its OAuth login page to
 // add an account.
@@ -238,3 +240,4 @@ export function agentsOf(account: Account): number {
 export function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`
 }
+
