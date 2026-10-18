@@ -488,6 +488,97 @@ func TestUsageKeepsNinetyDaysAndPricesALineWithoutItsModelAsItsFamilysNewest(t *
 	}
 }
 
+func TestALoadFillsInTheAgentAndProjectOfLinesLoggedBeforeOneclaudeRecordedThem(t *testing.T) {
+	root := claudeProjects(t)
+	folder := filepath.Join(root, "-Users-turing-dotfiles")
+	main := model.Tokens{Input: 2, Output: 5411, CacheRead: 66598, CacheWrite: 19897}
+	review := model.Tokens{Input: 3, Output: 10, CacheRead: 100}
+	unrecorded := model.Tokens{Input: 4301, Output: 71, CacheRead: 190961}
+	assistant := func(at time.Time, request string, tokens model.Tokens) string {
+		return fmt.Sprintf(`{"type":"assistant","message":{"model":"claude-sonnet-5-5-20261001","usage":{"input_tokens":%d,"cache_creation_input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}},"requestId":"%s","timestamp":"%s"}`+"\n",
+			tokens.Input, tokens.CacheWrite, tokens.CacheRead, tokens.Output, request, at.UTC().Format(time.RFC3339Nano))
+	}
+	appendTo := func(path, text string) {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := testNow.Add(-2 * time.Hour)
+	appendTo(filepath.Join(folder, "s1.jsonl"), assistant(at.Add(-2*time.Second), "req_main", main))
+	appendTo(filepath.Join(folder, "s1", "subagents", "agent-a7.jsonl"), assistant(at.Add(time.Minute), "req_review", review))
+
+	dir := t.TempDir()
+	var log bytes.Buffer
+	for _, line := range []requestLine{
+		{At: at, Family: "opus", Account: "0000beef", Subagent: false, Outcome: "ok", Tokens: main},
+		{At: at.Add(time.Minute), Family: "opus", Account: "0000beef", Subagent: false, Outcome: "ok", Tokens: review},
+		{At: at.Add(2 * time.Minute), Family: "opus", Account: "0000beef", Subagent: true, Outcome: "ok", Tokens: unrecorded},
+		{At: at.Add(3 * time.Minute), Model: "claude-opus-5-5", Family: "opus", Account: "0000beef", Agent: "Explore", Subagent: true, Project: "cmod", Outcome: "ok", Tokens: unrecorded},
+	} {
+		raw, _ := json.Marshal(line)
+		log.Write(append(raw, '\n'))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), log.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	load := func() *Plugin {
+		p := New(Options{Name: "oneclaude", NoPoller: true, ClaudeProjects: root, Now: func() time.Time { return testNow }})
+		cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+		p.Call(MethodPluginRegister, cfg)
+		call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+		return p
+	}
+	p := load()
+	agents := usageOf(t, p, "today", "agent")
+	p.Shutdown()
+	labels := map[string]string{}
+	for _, row := range agents.Rows {
+		labels[row.Label] = row.Key
+	}
+	if len(agents.Rows) != 4 || labels["Main sessions"] != "main" || labels["code-reviewer"] != "code-reviewer" || labels["Explore"] != "Explore" || labels["Not recorded"] != "" {
+		t.Fatalf("by agent = %+v, want the old main and code-reviewer lines filled in, and the line no transcript records still Not recorded", agents.Rows)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, "requests.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var filled []requestLine
+	for _, text := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
+		var line requestLine
+		if err := json.Unmarshal(text, &line); err != nil {
+			t.Fatal(err)
+		}
+		filled = append(filled, line)
+	}
+	if len(filled) != 4 {
+		t.Fatalf("log holds %d lines, want 4", len(filled))
+	}
+	if l := filled[0]; l.Model != "claude-sonnet-5-5" || l.Subagent || l.Project != "dotfiles" {
+		t.Fatalf("main line = %+v", l)
+	}
+	if l := filled[1]; l.Model != "claude-sonnet-5-5" || !l.Subagent || l.Agent != "code-reviewer" || l.Project != "dotfiles" {
+		t.Fatalf("subagent line = %+v, want the code-reviewer the old log called a main session", l)
+	}
+	if l := filled[2]; l.Model != "claude-opus-5-5" || l.Agent != "" || l.Project != "" {
+		t.Fatalf("unrecorded line = %+v, want its family's newest model so no load looks again", l)
+	}
+	if l := filled[3]; l.Agent != "Explore" || l.Project != "cmod" {
+		t.Fatalf("a recorded line = %+v, want it untouched", l)
+	}
+
+	again := load()
+	defer again.Shutdown()
+	if after := usageOf(t, again, "today", "agent"); len(after.Rows) != 4 {
+		t.Fatalf("a second load = %+v", after.Rows)
+	}
+}
+
 // proxyWithCodex answers the host calls a usage poll makes, for a proxy that
 // holds one Codex account and no Claude account.
 func proxyWithCodex(t *testing.T) HostFunc {

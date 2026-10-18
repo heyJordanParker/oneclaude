@@ -68,7 +68,9 @@ The plugin keeps its files in `~/.cli-proxy-api/plugins/oneclaude/`, or in its `
 - `requests.jsonl`: one line per request, kept for 90 days, with its account, model, agent type, project, and tokens, which Usage and the dashboard's history add up;
 - `install.key`: a random salt for the account ids it writes there.
 
-A request's agent type and project come from the files Claude Code keeps in `~/.claude/projects/`. Claude Code sends a custom agent's type only as `custom`, so the plugin reads the type from the file Claude Code writes as it starts each subagent, `<session>/subagents/agent-<id>.meta.json`. A session's project is the last folder of the working directory its transcript records. The plugin reads each once, and nothing else in those files.
+A request's agent type and project come from the files Claude Code keeps in `~/.claude/projects/`. Claude Code sends a custom agent's type only as `custom`, so the plugin reads the type from the file Claude Code writes as it starts each subagent, `<session>/subagents/agent-<id>.meta.json`. A session's project is the last folder of the working directory its transcript records. The plugin reads each once.
+
+Versions before 0.5.1 logged no agent type or project. The first time 0.5.3 or later loads such a log, it fills them in once, in the background on two cores: each old request takes the agent type, project and model of the one request a transcript records with the same tokens within a minute. It reads only the transcripts written since the log's first request, from their end back to it. A request no transcript records stays Not recorded.
 
 The plugin adds up the log when the proxy starts, in the background, and counts each request as it comes in, so Usage never waits on the file.
 

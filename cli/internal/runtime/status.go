@@ -234,27 +234,34 @@ func (p *Plugin) History() History {
 }
 
 // readRequestLog adds the lines earlier loads wrote to requests.jsonl, the
-// last 90 days of them, once per load. load starts it in the background, so
-// the first History waits for it only while it is still reading.
+// last 90 days of them, once per load, after filling in the lines logged
+// before oneclaude recorded their agent and project. load starts it in the
+// background, so the first History waits for it only while it is still
+// reading.
 func (p *Plugin) readRequestLog() {
 	p.historyMu.Lock()
 	defer p.historyMu.Unlock()
 	p.mu.Lock()
-	read, dir, loadedAt := p.historyRead, p.loadedDir, p.loadedAt
+	read, dir, loadedAt, log := p.historyRead, p.loadedDir, p.loadedAt, p.log
 	p.mu.Unlock()
 	if read || dir == "" {
 		return
 	}
+	stillLoaded := func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.loadedDir == dir && p.loadedAt.Equal(loadedAt)
+	}
+	path := filepath.Join(dir, "requests.jsonl")
+	p.backfill(path, log, stillLoaded)
 	earlier := newRequestHistory()
 	hoursFrom := loadedAt.Add(-historyWindow)
 	daysFrom := loadedAt.AddDate(0, 0, -daysKept)
 	current := true
 	lines := 0
-	_ = usage.ReadBack(filepath.Join(dir, "requests.jsonl"), func(raw []byte) bool {
+	_ = usage.ReadBack(path, func(raw []byte) bool {
 		if lines++; lines%4096 == 0 {
-			p.mu.Lock()
-			current = p.loadedDir == dir && p.loadedAt.Equal(loadedAt)
-			p.mu.Unlock()
+			current = stillLoaded()
 		}
 		var line requestLine
 		if json.Unmarshal(raw, &line) != nil {

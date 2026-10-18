@@ -71,11 +71,14 @@ func ReadBack(path string, fn func(line []byte) bool) error {
 }
 
 // Log appends one JSON line per request. Lines queue in memory and a single
-// writer drains them, so a slow disk never holds a request.
+// writer drains them, so a slow disk never holds a request. The writer also
+// runs every rewrite of the file, so no rewrite loses a line appended
+// meanwhile.
 type Log struct {
 	path    string
 	keep    time.Duration
 	lines   chan []byte
+	edits   chan func()
 	done    chan struct{}
 	mu      sync.Mutex
 	closed  bool
@@ -83,9 +86,20 @@ type Log struct {
 }
 
 func NewLog(path string, keep time.Duration) *Log {
-	l := &Log{path: path, keep: keep, lines: make(chan []byte, 4096), done: make(chan struct{})}
+	l := &Log{path: path, keep: keep, lines: make(chan []byte, 4096), edits: make(chan func()), done: make(chan struct{})}
 	go l.run()
 	return l
+}
+
+// Rewrite passes every line of the log through edit and waits until the
+// writer has replaced the file. An edit that returns nil drops its line.
+func (l *Log) Rewrite(edit func(line []byte) []byte) {
+	finished := make(chan struct{})
+	select {
+	case l.edits <- func() { defer close(finished); l.rewrite(edit) }:
+		<-finished
+	case <-l.done:
+	}
 }
 
 func (l *Log) Append(v any) {
@@ -122,8 +136,33 @@ func (l *Log) Close() {
 func (l *Log) run() {
 	defer close(l.done)
 	defer func() { _ = recover() }()
-	for line := range l.lines {
-		l.write(line)
+	for {
+		select {
+		case line, ok := <-l.lines:
+			if !ok {
+				return
+			}
+			l.write(line)
+		case edit := <-l.edits:
+			l.drain()
+			edit()
+		}
+	}
+}
+
+// drain writes every line queued so far, so a rewrite sees each line
+// appended before it.
+func (l *Log) drain() {
+	for {
+		select {
+		case line, ok := <-l.lines:
+			if !ok {
+				return
+			}
+			l.write(line)
+		default:
+			return
+		}
 	}
 }
 
@@ -147,24 +186,38 @@ func (l *Log) write(line []byte) {
 }
 
 func (l *Log) prune() {
+	cutoff := time.Now().Add(-l.keep)
+	l.rewrite(func(raw []byte) []byte {
+		var line struct {
+			At time.Time `json:"at"`
+		}
+		if json.Unmarshal(raw, &line) == nil && line.At.Before(cutoff) {
+			return nil
+		}
+		return raw
+	})
+}
+
+func (l *Log) rewrite(edit func(line []byte) []byte) {
+	if l.path == "" {
+		return
+	}
 	f, err := os.Open(l.path)
 	if err != nil {
 		return
 	}
-	cutoff := time.Now().Add(-l.keep)
 	var kept [][]byte
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		var line struct {
-			At time.Time `json:"at"`
+		if line := edit(append([]byte(nil), scanner.Bytes()...)); line != nil {
+			kept = append(kept, line)
 		}
-		if json.Unmarshal(scanner.Bytes(), &line) == nil && line.At.Before(cutoff) {
-			continue
-		}
-		kept = append(kept, append([]byte(nil), scanner.Bytes()...))
 	}
 	_ = f.Close()
+	if scanner.Err() != nil {
+		return
+	}
 	tmp := l.path + ".tmp"
 	out, err := os.Create(tmp)
 	if err != nil {
