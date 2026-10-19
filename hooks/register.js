@@ -9093,7 +9093,7 @@ function oneLine(error) {
   return messageOf(error).replace(/\s*\n\s*/g, " ");
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/status.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/status.ts
 var PROXY = "http://127.0.0.1:8317";
 var RESOURCES = `${PROXY}/v0/resource/plugins/oneclaude`;
 var STATUS_URL = `${RESOURCES}/status.json`;
@@ -9200,7 +9200,10 @@ function bar(used, pace2, cells) {
     drawn.push(left === right ? { text: "█", color: left } : { text: EIGHTHS[edge] ?? "█", color: left, background: right });
   }
   drawn.push({ text: CAP_RIGHT, color: colorAt(units - 1) });
-  return drawn.reduce((runs, cell) => {
+  return runsOf(drawn);
+}
+function runsOf(cells) {
+  return cells.reduce((runs, cell) => {
     const last = runs.at(-1);
     if (last !== undefined && last.color === cell.color && last.background === cell.background)
       runs[runs.length - 1] = { ...last, text: last.text + cell.text };
@@ -9243,9 +9246,12 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/components/pool-bar.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/components/pool-bar.tsx
 function poolBar({ used, pace: pace2 }) {
-  return bar(used, pace2, BAR_CELLS).map((cell) => cell.background === undefined ? /* @__PURE__ */ h(Text, {
+  return drawCells(bar(used, pace2, BAR_CELLS));
+}
+function drawCells(cells) {
+  return cells.map((cell) => cell.background === undefined ? /* @__PURE__ */ h(Text, {
     color: cell.color
   }, cell.text) : /* @__PURE__ */ h(Text, {
     color: cell.color,
@@ -9253,7 +9259,7 @@ function poolBar({ used, pace: pace2 }) {
   }, cell.text));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/components/pool-line.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/components/pool-line.tsx
 var PACE_COLORS = {
   on: undefined,
   under: "success",
@@ -9333,7 +9339,99 @@ function definePane(pane) {
   return pane;
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/usage.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/components/weekly-resets.tsx
+var DAYS2 = 8;
+var DAY_MS = 24 * 60 * 60 * 1000;
+var WEEK_MS2 = 7 * DAY_MS;
+var GAP = 2;
+var MOST_CELLS = 8;
+var FEWEST_CELLS = 4;
+var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+var NOW_LINE = "│";
+var NOW_COLOR = "text";
+function calendarOf(accounts, now, room) {
+  const at = Date.parse(now);
+  const offset = offsetOf(now);
+  const start = at + offset - (at + offset) % DAY_MS - DAY_MS - offset;
+  const read2 = accounts.flatMap((account) => account.known && account.resets_at !== undefined ? [{ account, resets: Date.parse(account.resets_at) }] : []).sort((a, b) => a.resets - b.resets).map(({ account, resets }) => {
+    const left = until(account.resets_at, now);
+    return { account, resets, reset: left === "now" ? left : `in ${left}`, remaining: account.empty ? "empty" : `${percent(1 - account.used)} left` };
+  });
+  const resetWidth = Math.max(0, ...read2.map(({ reset }) => reset.length));
+  const label = resetWidth + GAP + Math.max(0, ...read2.map(({ remaining }) => remaining.length));
+  const perDay = Math.min(MOST_CELLS, Math.max(FEWEST_CELLS, Math.floor((room - GAP - label) / DAYS2)));
+  const cellAt = (time2) => (time2 - start) / DAY_MS * perDay;
+  const nowCell = Math.floor(cellAt(at));
+  const days = Array.from({ length: DAYS2 }, (_, day) => {
+    const date2 = new Date(start + offset + day * DAY_MS);
+    const name = WEEKDAYS[date2.getUTCDay()];
+    return (perDay > `${name} 00`.length ? `${name} ${date2.getUTCDate()}` : name).padEnd(perDay);
+  });
+  return {
+    days: days.join("").trimEnd(),
+    now: nowCell,
+    lanes: read2.map(({ account, resets, reset, remaining }) => {
+      const isNearlyEmpty = account.empty || account.used >= NEARLY_EMPTY;
+      const edges = [resets - WEEK_MS2, resets, resets + WEEK_MS2].map((time2) => edgeOf(Math.round(cellAt(time2)), nowCell));
+      return { name: account.name, cells: weeksOf(edges, nowCell, DAYS2 * perDay, isNearlyEmpty), reset: reset.padEnd(resetWidth), remaining, isNearlyEmpty };
+    })
+  };
+}
+function edgeOf(cell, nowCell) {
+  return cell > nowCell ? Math.max(cell, nowCell + 2) : Math.min(cell, nowCell - 1);
+}
+function weeksOf(edges, nowCell, cells, isNearlyEmpty) {
+  const weekOf = (cell) => edges.filter((edge) => edge <= cell).length;
+  const current2 = weekOf(nowCell);
+  const colorOf = (cell) => {
+    const week = weekOf(cell);
+    if (week < current2)
+      return "inactive";
+    if (week > current2)
+      return "subtle";
+    if (isNearlyEmpty)
+      return "error";
+    return cell < nowCell ? "inactive" : "claude";
+  };
+  return runsOf(Array.from({ length: cells }, (_, cell) => {
+    const color = colorOf(cell);
+    if (cell === nowCell)
+      return { text: NOW_LINE, color: NOW_COLOR, background: color };
+    if (cell > 0 && edges.includes(cell))
+      return { text: CAP_LEFT, color };
+    if (cell < cells - 1 && edges.includes(cell + 1))
+      return { text: CAP_RIGHT, color };
+    return { text: "█", color };
+  }));
+}
+function offsetOf(iso) {
+  const match = /([+-])(\d\d):(\d\d)$/.exec(iso);
+  if (match === null)
+    return 0;
+  const minutes = Number(match[2]) * 60 + Number(match[3]);
+  return (match[1] === "-" ? -minutes : minutes) * 60000;
+}
+function WeeklyResets({ calendar, width }) {
+  const gap = " ".repeat(GAP);
+  const indent = " ".repeat(width + GAP);
+  const line = /* @__PURE__ */ h(Text, {
+    color: NOW_COLOR
+  }, `${indent}${" ".repeat(calendar.now)}${NOW_LINE}`);
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, /* @__PURE__ */ h(Text, {
+    dimColor: true
+  }, `${indent}${calendar.days}`), calendar.lanes.flatMap((lane) => [
+    line,
+    /* @__PURE__ */ h(Text, null, `${lane.name.padEnd(width)}${gap}`, drawCells(lane.cells), /* @__PURE__ */ h(Text, {
+      color: lane.isNearlyEmpty ? "error" : undefined
+    }, `${gap}${lane.reset}${gap}`, /* @__PURE__ */ h(Text, {
+      dimColor: !lane.isNearlyEmpty
+    }, lane.remaining)))
+  ]));
+}
+
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/usage.ts
 var PERIODS = [["today", "Today"], ["yesterday", "Yesterday"], ["week", "7 days"], ["month", "30 days"]];
 var BREAKDOWNS = [["account", "Account"], ["model", "Model"], ["agent", "Agent"], ["project", "Project"], ["day", "Day"]];
 var UNITS = [["cost", "Cost"], ["tokens", "Tokens"]];
@@ -9446,9 +9544,9 @@ function optimizePrompt(agents, projects, models) {
 `);
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/panes/accounts.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/panes/accounts.tsx
 var COMBINED = "Combined usage";
-var GAP = 2;
+var GAP2 = 2;
 var INSET = 3;
 var CONTROL = 7;
 function usageColumns(state) {
@@ -9492,7 +9590,7 @@ var accountsPane = definePane({
     const codex = status.codex.map((account) => codexRow(account, status.now, shown[codexKey(account)]));
     const rows = [combined, ...claude, ...codex];
     const width = Math.max(...rows.map((row) => row.name.length));
-    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_CELLS + 2 + GAP + factText(row.facts).length > bodyColumns);
+    const isNarrow = rows.some((row) => INSET * 2 + width + GAP2 + BAR_CELLS + 2 + GAP2 + factText(row.facts).length > bodyColumns);
     const draw = (row) => /* @__PURE__ */ h(RowView, {
       row,
       width,
@@ -9516,7 +9614,12 @@ var accountsPane = definePane({
       title: "Claude accounts"
     }, claude.map(draw)), codex.length > 0 ? /* @__PURE__ */ h(Section, {
       title: "Codex accounts"
-    }, codex.map(draw)) : null, /* @__PURE__ */ h(UsageSection, {
+    }, codex.map(draw)) : null, /* @__PURE__ */ h(ResetsSection, {
+      accounts: status.accounts,
+      now: status.now,
+      width,
+      columns: bodyColumns - INSET * 2
+    }), /* @__PURE__ */ h(UsageSection, {
       mod,
       table: mod.state.memory.table,
       view: mod.state.memory.usage,
@@ -9559,6 +9662,17 @@ function Section({ key, title, children }) {
     gap: 1
   }, children));
 }
+function ResetsSection({ accounts, now, width, columns }) {
+  const calendar = calendarOf(accounts, now, columns - width - GAP2);
+  if (calendar.lanes.length === 0)
+    return null;
+  return /* @__PURE__ */ h(Section, {
+    title: "Weekly resets"
+  }, [/* @__PURE__ */ h(WeeklyResets, {
+    calendar,
+    width
+  })]);
+}
 function RowView({ row, width, isNarrow }) {
   const name = /* @__PURE__ */ h(Box, {
     flexShrink: 0
@@ -9568,7 +9682,7 @@ function RowView({ row, width, isNarrow }) {
   }, poolBar(row.shown));
   if (!isNarrow || row.shown === undefined) {
     return /* @__PURE__ */ h(Box, {
-      gap: GAP
+      gap: GAP2
     }, name, bar2, /* @__PURE__ */ h(Facts, {
       facts: row.facts,
       color: row.color
@@ -9578,12 +9692,12 @@ function RowView({ row, width, isNarrow }) {
   return /* @__PURE__ */ h(Box, {
     flexDirection: "column"
   }, /* @__PURE__ */ h(Box, {
-    gap: GAP
+    gap: GAP2
   }, name, bar2, /* @__PURE__ */ h(Facts, {
     facts: first === undefined ? [] : [first],
     color: row.color
   })), /* @__PURE__ */ h(Box, {
-    paddingLeft: width + GAP
+    paddingLeft: width + GAP2
   }, /* @__PURE__ */ h(Facts, {
     facts: rest,
     color: row.color
@@ -9817,12 +9931,12 @@ function WarningRow({ warning, now }) {
   }, warning.detail));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/state.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/state.ts
 var initialState = {
   memory: { reading: null, isOpen: false, shown: {}, usage: { period: "today", by: "account", units: "cost" }, table: null, isConfirming: false }
 };
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/src/mod.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/mod.tsx
 var REFRESH_MS = 15000;
 async function baseUrlOf() {
   const env = (await settings.user.read())["env"];
@@ -9916,7 +10030,7 @@ var oneclaude = defineMod({
   }
 });
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-mALvDo/release/hooks/register.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/hooks/register.ts
 function register(addHook, options) {
   registerMod(addHook, oneclaude, options);
 }

@@ -4,6 +4,7 @@ import { definePane } from '../../node_modules/@cmodjs/core/ui/define-pane.js'
 import { Box, Button, Link, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
+import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
 import { ADD_ACCOUNT_URL, ago, agentsOf, BAR_CELLS, claudeKey, codexKey, DASHBOARD_URL, evenOf, FAMILIES, paceOf, percent, plural, POOL, PROBLEMS, until, type Account, type Codex, type Shown, type Status, type Warning } from '../status.js'
 import { BREAKDOWNS, dailyChart, dayLabel, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
@@ -68,6 +69,7 @@ export const accountsPane = definePane<OneclaudeState>({
         </Box>
         <Section title="Claude accounts">{claude.map(draw)}</Section>
         {codex.length > 0 ? <Section title="Codex accounts">{codex.map(draw)}</Section> : null}
+        <ResetsSection accounts={status.accounts} now={status.now} width={width} columns={bodyColumns - INSET * 2} />
         <UsageSection mod={mod} table={mod.state.memory.table} view={mod.state.memory.usage} columns={bodyColumns - INSET * 2} />
         {mod.state.memory.table === null ? null : <ChartSection table={mod.state.memory.table} view={mod.state.memory.usage} />}
         <Section key="warnings" title="Warnings in the last 24 hours">
@@ -93,6 +95,12 @@ function Section({ key, title, children }: { readonly key?: string; readonly tit
       <Box flexDirection="column" gap={1}>{children}</Box>
     </Box>
   )
+}
+
+function ResetsSection({ accounts, now, width, columns }: { readonly accounts: readonly Account[]; readonly now: string; readonly width: number; readonly columns: number }): RenderElement | null {
+  const calendar = calendarOf(accounts, now, columns - width - GAP)
+  if (calendar.lanes.length === 0) return null
+  return <Section title="Weekly resets">{[<WeeklyResets calendar={calendar} width={width} />]}</Section>
 }
 
 function RowView({ row, width, isNarrow }: { readonly row: Row; readonly width: number; readonly isNarrow: boolean }): RenderElement {
