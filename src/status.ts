@@ -183,7 +183,12 @@ export function bar(used: number, pace: number, cells: number): readonly Cell[] 
     drawn.push(left === right ? { text: '█', color: left } : { text: EIGHTHS[edge] ?? '█', color: left, background: right })
   }
   drawn.push({ text: CAP_RIGHT, color: colorAt(units - 1) })
-  return drawn.reduce<Cell[]>((runs, cell) => {
+  return runsOf(drawn)
+}
+
+// runsOf joins neighbouring cells of the same colors into one run.
+export function runsOf(cells: readonly Cell[]): Cell[] {
+  return cells.reduce<Cell[]>((runs, cell) => {
     const last = runs.at(-1)
     if (last !== undefined && last.color === cell.color && last.background === cell.background) runs[runs.length - 1] = { ...last, text: last.text + cell.text }
     else runs.push(cell)

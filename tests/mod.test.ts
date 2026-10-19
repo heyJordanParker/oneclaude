@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import type { HttpResponse, RenderPropsOf } from 'claude-code'
 import { PromptHint } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
+import { calendarOf } from '../src/components/weekly-resets.js'
 import { oneclaude, REFRESH_MS } from '../src/mod.js'
 import { bar, CAP_LEFT, CAP_RIGHT, evenOf, glide, paceState, PROXY, until, type Cell, type Status } from '../src/status.js'
 import { dailyChart, GUTTER, money, tokenCount, usageLayout, type TableLine, type Tokens, type UsageRow, type UsageTable } from '../src/usage.js'
@@ -128,8 +129,9 @@ test('every section title has an empty line under it, and every bar an empty lin
   expect(pane).toContain('Claude accounts\n\nturing ')
   expect(pane).toContain('Codex accounts\n\nada ')
   expect(pane).toContain('Warnings in the last 24 hours\n\n')
+  expect(pane).toContain('Weekly resets\n\n')
   const barRows = pane.split('\n').map((row, index) => (BAR.test(row) ? index : -1)).filter((index) => index >= 0)
-  expect(barRows).toHaveLength(4)
+  expect(barRows).toHaveLength(6)
   for (let i = 1; i < barRows.length; i++) expect(barRows[i]! - barRows[i - 1]!).toBeGreaterThan(1)
 })
 
@@ -183,6 +185,50 @@ test('/accounts closes the pane it opened', async () => {
   expect(await tested.lines('accounts')).not.toHaveLength(0)
   await tested.type('/accounts')
   await expect(tested.lines('accounts')).rejects.toThrow()
+})
+
+test('/accounts lays each read Claude account\'s weeks on the days around now, soonest reset first, after every account', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  const rows = await tested.lines('accounts')
+  const pane = rows.join('\n')
+  expect(pane.indexOf('Codex accounts')).toBeLessThan(pane.indexOf('Weekly resets'))
+  expect(pane.indexOf('Weekly resets')).toBeLessThan(pane.indexOf('Usage'))
+  expect(pane).toMatch(/lamport +█+│\S+ {2}in 3h {2}empty/)
+  expect(pane).toMatch(/turing +\S+ {2}in 6d {2}60% left/)
+  expect(pane.indexOf('in 3h  empty')).toBeLessThan(pane.indexOf('in 6d  60% left'))
+  expect(pane).not.toMatch(/jarvis +█/)
+  const lanes = rows.flatMap((row, index) => (/(lamport|turing) +█/.test(row) ? [index] : []))
+  for (const lane of lanes) expect(rows[lane - 1]!.indexOf('│')).toBe(rows[lane]!.indexOf('│'))
+})
+
+test('the calendar draws each week as a bar from its first cell, cut by the line of now, in the plugin\'s time', () => {
+  const account = { ...status.accounts[0]!, used: 0.94, resets_at: '2026-10-20T19:59:59Z' }
+  const wide = calendarOf([account], '2026-10-19T11:46:17.45+03:00', 84)
+  expect(wide.days).toBe('Sun 18  Mon 19  Tue 20  Wed 21  Thu 22  Fri 23  Sat 24  Sun 25')
+  expect(wide.now).toBe(11)
+  expect(wide.lanes[0]).toMatchObject({ reset: 'in 1d 11h', remaining: '6% left', isNearlyEmpty: false })
+  expect(wide.lanes[0]!.cells).toEqual([
+    { text: '█'.repeat(11), color: 'inactive' },
+    { text: '│', color: 'text', background: 'claude' },
+    { text: `${'█'.repeat(11)}${CAP_RIGHT}`, color: 'claude' },
+    { text: `${CAP_LEFT}${'█'.repeat(39)}`, color: 'subtle' },
+  ])
+  const narrow = calendarOf([account], '2026-10-19T11:46:17.45+03:00', 62)
+  expect(narrow.days).toBe('Sun  Mon  Tue  Wed  Thu  Fri  Sat  Sun')
+  expect(narrow.now).toBe(7)
+})
+
+test('a week that opened inside the calendar ends the one before it, and a nearly empty week is red', () => {
+  const account = { ...status.accounts[1]!, resets_at: '2026-10-25T06:00:00Z' }
+  const calendar = calendarOf([account], '2026-10-19T11:46:17.45+03:00', 84)
+  expect(calendar.lanes[0]!.cells).toEqual([
+    { text: `██${CAP_RIGHT}`, color: 'inactive' },
+    { text: `${CAP_LEFT}${'█'.repeat(7)}`, color: 'error' },
+    { text: '│', color: 'text', background: 'error' },
+    { text: `${'█'.repeat(46)}${CAP_RIGHT}`, color: 'error' },
+    { text: `${CAP_LEFT}${'█'.repeat(4)}`, color: 'subtle' },
+  ])
 })
 
 test('an account marks its own even pace', () => {

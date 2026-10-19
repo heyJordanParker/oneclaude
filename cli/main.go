@@ -76,7 +76,7 @@ import (
 
 const (
 	pluginName    = "oneclaude"
-	pluginVersion = "0.5.3"
+	pluginVersion = "0.6.0"
 	pluginAuthor  = "heyJordanParker"
 	pluginRepo    = "https://github.com/heyJordanParker/oneclaude"
 )

@@ -2,7 +2,10 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and the Updated toast and /mods show it.
 
-## [Unreleased]
+## [0.6.0]
+
+### Added
+- Weekly resets in `/accounts` draws each Claude account's weeks as rounded bars on the days around now, cut at each reset, with a line at now through every account, soonest reset first, and how long until the reset and how much the account has left until then.
 
 ## [0.5.3]
 
