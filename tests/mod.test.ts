@@ -187,7 +187,7 @@ test('/accounts closes the pane it opened', async () => {
   await expect(tested.lines('accounts')).rejects.toThrow()
 })
 
-test('/accounts lays each read Claude account\'s weeks on the days around now, soonest reset first, after every account', async () => {
+test('/accounts lays each read Claude account\'s week on the days around now, soonest reset first, after every account', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const rows = await tested.lines('accounts')
@@ -197,37 +197,38 @@ test('/accounts lays each read Claude account\'s weeks on the days around now, s
   expect(pane).toMatch(/lamport +█+│\S+ {2}in 3h {2}empty/)
   expect(pane).toMatch(/turing +\S+ {2}in 6d {2}60% left/)
   expect(pane.indexOf('in 3h  empty')).toBeLessThan(pane.indexOf('in 6d  60% left'))
-  expect(pane).not.toMatch(/jarvis +█/)
-  const lanes = rows.flatMap((row, index) => (/(lamport|turing) +█/.test(row) ? [index] : []))
+  expect(pane).not.toMatch(/jarvis .*│/)
+  const lanes = rows.flatMap((row, index) => (/(lamport|turing) .*│/.test(row) ? [index] : []))
+  expect(lanes).toHaveLength(2)
   for (const lane of lanes) expect(rows[lane - 1]!.indexOf('│')).toBe(rows[lane]!.indexOf('│'))
 })
 
-test('the calendar draws each week as a bar from its first cell, cut by the line of now, in the plugin\'s time', () => {
+test('the calendar draws the week as one bar, dark up to now, gray while its quota lasts and faint after, on a line across the lane, in the plugin\'s time', () => {
   const account = { ...status.accounts[0]!, used: 0.94, resets_at: '2026-10-20T19:59:59Z' }
   const wide = calendarOf([account], '2026-10-19T11:46:17.45+03:00', 84)
   expect(wide.days).toBe('Sun 18  Mon 19  Tue 20  Wed 21  Thu 22  Fri 23  Sat 24  Sun 25')
   expect(wide.now).toBe(11)
   expect(wide.lanes[0]).toMatchObject({ reset: 'in 1d 11h', remaining: '6% left', isNearlyEmpty: false })
   expect(wide.lanes[0]!.cells).toEqual([
-    { text: '█'.repeat(11), color: 'inactive' },
-    { text: '│', color: 'text', background: 'claude' },
-    { text: `${'█'.repeat(11)}${CAP_RIGHT}`, color: 'claude' },
-    { text: `${CAP_LEFT}${'█'.repeat(39)}`, color: 'subtle' },
+    { text: '█'.repeat(11), color: 'subtle' },
+    { text: '│', color: 'text', background: 'inactive' },
+    { text: '███', color: 'inactive' },
+    { text: `${'█'.repeat(8)}${CAP_RIGHT}${'╌'.repeat(40)}`, color: 'inactive', isDim: true },
   ])
   const narrow = calendarOf([account], '2026-10-19T11:46:17.45+03:00', 62)
   expect(narrow.days).toBe('Sun  Mon  Tue  Wed  Thu  Fri  Sat  Sun')
   expect(narrow.now).toBe(7)
 })
 
-test('a week that opened inside the calendar ends the one before it, and a nearly empty week is red', () => {
+test('a week that opened inside the calendar starts there, and an empty account is faint red from now to its reset', () => {
   const account = { ...status.accounts[1]!, resets_at: '2026-10-25T06:00:00Z' }
   const calendar = calendarOf([account], '2026-10-19T11:46:17.45+03:00', 84)
   expect(calendar.lanes[0]!.cells).toEqual([
-    { text: `██${CAP_RIGHT}`, color: 'inactive' },
-    { text: `${CAP_LEFT}${'█'.repeat(7)}`, color: 'error' },
+    { text: '╌╌╌', color: 'inactive', isDim: true },
+    { text: `${CAP_LEFT}${'█'.repeat(7)}`, color: 'subtle' },
     { text: '│', color: 'text', background: 'error' },
-    { text: `${'█'.repeat(46)}${CAP_RIGHT}`, color: 'error' },
-    { text: `${CAP_LEFT}${'█'.repeat(4)}`, color: 'subtle' },
+    { text: `${'█'.repeat(46)}${CAP_RIGHT}`, color: 'error', isDim: true },
+    { text: '╌'.repeat(5), color: 'inactive', isDim: true },
   ])
 })
 

@@ -46,9 +46,9 @@ Weekly resets
 
                   Sun 18 Mon 19 Tue 20 Wed 21 Thu 22 Fri 23 Sat 24 Sun 25
                               │
-spare             ████████████│███████████████████████████████████████████  in 2d  empty
+spare             ████████████│█████████████╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  in 2d  empty
                               │
-work              ████████████│███████████████████████████████████████████  in 3d  30% left
+work              ████████████│████████████████████╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  in 3d  30% left
 
 Usage
 
@@ -81,7 +81,7 @@ None
 - **Combined usage** is the pool, as the line under the prompt shows it. "frees 17%" is how much of the pool's quota the next refill gives back.
 - **Claude accounts** lists each account by the part of its address before the `@`. Each row shows its weekly usage, its pace, when its week resets, and the agents on it by model, such as `2 opus`, or `idle`. An account that used its whole week says `empty`, and new conversations skip it until it refills.
 - **Codex accounts** shows each Codex (ChatGPT) account the proxy holds, with its weekly usage. oneclaude shows these accounts only, and routes none of their requests.
-- **Weekly resets** lays 8 days, from yesterday's midnight, under the names and dates of the days, one lane per Claude account, soonest reset first. Each of the account's weeks is a rounded bar, cut where its week resets. The week it is in is gray up to now and in Claude's color after, all red in its last 5% of the week's quota, as its usage bar is. The week after is faint. A white line marks now through every lane. Each lane ends with how long until the week resets and how much the account has left until then. A narrower pane gives each day fewer cells, down to 6 hours a cell, and names only the weekday.
+- **Weekly resets** lays 8 days, from yesterday's midnight, under the names and dates of the days, one lane per Claude account, soonest reset first. Each lane is the account's current week as one rounded bar, from when the week opened to when it resets, on a faint line that runs across the rest of the lane. It is dark up to now, gray while the account's quota lasts at its pace so far this week, and faint from where that pace would empty it until the reset. The gray is red in the last 5% of the week's quota, as the usage bar is. A white line marks now through every lane. Each lane ends with how long until the week resets and how much the account has left until then. A narrower pane gives each day fewer cells, down to 6 hours a cell, and names only the weekday.
 - **Usage** is what the pool's requests used. [Usage](#usage) explains it.
 - **Usage per day** is one column a day for the last 30 days, in Claude's color: the whole pool's cost, or its tokens when Usage shows tokens. A dot is a day with no request.
 - **Warnings in the last 24 hours** lists each subagent oneclaude held back, each throttle Anthropic sent, and each limit oneclaude lowered. [How it works](how-it-works.md) explains each one.

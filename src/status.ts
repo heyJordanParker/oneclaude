@@ -148,8 +148,9 @@ export function ago(iso: string, now: string): string {
 }
 
 // A bar cell holds one color, or two split at an eighth of the cell: the
-// glyph fills the left part in color and leaves the background showing.
-export type Cell = { readonly text: string; readonly color: Color; readonly background?: Color }
+// glyph fills the left part in color and leaves the background showing. A
+// dim cell draws its color faint.
+export type Cell = { readonly text: string; readonly color: Color; readonly background?: Color; readonly isDim?: boolean }
 
 export const BAR_CELLS = 20
 
@@ -190,7 +191,7 @@ export function bar(used: number, pace: number, cells: number): readonly Cell[] 
 export function runsOf(cells: readonly Cell[]): Cell[] {
   return cells.reduce<Cell[]>((runs, cell) => {
     const last = runs.at(-1)
-    if (last !== undefined && last.color === cell.color && last.background === cell.background) runs[runs.length - 1] = { ...last, text: last.text + cell.text }
+    if (last !== undefined && last.color === cell.color && last.background === cell.background && last.isDim === cell.isDim) runs[runs.length - 1] = { ...last, text: last.text + cell.text }
     else runs.push(cell)
     return runs
   }, [])
