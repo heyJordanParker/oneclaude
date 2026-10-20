@@ -7,9 +7,5 @@ export function poolBar({ used, pace }: Shown): RenderElement[] {
 }
 
 export function drawCells(cells: readonly Cell[]): RenderElement[] {
-  return cells.map((cell) => (
-    cell.background === undefined
-      ? <Text color={cell.color}>{cell.text}</Text>
-      : <Text color={cell.color} backgroundColor={cell.background}>{cell.text}</Text>
-  ))
+  return cells.map((cell) => <Text color={cell.color} backgroundColor={cell.background} dimColor={cell.isDim}>{cell.text}</Text>)
 }

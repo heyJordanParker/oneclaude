@@ -2,6 +2,11 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and the Updated toast and /mods show it.
 
+## [0.6.1]
+
+### Changed
+- Weekly resets draws only each account's current week, as one bar on a faint line across the days: dark up to now, gray while the account's quota lasts at its pace so far this week, and faint from where it would run out until the reset. The orange is gone, and red again means only a nearly empty account.
+
 ## [0.6.0]
 
 ### Added

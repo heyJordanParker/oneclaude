@@ -4,7 +4,8 @@ import { CAP_LEFT, CAP_RIGHT, NEARLY_EMPTY, percent, runsOf, until, type Account
 import { drawCells } from './pool-bar.js'
 
 const DAYS = 8
-const DAY_MS = 24 * 60 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
 const WEEK_MS = 7 * DAY_MS
 const GAP = 2
 const MOST_CELLS = 8
@@ -13,8 +14,8 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const NOW_LINE = '│'
 const NOW_COLOR: Color = 'text'
 
-// A Lane is one account's weeks on the calendar, a rounded bar each, then
-// how long until its week resets and how much it has left until then.
+// A Lane is one account's week on the calendar as a rounded bar, then how
+// long until it resets and how much it has left until then.
 export type Lane = {
   readonly name: string
   readonly cells: readonly Cell[]
@@ -54,8 +55,12 @@ export function calendarOf(accounts: readonly Account[], now: string, room: numb
     now: nowCell,
     lanes: read.map(({ account, resets, reset, remaining }) => {
       const isNearlyEmpty = account.empty || account.used >= NEARLY_EMPTY
-      const edges = [resets - WEEK_MS, resets, resets + WEEK_MS].map((time) => edgeOf(Math.round(cellAt(time)), nowCell))
-      return { name: account.name, cells: weeksOf(edges, nowCell, DAYS * perDay, isNearlyEmpty), reset: reset.padEnd(resetWidth), remaining, isNearlyEmpty }
+      const opened = resets - WEEK_MS
+      const open = edgeOf(Math.round(cellAt(opened)), nowCell)
+      const close = edgeOf(Math.round(cellAt(resets)), nowCell)
+      const runsOut = account.empty ? at : runsOutAt(account.used, opened, at)
+      const out = Math.min(close, Math.max(nowCell + 1, Math.round(cellAt(runsOut))))
+      return { name: account.name, cells: weekOf({ open, out, close }, nowCell, DAYS * perDay, isNearlyEmpty), reset: reset.padEnd(resetWidth), remaining, isNearlyEmpty }
     }),
   }
 }
@@ -66,26 +71,24 @@ function edgeOf(cell: number, nowCell: number): number {
   return cell > nowCell ? Math.max(cell, nowCell + 2) : Math.min(cell, nowCell - 1)
 }
 
-// weeksOf draws each week as a rounded bar from its first cell, its ends
-// square where it runs off the calendar. The week of now is gray up to now
-// and in Claude's color after, all red once the account is nearly empty.
-// Weeks before it are gray, and the week after it is faint.
-function weeksOf(edges: readonly number[], nowCell: number, cells: number, isNearlyEmpty: boolean): Cell[] {
-  const weekOf = (cell: number): number => edges.filter((edge) => edge <= cell).length
-  const current = weekOf(nowCell)
-  const colorOf = (cell: number): Color => {
-    const week = weekOf(cell)
-    if (week < current) return 'inactive'
-    if (week > current) return 'subtle'
-    if (isNearlyEmpty) return 'error'
-    return cell < nowCell ? 'inactive' : 'claude'
-  }
+// runsOutAt is when an account's quota runs out at the pace of its week so far.
+function runsOutAt(used: number, opened: number, now: number): number {
+  const pace = used / Math.max(now - opened, HOUR_MS)
+  return pace === 0 ? Infinity : now + (1 - used) / pace
+}
+
+// weekOf draws the week as one rounded bar from the cell it opened to the
+// cell it resets, its ends square where it runs off the calendar, on a faint
+// line across the rest of the lane. It is dark up to now, gray while its
+// quota lasts, red when the account is nearly empty, and faint from where its
+// quota would run out.
+function weekOf({ open, out, close }: { readonly open: number; readonly out: number; readonly close: number }, nowCell: number, cells: number, isNearlyEmpty: boolean): Cell[] {
   return runsOf(Array.from({ length: cells }, (_, cell): Cell => {
-    const color = colorOf(cell)
+    if (cell < open || cell >= close) return { text: '╌', color: 'inactive', isDim: true }
+    const color: Color = cell < nowCell ? 'subtle' : isNearlyEmpty ? 'error' : 'inactive'
     if (cell === nowCell) return { text: NOW_LINE, color: NOW_COLOR, background: color }
-    if (cell > 0 && edges.includes(cell)) return { text: CAP_LEFT, color }
-    if (cell < cells - 1 && edges.includes(cell + 1)) return { text: CAP_RIGHT, color }
-    return { text: '█', color }
+    const text = cell === open && cell > 0 ? CAP_LEFT : cell === close - 1 && close < cells ? CAP_RIGHT : '█'
+    return cell >= out ? { text, color, isDim: true } : { text, color }
   }))
 }
 

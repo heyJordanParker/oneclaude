@@ -9093,7 +9093,7 @@ function oneLine(error) {
   return messageOf(error).replace(/\s*\n\s*/g, " ");
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/status.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/src/status.ts
 var PROXY = "http://127.0.0.1:8317";
 var RESOURCES = `${PROXY}/v0/resource/plugins/oneclaude`;
 var STATUS_URL = `${RESOURCES}/status.json`;
@@ -9205,7 +9205,7 @@ function bar(used, pace2, cells) {
 function runsOf(cells) {
   return cells.reduce((runs, cell) => {
     const last = runs.at(-1);
-    if (last !== undefined && last.color === cell.color && last.background === cell.background)
+    if (last !== undefined && last.color === cell.color && last.background === cell.background && last.isDim === cell.isDim)
       runs[runs.length - 1] = { ...last, text: last.text + cell.text };
     else
       runs.push(cell);
@@ -9246,20 +9246,19 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/components/pool-bar.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/src/components/pool-bar.tsx
 function poolBar({ used, pace: pace2 }) {
   return drawCells(bar(used, pace2, BAR_CELLS));
 }
 function drawCells(cells) {
-  return cells.map((cell) => cell.background === undefined ? /* @__PURE__ */ h(Text, {
-    color: cell.color
-  }, cell.text) : /* @__PURE__ */ h(Text, {
+  return cells.map((cell) => /* @__PURE__ */ h(Text, {
     color: cell.color,
-    backgroundColor: cell.background
+    backgroundColor: cell.background,
+    dimColor: cell.isDim
   }, cell.text));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/components/pool-line.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/src/components/pool-line.tsx
 var PACE_COLORS = {
   on: undefined,
   under: "success",
@@ -9339,9 +9338,10 @@ function definePane(pane) {
   return pane;
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/components/weekly-resets.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/src/components/weekly-resets.tsx
 var DAYS2 = 8;
-var DAY_MS = 24 * 60 * 60 * 1000;
+var HOUR_MS = 60 * 60 * 1000;
+var DAY_MS = 24 * HOUR_MS;
 var WEEK_MS2 = 7 * DAY_MS;
 var GAP = 2;
 var MOST_CELLS = 8;
@@ -9372,36 +9372,31 @@ function calendarOf(accounts, now, room) {
     now: nowCell,
     lanes: read2.map(({ account, resets, reset, remaining }) => {
       const isNearlyEmpty = account.empty || account.used >= NEARLY_EMPTY;
-      const edges = [resets - WEEK_MS2, resets, resets + WEEK_MS2].map((time2) => edgeOf(Math.round(cellAt(time2)), nowCell));
-      return { name: account.name, cells: weeksOf(edges, nowCell, DAYS2 * perDay, isNearlyEmpty), reset: reset.padEnd(resetWidth), remaining, isNearlyEmpty };
+      const opened = resets - WEEK_MS2;
+      const open = edgeOf(Math.round(cellAt(opened)), nowCell);
+      const close = edgeOf(Math.round(cellAt(resets)), nowCell);
+      const runsOut = account.empty ? at : runsOutAt(account.used, opened, at);
+      const out = Math.min(close, Math.max(nowCell + 1, Math.round(cellAt(runsOut))));
+      return { name: account.name, cells: weekOf({ open, out, close }, nowCell, DAYS2 * perDay, isNearlyEmpty), reset: reset.padEnd(resetWidth), remaining, isNearlyEmpty };
     })
   };
 }
 function edgeOf(cell, nowCell) {
   return cell > nowCell ? Math.max(cell, nowCell + 2) : Math.min(cell, nowCell - 1);
 }
-function weeksOf(edges, nowCell, cells, isNearlyEmpty) {
-  const weekOf = (cell) => edges.filter((edge) => edge <= cell).length;
-  const current2 = weekOf(nowCell);
-  const colorOf = (cell) => {
-    const week = weekOf(cell);
-    if (week < current2)
-      return "inactive";
-    if (week > current2)
-      return "subtle";
-    if (isNearlyEmpty)
-      return "error";
-    return cell < nowCell ? "inactive" : "claude";
-  };
+function runsOutAt(used, opened, now) {
+  const pace2 = used / Math.max(now - opened, HOUR_MS);
+  return pace2 === 0 ? Infinity : now + (1 - used) / pace2;
+}
+function weekOf({ open, out, close }, nowCell, cells, isNearlyEmpty) {
   return runsOf(Array.from({ length: cells }, (_, cell) => {
-    const color = colorOf(cell);
+    if (cell < open || cell >= close)
+      return { text: "╌", color: "inactive", isDim: true };
+    const color = cell < nowCell ? "subtle" : isNearlyEmpty ? "error" : "inactive";
     if (cell === nowCell)
       return { text: NOW_LINE, color: NOW_COLOR, background: color };
-    if (cell > 0 && edges.includes(cell))
-      return { text: CAP_LEFT, color };
-    if (cell < cells - 1 && edges.includes(cell + 1))
-      return { text: CAP_RIGHT, color };
-    return { text: "█", color };
+    const text = cell === open && cell > 0 ? CAP_LEFT : cell === close - 1 && close < cells ? CAP_RIGHT : "█";
+    return cell >= out ? { text, color, isDim: true } : { text, color };
   }));
 }
 function offsetOf(iso) {
@@ -9431,7 +9426,7 @@ function WeeklyResets({ calendar, width }) {
   ]));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/usage.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/src/usage.ts
 var PERIODS = [["today", "Today"], ["yesterday", "Yesterday"], ["week", "7 days"], ["month", "30 days"]];
 var BREAKDOWNS = [["account", "Account"], ["model", "Model"], ["agent", "Agent"], ["project", "Project"], ["day", "Day"]];
 var UNITS = [["cost", "Cost"], ["tokens", "Tokens"]];
@@ -9544,7 +9539,7 @@ function optimizePrompt(agents, projects, models) {
 `);
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/panes/accounts.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/src/panes/accounts.tsx
 var COMBINED = "Combined usage";
 var GAP2 = 2;
 var INSET = 3;
@@ -9931,12 +9926,12 @@ function WarningRow({ warning, now }) {
   }, warning.detail));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/state.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/src/state.ts
 var initialState = {
   memory: { reading: null, isOpen: false, shown: {}, usage: { period: "today", by: "account", units: "cost" }, table: null, isConfirming: false }
 };
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/src/mod.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/src/mod.tsx
 var REFRESH_MS = 15000;
 async function baseUrlOf() {
   const env = (await settings.user.read())["env"];
@@ -10030,7 +10025,7 @@ var oneclaude = defineMod({
   }
 });
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-JTdVMT/release/hooks/register.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-RiqPfz/release/hooks/register.ts
 function register(addHook, options) {
   registerMod(addHook, oneclaude, options);
 }
