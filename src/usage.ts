@@ -1,12 +1,14 @@
 import { http } from '../node_modules/@cmodjs/core/mod.js'
-import { percent, USAGE_URL } from './status.js'
+import { MONTHS, percent, USAGE_URL } from './status.js'
 
-export type Period = 'today' | 'yesterday' | 'week' | 'month'
-export type Breakdown = 'account' | 'model' | 'agent' | 'project' | 'day'
+export type Period = 'quarter' | 'month' | 'week' | 'yesterday' | 'today'
+export type Breakdown = 'account' | 'model' | 'agent' | 'project' | 'time'
 export type Units = 'cost' | 'tokens'
 
-export const PERIODS: readonly (readonly [Period, string])[] = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', '7 days'], ['month', '30 days']]
-export const BREAKDOWNS: readonly (readonly [Breakdown, string])[] = [['account', 'Account'], ['model', 'Model'], ['agent', 'Agent'], ['project', 'Project'], ['day', 'Day']]
+export const PERIODS: readonly (readonly [Period, string])[] = [['quarter', '90 days'], ['month', '30 days'], ['week', '7 days'], ['yesterday', 'Yesterday'], ['today', 'Today']]
+// Time steps by the hour over Today or Yesterday, by the week over 90 days,
+// and by the day otherwise.
+export const BREAKDOWNS: readonly (readonly [Breakdown, string])[] = [['account', 'Account'], ['model', 'Model'], ['agent', 'Agent'], ['project', 'Project'], ['time', 'Time']]
 export const UNITS: readonly (readonly [Units, string])[] = [['cost', 'Cost'], ['tokens', 'Tokens']]
 
 // Tokens and Cost are counted by kind. A cost is in dollars at API list
@@ -15,14 +17,13 @@ export type Tokens = { readonly input: number; readonly output: number; readonly
 export type Cost = Tokens
 
 // A UsageRow is one row of the Usage table as the plugin labels it. Its key
-// is '' for requests whose agent type or project was not recorded.
+// is '' for requests whose account, agent type or project was not recorded.
 export type UsageRow = { readonly key: string; readonly label: string; readonly tokens: Tokens; readonly cost: Cost }
 
 // UsageTable is the plugin's Usage table for one period and breakdown, rows
-// largest first or newest first by day, and the last 30 days for the chart.
+// largest first or newest first by time, and the last 30 days for the chart.
 export type UsageTable = {
   readonly today: string
-  readonly since?: string
   readonly rows: readonly UsageRow[]
   readonly total: UsageRow
   readonly days: readonly { readonly day: string; readonly rows: readonly UsageRow[] }[]
@@ -41,7 +42,6 @@ export async function readUsage(period: Period, by: Breakdown, units: Units): Pr
 
 const KINDS = ['input', 'output', 'cache_write', 'cache_read'] as const
 const KIND_TITLES = { input: 'Input', output: 'Output', cache_write: 'Cache write', cache_read: 'Cache read' } as const
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 // COLD is the cache share below which a row starts too many conversations or
 // subagents cold.
@@ -58,7 +58,7 @@ export function cachedOf(tokens: Tokens): number | undefined {
   return input === 0 ? undefined : tokens.cache_read / input
 }
 
-export function dayLabel(day: string): string {
+function dayLabel(day: string): string {
   const [, month, date] = day.split('-').map(Number)
   return `${MONTHS[(month ?? 1) - 1]} ${date}`
 }
@@ -153,7 +153,7 @@ export function optimizePrompt(agents: UsageTable, projects: UsageTable, models:
     'By model:',
     ...lines(models),
     '',
-    `Any period and breakdown: ${USAGE_URL}?period=month&by=agent (period today, yesterday, week or month; by account, model, agent, project or day).`,
+    `Any period and breakdown: ${USAGE_URL}?period=month&by=agent (period quarter, month, week, yesterday or today; by account, model, agent, project or time).`,
     '',
     'Read the agent definitions, Skills and settings behind the most expensive rows, find what drives their cache writes and their output, and propose changes ranked by what each would save per day. Change nothing until I approve.',
   ].join('\n')

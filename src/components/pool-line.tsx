@@ -1,6 +1,6 @@
 import type { RenderElement } from 'claude-code'
 import { Box, Button, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
-import { pace, paceState, percent, plural, PROBLEMS, until, type PaceState, type Reading, type Shown } from '../status.js'
+import { pace, paceState, percent, plural, PROBLEMS, troublesOf, until, type PaceState, type Reading, type Shown } from '../status.js'
 import { poolBar } from './pool-bar.js'
 
 const PACE_COLORS: Readonly<Record<PaceState, string | undefined>> = {
@@ -27,9 +27,9 @@ export function Facts({ facts, color, wrap = 'wrap' }: { readonly facts: readonl
   return <Text color={color} dimColor={color === undefined} wrap={wrap}>{parts}</Text>
 }
 
-export function PoolLine({ reading, shown, isOpen, onToggle, onWarnings }: { readonly reading: Reading; readonly shown?: Shown; readonly isOpen: boolean; readonly onToggle: () => unknown; readonly onWarnings: () => unknown }): RenderElement {
+export function PoolLine({ reading, shown, isOpen, onToggle, onTrouble }: { readonly reading: Reading; readonly shown?: Shown; readonly isOpen: boolean; readonly onToggle: () => unknown; readonly onTrouble: (key: string) => unknown }): RenderElement {
   if ('problem' in reading) return <Text color="warning">{PROBLEMS[reading.problem]}</Text>
-  const { pool, warnings, now } = reading.status
+  const { pool, now } = reading.status
   const facts: Fact[] = pool.known === 0
     ? ['reading accounts', plural(pool.agents, 'agent')]
     : [
@@ -43,13 +43,13 @@ export function PoolLine({ reading, shown, isOpen, onToggle, onWarnings }: { rea
       <Box flexShrink={0}>{poolBar(shown ?? { used: pool.used, pace: pool.even })}</Box>
       <Box gap={1}>
         <Facts facts={facts} wrap="truncate-end" />
-        {warnings.length > 0 ? (
+        {troublesOf(reading.status, reading.blocks).map((trouble) => (
           <Box flexShrink={0}>
-            <Button key="warnings" plain onPress={onWarnings}>
-              <Text color="warning">{`[ ${plural(warnings.length, 'warning')} ]`}</Text>
+            <Button key={`trouble-${trouble.key}`} plain onPress={() => onTrouble(trouble.key)}>
+              <Text color="warning">{`· ${trouble.text}`}</Text>
             </Button>
           </Box>
-        ) : null}
+        ))}
         <Box flexShrink={0}>
           <Button key="accounts" plain dimColor onPress={onToggle}>{isOpen ? '[-]' : '[+]'}</Button>
         </Box>
