@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test'
+import { hashSync } from '../node_modules/bcrypt-ts/dist/browser.js'
 import type { HttpResponse, RenderPropsOf } from 'claude-code'
 import { PromptHint } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { calendarOf } from '../src/components/weekly-resets.js'
 import { oneclaude, REFRESH_MS } from '../src/mod.js'
-import { bar, CAP_LEFT, CAP_RIGHT, evenOf, glide, paceState, PROXY, until, type Cell, type Status } from '../src/status.js'
+import { bar, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, fits, glide, modelName, momentOf, paceState, PROXY, secretKeyOf, troublesOf, until, type Cell, type Status } from '../src/status.js'
 import { dailyChart, GUTTER, money, tokenCount, usageLayout, type TableLine, type Tokens, type UsageRow, type UsageTable } from '../src/usage.js'
 
 const hint: RenderPropsOf['PromptHint'] = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
@@ -14,25 +15,40 @@ const now = '2026-10-15T16:00:00Z'
 const status: Status = {
   version: '0.1.0',
   now,
-  pool: { used: 0.58, even: 0.67, pace: -0.09, next_refill: '2026-10-17T16:00:00Z', refill_gain: 0.11, agents: 14, accounts: 3, known: 2 },
+  pool: { used: 0.58, even: 0.67, pace: -0.09, next_refill: '2026-10-17T16:00:00Z', refill_gain: 0.11, agents: 14, accounts: 3, known: 2, limit_reached: false },
   accounts: [
-    { name: 'turing', plan: 'default_claude_max_20x', known: true, used: 0.4, resets_at: '2026-10-21T16:00:00Z', projected: false, empty: false, agents: { opus: 9, haiku: 2 }, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
-    { name: 'lamport', known: true, used: 1, resets_at: '2026-10-15T19:00:00Z', projected: false, empty: true, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
-    { name: 'jarvis', known: false, used: 0, projected: false, empty: false, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
+    { name: 'turing', auth_index: 't1', plan: 'default_claude_max_20x', known: true, used: 0.4, resets_at: '2026-10-21T16:00:00Z', projected: false, empty: false, signed_out: false, agents: { opus: 9, haiku: 2 }, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
+    { name: 'lamport', auth_index: 'l1', known: true, used: 1, resets_at: '2026-10-15T19:00:00Z', projected: false, empty: true, signed_out: false, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
+    { name: 'jarvis', auth_index: 'j1', known: false, used: 0, projected: false, empty: false, signed_out: false, agents: {}, limits: { opus: 19, sonnet: 19, haiku: 19, fable: 6 } },
   ],
   codex: [
     { name: 'ada', known: true, used: 0.3, resets_at: '2026-10-16T21:30:00Z', projected: false, empty: false },
   ],
-  warnings: [
-    { at: '2026-10-15T13:00:00Z', kind: 'throttled', account: 'turing', family: 'opus', agents: 12, detail: 'throttled on turing with 12 opus agents on the account' },
-    { at: '2026-10-15T15:30:00Z', kind: 'refused', family: 'fable', agents: 6, detail: 'subagent refused, every account at its Fable limit, told to retry in 3 minutes' },
+  log: [
+    { at: '2026-10-15T13:00:00Z', level: 'WARN', text: 'Anthropic rate limited turing (429).' },
+    { at: '2026-10-15T15:30:00Z', level: 'INFO', text: "oneclaude cleared the proxy's blocks on lamport, set after a 404 for Opus 5.5." },
   ],
 }
 
-function answering(response: Partial<HttpResponse> | Error) {
-  const tested = testMod(oneclaude)
-  tested.fakes.http.fetch = async () => {
+// proxyFiles is a proxy config whose management key is key, where oneclaude
+// install names it.
+function proxyFiles(key: string): Record<string, string> {
+  return {
+    '/test/home/.local/share/cmod/data/oneclaude/proxy-config': '/test/proxy.yaml\n',
+    '/test/proxy.yaml': `server:\n  port: 8317\nmanagement:\n  secret-key: "${hashSync(key, 4)}" # hashed by the proxy\n`,
+  }
+}
+
+// answering serves every request the mod makes: the status, and the proxy's
+// credentials with cooldowns when given.
+function answering(response: Partial<HttpResponse> | Error, cooldowns: Readonly<Record<string, readonly object[]>> = {}) {
+  const tested = testMod(oneclaude, { files: proxyFiles('oneclaude') })
+  tested.fakes.http.fetch = async (url) => {
     if (response instanceof Error) throw response
+    if (url.endsWith('/auth-files')) {
+      const files = Object.entries(cooldowns).map(([auth_index, list]) => ({ auth_index, provider: 'claude', cooldowns: list }))
+      return { status: 200, ok: true, headers: {}, text: JSON.stringify({ files }) }
+    }
     return { status: 200, ok: true, headers: {}, text: '', ...response }
   }
   return tested
@@ -49,8 +65,25 @@ test('the hint line shows the pool after the engine line', async () => {
   const line = await hintLines(answering({ text: JSON.stringify(status) }))
   expect(line.indexOf('PromptHint')).toBeLessThan(line.search(BAR))
   expect(line).toContain('58% · 9% under')
-  expect(line).toContain('[ 2 warnings ]')
+  expect(line).not.toContain('warning')
   expect(line).toMatch(/\S \[\+\]/)
+})
+
+test('the hint line names only what needs the person: a signed-out account, a blocked one, the agent limit', async () => {
+  const troubled = {
+    ...status,
+    pool: { ...status.pool, limit_reached: true },
+    accounts: status.accounts.map((account) => (account.name === 'jarvis' ? { ...account, signed_out: true } : account)),
+  }
+  const blocks = {
+    t1: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }],
+    l1: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'quota', retry_at: '2026-10-15T19:00:00Z' }],
+  }
+  const line = await hintLines(answering({ text: JSON.stringify(troubled) }, blocks))
+  expect(line).toContain('· 1 account signed out')
+  expect(line).toContain('· 1 account blocked')
+  expect(line).toContain('· agent limit reached')
+  expect(line).not.toContain('2 accounts blocked')
 })
 
 test('the toggle after the line shows [-] while the accounts pane is open', async () => {
@@ -59,11 +92,6 @@ test('the toggle after the line shows [-] while the accounts pane is open', asyn
   expect(await hintLines(tested)).toContain('[-]')
   await tested.type('/accounts')
   expect(await hintLines(tested)).toContain('[+]')
-})
-
-test('the hint line leaves warnings out when there are none', async () => {
-  const line = await hintLines(answering({ text: JSON.stringify({ ...status, warnings: [] }) }))
-  expect(line).not.toContain('warning')
 })
 
 test('the hint line says when the proxy does not answer', async () => {
@@ -96,7 +124,7 @@ test('the hint line refreshes on its timer', async () => {
   expect(await hintLines(tested)).toContain('58% · 9% under')
 })
 
-test('/accounts shows the combined usage, every account with its pace, and every warning', async () => {
+test('/accounts shows the combined usage, every account with its pace, and the log newest first', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   const pane = (await tested.lines('accounts')).join('\n')
@@ -109,9 +137,108 @@ test('/accounts shows the combined usage, every account with its pace, and every
   expect(pane).toContain('[Add account]')
   expect(pane).toContain('refills in 3h · idle')
   expect(pane).toContain('not read yet')
-  expect(pane).toContain('30m ago')
-  expect(pane).toContain('subagent refused, every account at its Fable limit')
-  expect(pane.indexOf('subagent refused')).toBeLessThan(pane.indexOf('throttled on turing'))
+  expect(pane).toContain(`${clockOf('2026-10-15T15:30:00Z')}  INFO  oneclaude cleared the proxy's blocks on lamport`)
+  expect(pane).toContain(`${clockOf('2026-10-15T13:00:00Z')}  WARN  Anthropic rate limited turing (429).`)
+  expect(pane.indexOf("oneclaude cleared the proxy's blocks")).toBeLessThan(pane.indexOf('Anthropic rate limited'))
+})
+
+test('/accounts puts each account\'s trouble on its row, with what fixes it', async () => {
+  const troubled = {
+    ...status,
+    accounts: status.accounts.map((account) => (
+      account.name === 'jarvis' ? { ...account, signed_out: true } : account.name === 'lamport' ? { ...account, throttled_at: '2026-10-15T15:48:00Z' } : account
+    )),
+  }
+  const blocks = { t1: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] }
+  const tested = answering({ text: JSON.stringify(troubled) }, blocks)
+  await tested.type('/accounts')
+  const pane = (await tested.lines('accounts')).join('\n')
+  expect(pane).toMatch(/jarvis +signed out {2}\[Sign in\]/)
+  expect(pane).toContain(`blocked for Opus 5.5 until ${momentOf('2026-10-15T20:50:00Z', now)}  [Unblock]`)
+  expect(pane).toContain('throttled 12m ago')
+})
+
+test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'s key, and the row clears', async () => {
+  const tested = testMod(oneclaude, { files: proxyFiles('oneclaude') })
+  const asked: { url: string; method?: string; key?: string; body?: string }[] = []
+  tested.fakes.http.fetch = async (url, init) => {
+    if (url.endsWith('/unblock')) {
+      asked.push({ url, method: init?.method, key: init?.headers?.['Authorization'], body: init?.body })
+      return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
+    }
+    if (url.endsWith('/auth-files')) {
+      const files = [{ auth_index: 't1', provider: 'claude', cooldowns: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] }]
+      return { status: 200, ok: true, headers: {}, text: JSON.stringify({ files }) }
+    }
+    return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
+  }
+  await tested.type('/accounts')
+  await tested.press('accounts', 'unblock-turing')
+  expect(asked).toEqual([{ url: `${PROXY}/v0/management/plugins/oneclaude/unblock`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
+  expect((await tested.lines('accounts')).join('\n')).not.toContain('[Unblock]')
+})
+
+// sentKeys starts the mod against a proxy whose management key is proxyKey,
+// holding the key the person entered, and answers the keys the mod sent.
+async function sentKeys(proxyKey: string, entered: string | null): Promise<readonly (string | undefined)[]> {
+  const tested = testMod(oneclaude, { files: proxyFiles(proxyKey), state: { global: { managementKey: entered } } })
+  const sent: (string | undefined)[] = []
+  tested.fakes.http.fetch = async (url, init) => {
+    if (url.endsWith('/auth-files')) {
+      sent.push(init?.headers?.['Authorization'])
+      return { status: 200, ok: true, headers: {}, text: '{"files":[]}' }
+    }
+    return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
+  }
+  await hintLines(tested)
+  return sent
+}
+
+test('the mod sends only a management key that fits the proxy\'s config, so the proxy never refuses it', async () => {
+  expect(await sentKeys('oneclaude', null)).toEqual(['Bearer oneclaude'])
+  expect(await sentKeys('their own key', null)).toEqual([])
+  expect(await sentKeys('their own key', 'their own key')).toEqual(['Bearer their own key'])
+  expect(await sentKeys('a changed key', 'their own key')).toEqual([])
+})
+
+test('the management key is read from the proxy config\'s management block, hashed or not', async () => {
+  expect(secretKeyOf('server:\n  port: 8317\nmanagement:\n  secret-key: "$2a$10$abc" # hashed\n')).toBe('$2a$10$abc')
+  expect(secretKeyOf("remote-management:\n  allow-remote: false\n  secret-key: 'plain'\n")).toBe('plain')
+  expect(secretKeyOf('management:\n  secret-key: ""\nother:\n  secret-key: x\n')).toBeUndefined()
+  expect(await fits('their own key', hashSync('their own key', 4))).toBe(true)
+  expect(await fits('oneclaude', hashSync('their own key', 4))).toBe(false)
+  expect(await fits('plain', 'plain')).toBe(true)
+})
+
+test('each trouble under the prompt opens /accounts at the row of the account it names, or at the accounts', () => {
+  const troubled = {
+    ...status,
+    pool: { ...status.pool, limit_reached: true },
+    accounts: status.accounts.map((account) => (account.name === 'jarvis' ? { ...account, signed_out: true } : account)),
+  }
+  const blocks = { t1: [{ model: 'claude-opus-5-5', until: '2026-10-15T20:50:00Z', reason: 'not_found' }] }
+  expect(troublesOf(troubled, blocks)).toEqual([
+    { text: '1 account signed out', key: 'account-jarvis' },
+    { text: '1 account blocked', key: 'account-turing' },
+    { text: 'agent limit reached', key: 'accounts' },
+  ])
+})
+
+test('/accounts shows the newest 10 log lines and counts the rest', async () => {
+  const log = Array.from({ length: 12 }, (_, i) => ({ at: new Date(Date.parse(now) - (12 - i) * 60_000).toISOString(), level: 'WARN' as const, text: `Anthropic rate limited turing (429). ${i}` }))
+  const tested = answering({ text: JSON.stringify({ ...status, log }) })
+  await tested.type('/accounts')
+  const pane = (await tested.lines('accounts')).join('\n')
+  expect(pane).toContain('(429). 11')
+  expect(pane).toContain('(429). 2')
+  expect(pane).not.toContain('(429). 1\n')
+  expect(pane).toContain('2 earlier lines on the dashboard')
+})
+
+test('/accounts leaves the log out when nothing happened', async () => {
+  const tested = answering({ text: JSON.stringify({ ...status, log: [] }) })
+  await tested.type('/accounts')
+  expect((await tested.lines('accounts')).join('\n')).not.toContain('Log')
 })
 
 test('/accounts shows each Codex account apart from the Claude pool', async () => {
@@ -128,7 +255,7 @@ test('every section title has an empty line under it, and every bar an empty lin
   const pane = (await tested.lines('accounts')).map((row) => row.trim()).join('\n')
   expect(pane).toContain('Claude accounts\n\nturing ')
   expect(pane).toContain('Codex accounts\n\nada ')
-  expect(pane).toContain('Warnings in the last 24 hours\n\n')
+  expect(pane).toContain('Log\n\n')
   expect(pane).toContain('Weekly resets\n\n')
   const barRows = pane.split('\n').map((row, index) => (BAR.test(row) ? index : -1)).filter((index) => index >= 0)
   expect(barRows).toHaveLength(6)
@@ -285,6 +412,14 @@ test('a refill reads in days, then days and hours under 2 days, then hours and m
   expect(until(at(-1), now)).toBe('now')
 })
 
+test('a block names its model as Anthropic does, and its day only when it ends on another day', () => {
+  expect(modelName('claude-opus-5-5')).toBe('Opus 5.5')
+  expect(modelName('claude-haiku-5-20261001')).toBe('Haiku 5')
+  const noon = new Date(2026, 9, 15, 12, 0).toISOString()
+  expect(momentOf(new Date(2026, 9, 15, 14, 5).toISOString(), noon)).toBe('14:05')
+  expect(momentOf(new Date(2026, 9, 22, 9, 30).toISOString(), noon)).toBe('Oct 22 09:30')
+})
+
 const OPUS = { input: 4, output: 20, cache_write: 8, cache_read: 0.2 }
 
 // row is a Usage row the plugin would send for these tokens of Opus 5.5.
@@ -304,15 +439,16 @@ const chartDays = Array.from({ length: 30 }, (_, index) => {
   return { day, rows: spent[day] === undefined ? [] : [row('turing', 'turing', spent[day]!)] }
 })
 
-function table(rows: readonly UsageRow[], total: string, since?: string): UsageTable {
+function table(rows: readonly UsageRow[], total: string): UsageTable {
   const sum = (kind: keyof Tokens, of: 'tokens' | 'cost'): number => rows.reduce((all, each) => all + each[of][kind], 0)
   const kinds = (of: 'tokens' | 'cost'): Tokens => ({ input: sum('input', of), output: sum('output', of), cache_write: sum('cache_write', of), cache_read: sum('cache_read', of) })
-  return { today: '2026-10-15', ...(since === undefined ? {} : { since }), rows, total: { key: '', label: total, tokens: kinds('tokens'), cost: kinds('cost') }, days: chartDays }
+  return { today: '2026-10-15', rows, total: { key: '', label: total, tokens: kinds('tokens'), cost: kinds('cost') }, days: chartDays }
 }
 
 const tables: Record<string, UsageTable> = {
-  'today account': table([row('turing', 'turing', { input: 2, output: 254, cache_write: 87_088, cache_read: 0 }), row('lamport', 'lamport', { ...NONE, cache_read: 500_000 }), row('jarvis', 'jarvis', NONE)], 'All accounts'),
-  'month day': table([row('2026-10-15', 'Oct 15', { input: 2, output: 254, cache_write: 87_088, cache_read: 1_000_000 }), row('2026-10-14', 'Oct 14', { input: 1_000_000, output: 100_000, cache_write: 1_000_000, cache_read: 20_000_000 }), row('2026-10-03', 'Oct 3', { ...NONE, output: 1_000_000 })], 'All days', '2026-10-03'),
+  'month account': table([row('turing', 'turing', { input: 2, output: 254, cache_write: 87_088, cache_read: 0 }), row('lamport', 'lamport', { ...NONE, cache_read: 500_000 }), row('jarvis', 'jarvis', NONE)], 'All accounts'),
+  'today time': table([row('2026-10-15 17', '17:00', { ...NONE, output: 10_000 }), row('2026-10-15 09', '09:00', { ...NONE, output: 30_000 })], 'All hours'),
+  'month time': table([row('2026-10-15', 'Oct 15', { input: 2, output: 254, cache_write: 87_088, cache_read: 1_000_000 }), row('2026-10-14', 'Oct 14', { input: 1_000_000, output: 100_000, cache_write: 1_000_000, cache_read: 20_000_000 }), row('2026-10-03', 'Oct 3', { ...NONE, output: 1_000_000 })], 'All days'),
   'month agent': table([row('explorer', 'explorer', { ...NONE, output: 1_000_000 }), row('', 'Not recorded', { ...NONE, cache_write: 1_000_000, input: 100_000 }), row('main', 'Main sessions', { input: 2, output: 254, cache_write: 87_088, cache_read: 1_000_000 })], 'All agents'),
   'month project': table([row('dotfiles', 'dotfiles', { ...NONE, output: 40_000 })], 'All projects'),
   'month model': table([row('claude-opus-5-5', 'Opus 5.5', { ...NONE, output: 1_950_000 })], 'All models'),
@@ -338,11 +474,11 @@ async function usagePane(tested: ReturnType<typeof testMod>): Promise<string> {
   return (await tested.lines('accounts')).map((line) => line.trimEnd()).join('\n')
 }
 
-test('/accounts shows today\'s usage by account, with the total last in each row', async () => {
+test('/accounts shows the last 30 days of usage by account, with the total last in each row', async () => {
   const { tested, asked } = withUsage()
   const pane = await usagePane(tested)
-  expect(asked[0]).toContain('usage.json?period=today&by=account&units=cost')
-  expect(pane).toMatch(/Period +\[Today\]/)
+  expect(asked[0]).toContain('usage.json?period=month&by=account&units=cost')
+  expect(pane).toMatch(/Period +90 days +\[30 days\] +7 days +Yesterday +Today\n/)
   expect(pane).toContain('[Account]')
   expect(pane).toContain('[Cost]')
   expect(pane).toMatch(/Input +Output +Cache write +Cache read +Cached +Share +Total\n/)
@@ -351,21 +487,32 @@ test('/accounts shows today\'s usage by account, with the total last in each row
   expect(pane).toMatch(/jarvis( +\$0){4} +0% +\$0\n/)
   expect(pane).toMatch(/All accounts +\$0 +\$0\.01 +\$0\.70 +\$0\.10 +85% +\$0\.80\n/)
   expect(pane.indexOf('Claude accounts')).toBeLessThan(pane.indexOf('Usage'))
-  expect(pane.indexOf('Usage per day, last 30 days')).toBeLessThan(pane.indexOf('Warnings in the last 24 hours'))
+  expect(pane.indexOf('Usage per day, last 30 days')).toBeLessThan(pane.indexOf('Log\n'))
 })
 
 test('the Usage controls read the table for the chosen period, breakdown and units', async () => {
   const { tested, asked } = withUsage()
   await usagePane(tested)
-  await tested.press('accounts', 'period-month')
-  await tested.press('accounts', 'by-day')
+  await tested.press('accounts', 'by-time')
   const pane = await usagePane(tested)
-  expect(asked.at(-1)).toContain('period=month&by=day&units=cost')
+  expect(asked.at(-1)).toContain('period=month&by=time&units=cost')
+  expect(pane).toContain('[Time]')
   expect(pane).toMatch(/Oct 15( +\S+){5} +2% +\$0\.90\n +Oct 14( +\S+){5} +46% +\$18\n +Oct 3( +\S+){4} +51% +\$20\n/)
-  expect(pane).toContain("oneclaude's log starts on Oct 3.")
   await tested.press('accounts', 'show-tokens')
   await tested.settle()
-  expect(asked.at(-1)).toContain('period=month&by=day&units=tokens')
+  expect(asked.at(-1)).toContain('period=month&by=time&units=tokens')
+})
+
+test('the By row stays the same for every period, and Time over a day goes by the hour', async () => {
+  const { tested, asked } = withUsage()
+  await usagePane(tested)
+  await tested.press('accounts', 'by-time')
+  const before = await usagePane(tested)
+  await tested.press('accounts', 'period-today')
+  const pane = await usagePane(tested)
+  expect(asked.at(-1)).toContain('period=today&by=time&units=cost')
+  for (const shown of [before, pane]) expect(shown).toMatch(/By +Account +Model +Agent +Project +\[Time\]\n/)
+  expect(pane).toMatch(/17:00( +\S+){6}\n +09:00( +\S+){6}\n +All hours/)
 })
 
 test('Usage says what Not recorded means when a row has no agent type or project', async () => {
@@ -379,7 +526,7 @@ test('Usage says what Not recorded means when a row has no agent type or project
 })
 
 test('a wide Usage table puts Cached, Share and Total after the token kinds, each column aligned', () => {
-  const layout = usageLayout(tables['month day']!, 'cost', true)
+  const layout = usageLayout(tables['month time']!, 'cost', true)
   const text = (line: TableLine): string => line.cells.join(GUTTER)
   expect(text(layout.header)).toMatch(/^ +Input +Output +Cache write +Cache read +Cached +Share +Total$/)
   expect(text(layout.rows[1]!)).toMatch(/^Oct 14 +\$4 +\$2 +\$8 +\$4 +91% +46% +\$18$/)
@@ -389,13 +536,13 @@ test('a wide Usage table puts Cached, Share and Total after the token kinds, eac
 })
 
 test('a narrow Usage table keeps the cache, the share and the total, and leaves out the token kinds', () => {
-  const layout = usageLayout(tables['today account']!, 'cost', false)
+  const layout = usageLayout(tables['month account']!, 'cost', false)
   expect(layout.header.cells.join(GUTTER)).toMatch(/^ +Cached +Share +Total$/)
   expect(layout.rows[0]!.cells.join(GUTTER)).toMatch(/^turing +0% +88% +\$0\.70$/)
 })
 
 test('the daily chart stands each day on the baseline, exact to an eighth, with a dot for a day with no request', () => {
-  const chart = dailyChart(tables['today account']!, 'cost')
+  const chart = dailyChart(tables['month account']!, 'cost')
   expect(chart.peak).toBe('$20')
   expect(chart.rows).toHaveLength(4)
   const bottom = chart.rows[3]!

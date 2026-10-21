@@ -62,7 +62,7 @@ func TestInstallPlacesTheLibraryAndSwitchesTheProxyToIt(t *testing.T) {
 	after, _ := os.ReadFile(config)
 	text := string(after)
 	for _, want := range []string{
-		"        oneclaude:\n            enabled: true\n            store:\n                version: 0.2.0\n",
+		"        oneclaude:\n            enabled: true\n            data-dir: " + data + "\n            store:\n                version: 0.2.0\n",
 		"        claude-seat-pacer:\n            enabled: false\n",
 		"    strategy: fill-first # keeps one account warm\n",
 	} {
@@ -75,8 +75,31 @@ func TestInstallPlacesTheLibraryAndSwitchesTheProxyToIt(t *testing.T) {
 	if !strings.HasPrefix(text, head) || !strings.Contains(text, middle) {
 		t.Fatalf("a byte outside the plugins and management blocks changed:\n%s", text)
 	}
+	if key := secretKeyOf(t, config); key != "$2y$10$not.a.real.hash" {
+		t.Fatalf("the proxy's own management key changed to %q", key)
+	}
+	if named, _ := os.ReadFile(filepath.Join(data, "proxy-config")); string(named) != config {
+		t.Fatalf("proxy-config = %q, want the config's path, where the mod checks a management key", named)
+	}
+}
+
+func TestInstallGivesAProxyWithNoManagementKeyOneclaudesAndRemoveTakesItOut(t *testing.T) {
+	config, _, data := setUp(t)
+	raw, _ := os.ReadFile(config)
+	if err := os.WriteFile(config, []byte(strings.Replace(string(raw), "management:\n    secret-key: \"$2y$10$not.a.real.hash\"\n", "", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
 	if !isManagementKey(secretKeyOf(t, config)) {
-		t.Fatalf("the management key is not oneclaude:\n%s", text)
+		t.Fatalf("the management key is not oneclaude: %q", secretKeyOf(t, config))
+	}
+	if err := run(plugin{}, config, data, true); err != nil {
+		t.Fatal(err)
+	}
+	if key := secretKeyOf(t, config); key != "" {
+		t.Fatalf("remove left the key oneclaude set: %q", key)
 	}
 }
 
@@ -128,7 +151,7 @@ func TestRemoveTurnsOneclaudeOffAndSeatPacerBackOn(t *testing.T) {
 		t.Fatalf("libraries left: %v", left)
 	}
 	if key := secretKeyOf(t, config); key != "$2y$10$not.a.real.hash" {
-		t.Fatalf("the person's management key is not back: %q", key)
+		t.Fatalf("the person's management key changed: %q", key)
 	}
 }
 
@@ -283,6 +306,81 @@ func TestInstallingTheProxyKeepsItOnThisMachineWithNoPlaceholderKeys(t *testing.
 	}
 }
 
+func TestInstallBringsAnOlderProxyToTheTestedVersionAndStartsIt(t *testing.T) {
+	bin := t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	version := filepath.Join(bin, "version")
+	if err := os.WriteFile(version, []byte("8.0.0"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	brew := "#!/bin/sh\necho \"$@\" >> " + calls + "\ncase \"$1\" in\n  list) echo cliproxyapi $(cat " + version + ") ;;\n  upgrade) echo " + minimumProxy + " > " + version + " ;;\n  --prefix) echo " + bin + " ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "brew"), []byte(brew), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	if err := keepProxyCurrent("1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(calls)
+	if want := "list --versions cliproxyapi\nupgrade cliproxyapi\nlist --versions cliproxyapi\nservices start cliproxyapi\n"; string(got) != want {
+		t.Fatalf("brew ran:\n%s\nwant:\n%s", got, want)
+	}
+	if !isOlder("8.0.9", "8.0.35") || isOlder("8.1.0", "8.0.35") || isOlder("8.0.35", "8.0.35") || isOlder("8.0.35_1", "8.0.35") {
+		t.Fatal("versions compare as text, not as numbers, or a Homebrew revision counts as older")
+	}
+}
+
+func TestInstallWithoutADataFolderStops(t *testing.T) {
+	config, _, _ := setUp(t)
+	if err := run(built, config, "", false); err == nil || !strings.Contains(err.Error(), "--data") {
+		t.Fatalf("install without --data = %v, want it to stop and name --data", err)
+	}
+}
+
+func TestInstallMovesThePluginsFilesOutOfTheProxysCredentialFolder(t *testing.T) {
+	config, _, data := setUp(t)
+	kept := filepath.Join(os.Getenv("HOME"), ".cli-proxy-api", "plugins", "oneclaude")
+	if err := os.MkdirAll(kept, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"at":"2026-10-14T12:00:00Z","account":"0000beef"}` + "\n"
+	for name, text := range map[string]string{"install.key": "the salt of the account hashes", "usage.json": `{"imported":true}`, "requests.jsonl": old} {
+		if err := os.WriteFile(filepath.Join(kept, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"install.key": "the salt of the account hashes", "usage.json": `{"imported":true}`, "requests.jsonl": old} {
+		if got, err := os.ReadFile(filepath.Join(data, name)); err != nil || string(got) != want {
+			t.Fatalf("%s = %q %v, want %q", name, got, err, want)
+		}
+	}
+	if _, err := os.Stat(kept); !os.IsNotExist(err) {
+		t.Fatalf("the old folder is still there: %v", err)
+	}
+
+	late := `{"at":"2026-10-15T12:00:00Z","account":"0000beef"}` + "\n"
+	if err := os.MkdirAll(kept, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{"usage.json": `{"imported":false}`, "requests.jsonl": late} {
+		if err := os.WriteFile(filepath.Join(kept, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := moveData(kept, data); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(data, "usage.json")); string(got) != `{"imported":true}` {
+		t.Fatalf("usage.json = %s, want the one the data folder holds", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(data, "requests.jsonl")); string(got) != old+late {
+		t.Fatalf("requests.jsonl = %q, want the late lines after the log, so its first line stays first", got)
+	}
+}
+
 func TestInstallingTheProxyWithoutHomebrewSaysWhatToDo(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := installProxy(); err == nil || !strings.Contains(err.Error(), "https://brew.sh") {
@@ -298,11 +396,12 @@ func TestInstallKeepsTheFilesTwoSpaceIndent(t *testing.T) {
 	if err := os.WriteFile(config, []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(built, config, "", false); err != nil {
+	data := filepath.Join(root, "data")
+	if err := run(built, config, data, false); err != nil {
 		t.Fatal(err)
 	}
 	text, _ := os.ReadFile(config)
-	if !strings.Contains(string(text), "    oneclaude:\n      enabled: true\n      store:\n        version: 0.2.0\n") {
+	if !strings.Contains(string(text), "    oneclaude:\n      enabled: true\n      data-dir: "+data+"\n      store:\n        version: 0.2.0\n") {
 		t.Fatalf("config lost its indent:\n%s", text)
 	}
 	if !strings.HasPrefix(string(text), "server:\n  port: 8318\n\n# loaded from .target\nplugins:\n") {

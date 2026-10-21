@@ -34,10 +34,21 @@ type Options struct {
 	ClaudeProjects string
 }
 
+// accountState is an account as the plugin knows it. served is when it last
+// answered each model. throttled, rejected, overloaded and notFound are when
+// Anthropic last throttled it, turned it away for its spent week, answered
+// overloaded, or answered 404. signedOut is whether its login failed since it
+// last answered.
 type accountState struct {
 	model.Account
-	weekly model.Weekly
-	known  bool
+	weekly     model.Weekly
+	known      bool
+	served     map[string]time.Time
+	throttled  time.Time
+	rejected   time.Time
+	overloaded time.Time
+	notFound   time.Time
+	signedOut  bool
 }
 
 // codexAccount is a Codex account the proxy holds. oneclaude routes none of
@@ -55,14 +66,22 @@ type request struct {
 	at     time.Time
 }
 
-type Warning struct {
-	At      time.Time    `json:"at"`
-	Kind    string       `json:"kind"`
-	Account string       `json:"account,omitempty"`
-	Family  model.Family `json:"family,omitempty"`
-	Agents  int          `json:"agents,omitempty"`
-	Detail  string       `json:"detail"`
+// A LogEntry is one event that changed where requests go: when, WARN or
+// INFO, and a sentence that says what happened and what came of it.
+type LogEntry struct {
+	At    time.Time `json:"at"`
+	Level string    `json:"level"`
+	Text  string    `json:"text"`
 }
+
+const (
+	levelWarn = "WARN"
+	levelInfo = "INFO"
+)
+
+// An account's throttles and overloads log once per episode: again only after
+// this long without one.
+const episode = 10 * time.Minute
 
 // Plugin answers every host method. The host calls pick, the interceptor and
 // usage concurrently, so shared state sits behind mu, held only for field
@@ -80,7 +99,8 @@ type Plugin struct {
 	accounts     map[string]*accountState
 	codex        map[string]*codexAccount
 	requests     map[string]request
-	warnings     []Warning
+	events       []LogEntry
+	refusedAt    time.Time
 	log          *usage.Log
 	salt         string
 	loadedDir    string
@@ -90,6 +110,7 @@ type Plugin struct {
 	resourceBase string
 	history      requestHistory
 	historyRead  bool
+	imported     bool
 
 	historyMu sync.Mutex
 
@@ -228,9 +249,12 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 	})
 }
 
+// savedUsage is usage.json. Imported is true once the request log holds the
+// requests Claude Code's transcripts record from before it.
 type savedUsage struct {
 	Accounts []savedAccount `json:"accounts"`
-	Warnings []Warning      `json:"warnings"`
+	Log      []LogEntry     `json:"log"`
+	Imported bool           `json:"imported"`
 }
 
 type savedAccount struct {
@@ -239,7 +263,12 @@ type savedAccount struct {
 }
 
 func (p *Plugin) path(name string) string {
-	dir := p.settings().DataDir
+	return pathIn(p.settings().DataDir, name)
+}
+
+// pathIn is a file of the data folder dir; with no folder the plugin keeps no
+// files.
+func pathIn(dir, name string) string {
 	if dir == "" {
 		return ""
 	}
@@ -254,10 +283,10 @@ func (p *Plugin) load(dir string) {
 		p.mu.Unlock()
 		return
 	}
-	p.loadedDir, p.loadedAt = dir, p.now()
-	p.history, p.historyRead = newRequestHistory(), false
 	old := p.log
-	p.log = usage.NewLog(filepath.Join(dir, "requests.jsonl"), daysKept*24*time.Hour)
+	p.loadedDir, p.loadedAt = dir, p.now()
+	p.history, p.historyRead, p.imported = newRequestHistory(), false, false
+	p.log = usage.NewLog(pathIn(dir, "requests.jsonl"), daysKept*24*time.Hour)
 	p.mu.Unlock()
 	if old != nil {
 		old.Close()
@@ -275,7 +304,7 @@ func (p *Plugin) load(dir string) {
 			}
 			p.accounts[a.ID] = st
 		}
-		p.warnings = saved.Warnings
+		p.events, p.imported = saved.Log, saved.Imported
 		p.mu.Unlock()
 	}
 	var book limits.Saved
@@ -310,7 +339,7 @@ func (p *Plugin) save() {
 		return
 	}
 	p.dirty = false
-	saved := savedUsage{Warnings: append([]Warning(nil), p.warnings...)}
+	saved := savedUsage{Log: append([]LogEntry(nil), p.events...), Imported: p.imported}
 	for _, a := range p.accounts {
 		sa := savedAccount{Account: a.Account}
 		if a.known {
@@ -333,13 +362,16 @@ func (p *Plugin) hash(authID string) string {
 	return hex.EncodeToString(sum[:])[:8]
 }
 
-func (p *Plugin) warn(w Warning) {
+// note logs one event, and keeps the last 7 days of them, 500 at most.
+func (p *Plugin) note(level, format string, args ...any) {
+	now := p.now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.warnings = append(p.warnings, w)
-	cutoff := w.At.Add(-7 * 24 * time.Hour)
-	kept := p.warnings[:0]
-	for _, x := range p.warnings {
+	p.dirty = true
+	p.events = append(p.events, LogEntry{At: now, Level: level, Text: fmt.Sprintf(format, args...)})
+	cutoff := now.Add(-7 * 24 * time.Hour)
+	kept := p.events[:0]
+	for _, x := range p.events {
 		if x.At.After(cutoff) {
 			kept = append(kept, x)
 		}
@@ -347,8 +379,15 @@ func (p *Plugin) warn(w Warning) {
 	if len(kept) > 500 {
 		kept = kept[len(kept)-500:]
 	}
-	p.warnings = kept
-	p.dirty = true
+	p.events = kept
+}
+
+// familyName is a family as a person writes it: Opus.
+func familyName(f model.Family) string {
+	if f == "" {
+		return ""
+	}
+	return strings.ToUpper(string(f[:1])) + string(f[1:])
 }
 
 // Shutdown stops background work, saves, and waits for outstanding host calls,

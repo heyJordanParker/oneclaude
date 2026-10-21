@@ -14,8 +14,8 @@ import (
 )
 
 // Recorded is one request a Claude Code transcript records: when, under which
-// request id, on which model, and the agent type and project it ran for. A
-// main session's Agent is empty.
+// request id, on which model, its tokens, and the agent type and project it
+// ran for. A main session's Agent is empty.
 type Recorded struct {
 	At       time.Time
 	Request  string
@@ -23,6 +23,7 @@ type Recorded struct {
 	Subagent bool
 	Agent    string
 	Project  string
+	Tokens   model.Tokens
 }
 
 var (
@@ -32,12 +33,12 @@ var (
 	modelTag     = []byte(`"model":"`)
 )
 
-// RecordedSince finds the requests Claude Code's transcripts record from since
-// on, by their tokens, keeping only the tokens wanted. It reads each
-// transcript written since then back from its end, on workers goroutines,
-// and stops early once current reports false.
-func (r *Records) RecordedSince(since time.Time, wanted map[model.Tokens]bool, workers int, current func() bool) map[model.Tokens][]Recorded {
-	found := map[model.Tokens][]Recorded{}
+// RecordedBetween finds the requests Claude Code's transcripts record from
+// since until before until, keeping those whose tokens keep accepts. It reads
+// each transcript written since then back from its end, on workers
+// goroutines, and stops early once current reports false.
+func (r *Records) RecordedBetween(since, until time.Time, keep func(model.Tokens) bool, workers int, current func() bool) []Recorded {
+	var found []Recorded
 	if r.root == "" {
 		return found
 	}
@@ -58,11 +59,10 @@ func (r *Records) RecordedSince(since time.Time, wanted map[model.Tokens]bool, w
 		go func() {
 			defer wg.Done()
 			for path := range paths {
-				for tokens, recorded := range recordedIn(path, since, wanted) {
-					mu.Lock()
-					found[tokens] = append(found[tokens], recorded...)
-					mu.Unlock()
-				}
+				recorded := recordedIn(path, since, until, keep)
+				mu.Lock()
+				found = append(found, recorded...)
+				mu.Unlock()
 			}
 		}()
 	}
@@ -80,7 +80,7 @@ func (r *Records) RecordedSince(since time.Time, wanted map[model.Tokens]bool, w
 // recordedIn reads one transcript back to since. A subagent's transcript
 // sits at <session>/subagents/agent-<id>.jsonl, its type in the meta file
 // beside it, and every transcript's project is its session's.
-func recordedIn(path string, since time.Time, wanted map[model.Tokens]bool) map[model.Tokens][]Recorded {
+func recordedIn(path string, since, until time.Time, keep func(model.Tokens) bool) []Recorded {
 	var base Recorded
 	transcript := path
 	if folder := filepath.Dir(path); filepath.Base(folder) == "subagents" {
@@ -93,10 +93,10 @@ func recordedIn(path string, since time.Time, wanted map[model.Tokens]bool) map[
 	if cwd := cwdOf(transcript); cwd != "" {
 		base.Project = filepath.Base(cwd)
 	}
-	found := map[model.Tokens][]Recorded{}
+	var found []Recorded
 	_ = usage.ReadBack(path, func(line []byte) bool {
 		at, err := time.Parse(time.RFC3339Nano, lastField(line, timestampTag))
-		if err != nil {
+		if err != nil || !at.Before(until) {
 			return true
 		}
 		if at.Before(since) {
@@ -116,12 +116,12 @@ func recordedIn(path string, since time.Time, wanted map[model.Tokens]bool) map[
 			return true
 		}
 		tokens := model.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite}
-		if !wanted[tokens] {
+		if !keep(tokens) {
 			return true
 		}
 		recorded := base
-		recorded.At, recorded.Request, recorded.Model = at, lastField(line, requestTag), firstField(line, modelTag)
-		found[tokens] = append(found[tokens], recorded)
+		recorded.At, recorded.Request, recorded.Model, recorded.Tokens = at, lastField(line, requestTag), firstField(line, modelTag), tokens
+		found = append(found, recorded)
 		return true
 	})
 	return found

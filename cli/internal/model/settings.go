@@ -30,16 +30,7 @@ func Defaults() Settings {
 		RetryAfter:   3 * time.Minute,
 		AffinityTTL:  time.Hour,
 		PollInterval: time.Hour,
-		DataDir:      defaultDataDir(),
 	}
-}
-
-func defaultDataDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".cli-proxy-api", "plugins", "oneclaude")
 }
 
 type rawSettings struct {

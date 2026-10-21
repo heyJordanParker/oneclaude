@@ -15,10 +15,24 @@ oneclaude needs nothing from you once it is installed. Every new conversation go
 - **14 agents** is how many Claude Code conversations and subagents run on the pool now.
 - **`[+]`** opens the pane, and **`[-]`** closes it.
 
+The line names what needs you, and only while it is true:
+
+```text
+████████▊███▋███████  63% · 19% over pace · next refill in 2d · 14 agents · 1 account signed out [+]
+```
+
+- **`1 account signed out`** stays until the account signs in again. Its row in the pane has `[Sign in]`.
+- **`1 account blocked`** means the proxy holds a block on an account that no rate limit explains, such as one it set after a failed request. It stays until the block ends or you clear it with the row's `[Unblock]`.
+- **`agent limit reached`** means every account runs as many agents of a model as it can, so oneclaude holds new subagents back. It stays until 3 minutes, `subagents.retry-after`, pass without a refusal.
+
+The first two open the pane at the account they name, and `agent limit reached` at the Claude accounts.
+
+The mod reads the proxy's blocks with the proxy's management key: `oneclaude`, which the install sets on a proxy with none, or the key you set for CLIProxyAPI, which the install pane asks for ([Installation](installation.md#4-adding-oneclaude)).
+
 When oneclaude can't read the pool, the line says why instead:
 
 - `oneclaude: proxy down` means nothing answers on `127.0.0.1:8317`, or the proxy answered with an error. Start the proxy with `brew services start cliproxyapi`, or read its log.
-- `oneclaude: plugin off` means the proxy runs without oneclaude's plugin. Run `oneclaude install --data ~/.local/share/cmod/data/oneclaude`, the install step, to add it again.
+- `oneclaude: plugin off` means the proxy runs without oneclaude's plugin. Run `oneclaude install`, the install step, to add it again.
 - `oneclaude: status unreadable` means the proxy answered something oneclaude doesn't understand.
 
 ## The accounts pane
@@ -32,10 +46,13 @@ Combined usage    ████████▊███▋███████  
 Claude accounts
 
 work              ██████████▉█████████  70%
-                  15% over pace · refills in 3d · 2 opus
+                  15% over pace · refills in 3d · throttled 12m ago · 2 opus
+                  blocked for Opus 5.5 until 04:50  [Unblock]
 
 spare             ████████████████████  empty
                   refills in 2d · idle
+
+jarvis            signed out  [Sign in]
 
 Codex accounts
 
@@ -52,14 +69,15 @@ work              ████████████│███████�
 
 Usage
 
-Period  [Today]  Yesterday   7 days   30 days
-By      [Account]  Model   Agent   Project   Day
+Period  90 days  [30 days]  7 days   Yesterday   Today
+By      [Account]  Model   Agent   Project   Time
 Show    [Cost]  Tokens
 
-               Input   Output   Cache write   Cache read   Cached   Share   Total
-work              $5      $48          $257         $208      97%     62%    $518
-spare             $2      $13          $232          $68      82%     38%    $315
-All accounts      $7      $61          $489         $276      94%            $833
+                      Input   Output   Cache write   Cache read   Cached   Share   Total
+No account recorded     $71     $890       $11,204       $3,912      94%     95%  $16,077
+work                     $5      $48          $257         $208      97%      3%    $518
+spare                    $2      $13          $232          $68      82%      2%    $315
+All accounts            $78     $951       $11,693       $4,188      94%         $16,910
 
 [Optimize usage]
 
@@ -71,20 +89,22 @@ $3,053                                                    █ █
        · · · · · · · · · · · · · · · · · · · · · · · · · █ █ █ █
        Sep 19                                                Oct 18
 
-Warnings in the last 24 hours
+Log
 
-None
+18:09:12  WARN  Anthropic rate limited work (429).
+16:50:22  INFO  oneclaude cleared the proxy's block on Opus 5.5 for spare, set after a 404.
+16:50:22  WARN  Anthropic returned 404 Not Found for Opus 5.5 on spare.
 
 [Open dashboard]  [Add account]
 ```
 
 - **Combined usage** is the pool, as the line under the prompt shows it. "frees 17%" is how much of the pool's quota the next refill gives back.
-- **Claude accounts** lists each account by the part of its address before the `@`. Each row shows its weekly usage, its pace, when its week resets, and the agents on it by model, such as `2 opus`, or `idle`. An account that used its whole week says `empty`, and new conversations skip it until it refills.
+- **Claude accounts** lists each account by the part of its address before the `@`. Each row shows its weekly usage, its pace, when its week resets, and the agents on it by model, such as `2 opus`, or `idle`. An account that used its whole week says `empty`, and new conversations skip it until it refills. `throttled 12m ago` shows for an hour after Anthropic rate limited the account. A signed-out account shows only `signed out` and `[Sign in]`, which opens the proxy's login. A blocked account says which models the proxy blocked and until when, and `[Unblock]` clears every block the proxy holds on it. A block that was right comes back with the next failed request.
 - **Codex accounts** shows each Codex (ChatGPT) account the proxy holds, with its weekly usage. oneclaude shows these accounts only, and routes none of their requests.
 - **Weekly resets** lays 8 days, from yesterday's midnight, under the names and dates of the days, one lane per Claude account, soonest reset first. Each lane is the account's current week as one rounded bar, from when the week opened to when it resets, on a faint line that runs across the rest of the lane. It is dark up to now, gray while the account's quota lasts at its pace so far this week, and faint from where that pace would empty it until the reset. The gray is red in the last 5% of the week's quota, as the usage bar is. A white line marks now through every lane. Each lane ends with how long until the week resets and how much the account has left until then. A narrower pane gives each day fewer cells, down to 6 hours a cell, and names only the weekday.
 - **Usage** is what the pool's requests used. [Usage](#usage) explains it.
 - **Usage per day** is one column a day for the last 30 days, in Claude's color: the whole pool's cost, or its tokens when Usage shows tokens. A dot is a day with no request.
-- **Warnings in the last 24 hours** lists each subagent oneclaude held back, each throttle Anthropic sent, and each limit oneclaude lowered. [How it works](how-it-works.md) explains each one.
+- **Log** lists the last 24 hours of what changed where requests go, newest first: the time, `WARN` or `INFO`, and what happened. It logs throttles and overloads once per account until 10 minutes pass without one, 404s, blocks oneclaude or you cleared, subagents oneclaude held back, limits it lowered, and accounts that signed out. It leaves out requests Claude Code cancelled, such as when you press Esc, and other one-off failures. The pane shows the newest 10 lines, and the dashboard the last 7 days. With nothing to log, the section is gone. [How it works](how-it-works.md) explains each event.
 
 A refill time reads in days from 2 days out, such as `4d`, in days and hours under 2 days, such as `1d 6h`, in hours and minutes under a day, such as `5h 20m`, and in minutes under an hour.
 
@@ -92,10 +112,11 @@ In a narrow pane, each row puts its details on a second line under the bar, as a
 
 ## Usage
 
-The Usage table adds up every request the pool answered, from oneclaude's request log:
+The Usage table adds up every request the pool answered, from oneclaude's request log. The first time oneclaude loads, it adds the requests Claude Code's transcripts record from the 90 days before, so the table covers the time before you installed it, as far back as Claude Code keeps transcripts. Claude Code deletes them after 30 days unless its `cleanupPeriodDays` setting says otherwise.
 
-- **Period** is today, yesterday, the last 7 days, or the last 30 days. Days start at midnight on your Mac. When the log starts inside the period, the table says when.
-- **By** splits the period into one row per account, per model such as Opus 5.5, per agent type, per project, or per day. An agent type is a subagent's type, such as `code-reviewer`, and every conversation you talk to adds up as Main sessions. A project is the folder its session runs in. Requests from before oneclaude recorded agent types and projects add up as Not recorded, and the table says so under it.
+- **Period** is the last 90 days, the last 30 days, the last 7 days, yesterday, or today, 30 days at first. Days start at midnight on your Mac.
+- **By** splits the period into one row per account, per model such as Opus 5.5, per agent type, per project, or by Time: per hour for Today or Yesterday, per week for 90 days, and per day for 7 or 30 days. An agent type is a subagent's type, such as `code-reviewer`, and every conversation you talk to adds up as Main sessions. A project is the folder its session runs in. Requests from before oneclaude recorded agent types and projects add up as Not recorded, and the table says so under it.
+- **By account** adds up the requests oneclaude did not log, the ones from before you installed it, as No account recorded, because no transcript says which account answered them. Every breakdown has the same total.
 - **Show** writes every cell as dollars or as tokens.
 
 Each row splits into input, output, cache writes, and cache reads. Then come **Cached**, how much of its input came from the cache, cache reads out of all input; its **Share** of the period's total; and its **Total**, last and in Claude's color, because it matters most. A Cached share under 90% shows in the warning color: it marks conversations and subagents that start cold, and so write their whole prompt to the cache again.
@@ -131,11 +152,11 @@ The rounded ends of each bar are [Nerd Font](https://www.nerdfonts.com) glyphs. 
 `[Open dashboard]` opens the dashboard inside the proxy's control panel, already signed in. The panel lists it under oneclaude in its plugin menu. It shows:
 
 - the pool and every account's usage, pace, refill, and agents;
-- the warnings;
 - the Usage table, with the same choices as the pane, and every day of the last 30 stacked by the breakdown's largest rows;
 - each account's requests by the hour for the last 7 days;
+- the log of the last 7 days;
 - the proxy's traffic, its credential files, and its settings;
-- buttons to add an account, turn one off, or log in to one again.
+- buttons to add an account, turn one off, or sign in to one again.
 
 `[Add account]` opens the panel at its OAuth login page, already signed in. Log in to a Claude or Codex account there, and it joins the pool.
 

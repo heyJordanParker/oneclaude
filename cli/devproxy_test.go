@@ -132,8 +132,8 @@ func TestDevProxyReportsAThrottle(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	if !strings.Contains(string(body), `"kind":"throttled"`) {
-		t.Fatalf("status has no throttle warning: %s", body)
+	if !strings.Contains(string(body), `"throttled_at"`) || !strings.Contains(string(body), `(429).`) {
+		t.Fatalf("status shows no throttled account and logs no throttle: %s", body)
 	}
 }
 

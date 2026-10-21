@@ -11,8 +11,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -136,9 +138,13 @@ func TestANewSubagentIsRefusedWhenEveryAccountIsFull(t *testing.T) {
 	if _, in := send(t, p, "r-haiku", "main", "agent-h", "claude-haiku-5", accounts, nil, 200); in.Terminate {
 		t.Fatal("haiku has its own limit")
 	}
+	send(t, p, "r-again", "main", "agent-again", "claude-fable-5", accounts, nil, 200)
 	st := p.Status()
-	if len(st.Warnings) == 0 || st.Warnings[0].Kind != "refused" {
-		t.Fatalf("warnings = %+v, want the refusal", st.Warnings)
+	if !st.Pool.LimitReached {
+		t.Fatal("pool = false, want the agent limit reached")
+	}
+	if len(st.Log) != 1 || st.Log[0].Level != levelWarn || st.Log[0].Text != "oneclaude refused a new Fable subagent: every account reached its limit of 6." {
+		t.Fatalf("log = %+v, want the refusals as one line", st.Log)
 	}
 	p.mu.Lock()
 	pending := len(p.requests)
@@ -168,18 +174,171 @@ func TestDisabledDeclinesEverything(t *testing.T) {
 	}
 }
 
-func TestAThrottleIsAWarningAndAQuotaRefusalIsNot(t *testing.T) {
+func TestAThrottleIsLoggedOnceAndAQuotaRefusalIsNot(t *testing.T) {
 	p := newTestPlugin(t, enabled)
-	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"a"}, http.Header{}, http.StatusTooManyRequests)
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"claude-ada@x.json"}, http.Header{}, http.StatusTooManyRequests)
+	send(t, p, "r2", "s2", "", "claude-opus-5-5", []string{"claude-ada@x.json"}, http.Header{}, http.StatusTooManyRequests)
 	quota := weekly(1, time.Hour)
 	quota.Set("anthropic-ratelimit-unified-status", "rejected")
-	send(t, p, "r2", "s2", "", "claude-opus-5-5", []string{"a"}, quota, http.StatusTooManyRequests)
+	send(t, p, "r3", "s3", "", "claude-opus-5-5", []string{"claude-ada@x.json"}, quota, http.StatusTooManyRequests)
 	st := p.Status()
-	if len(st.Warnings) != 1 || st.Warnings[0].Kind != "throttled" {
-		t.Fatalf("warnings = %+v, want one throttle", st.Warnings)
+	if len(st.Log) != 1 || st.Log[0].Text != "Anthropic rate limited ada (429)." {
+		t.Fatalf("log = %+v, want the throttles as one line", st.Log)
 	}
-	if !st.Accounts[0].Empty {
-		t.Fatal("the account's week is spent, want empty")
+	if st.Accounts[0].ThrottledAt == nil || !st.Accounts[0].Empty {
+		t.Fatalf("account = %+v, want throttled and its week spent", st.Accounts[0])
+	}
+	later := testNow.Add(episode)
+	p.now = func() time.Time { return later }
+	send(t, p, "r4", "s4", "", "claude-opus-5-5", []string{"claude-ada@x.json"}, http.Header{}, http.StatusTooManyRequests)
+	if log := p.Status().Log; len(log) != 2 {
+		t.Fatalf("log = %+v, want a second line once 10 minutes passed", log)
+	}
+}
+
+func TestTheLogLeavesOutCancelledRequestsAndOneOffFailures(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	for i, status := range []int{statusClientClosed, http.StatusInternalServerError, http.StatusBadRequest} {
+		call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: fmt.Sprintf("r%d", i), Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", Failed: true, Failure: UsageFailure{StatusCode: status}})
+	}
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "busy", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", Failed: true, Failure: UsageFailure{StatusCode: 529}})
+	if log := p.Status().Log; len(log) != 1 || log[0].Text != "Anthropic returned 529 Overloaded to ada." {
+		t.Fatalf("log = %+v, want only the overload", log)
+	}
+}
+
+func TestABlockOnAnAccountThatJustAnsweredIsCleared(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		reset []string
+	)
+	host := func(method string, payload []byte) ([]byte, error) {
+		if method == MethodHostRoutingResetCooldown {
+			var req HostRoutingResetCooldownRequest
+			_ = json.Unmarshal(payload, &req)
+			mu.Lock()
+			reset = append(reset, req.AuthIndex)
+			mu.Unlock()
+		}
+		return okEnvelope(emptyResult)
+	}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: host, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	notFound := UsageFailure{StatusCode: http.StatusNotFound, Body: `{"type":"error","error":{"type":"not_found_error","message":"No thread state was found"}}`}
+	for _, account := range []string{"claude-ada@x.json", "claude-bob@x.json"} {
+		call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "ok-" + account, Provider: "claude", Model: "claude-opus-5-5", AuthID: account})
+		call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "404-" + account, Provider: "claude", Model: "claude-opus-5-5", AuthID: account, AuthIndex: "index-" + account, Failed: true, Failure: notFound})
+	}
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "404-again", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", AuthIndex: "index-claude-ada@x.json", Failed: true, Failure: notFound})
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "404-new", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-cy@x.json", AuthIndex: "index-cy", Failed: true, Failure: notFound})
+	spent := weekly(1, time.Hour)
+	spent.Set("anthropic-ratelimit-unified-status", "rejected")
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "ok-dan", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-dan@x.json"})
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "spent-dan", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-dan@x.json", Failed: true, Failure: UsageFailure{StatusCode: http.StatusTooManyRequests}, ResponseHeaders: spent})
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "404-dan", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-dan@x.json", AuthIndex: "index-dan", Failed: true, Failure: notFound})
+	p.host.drain(time.Second)
+	sort.Strings(reset)
+	if !slices.Equal(reset, []string{"index-claude-ada@x.json", "index-claude-ada@x.json", "index-claude-bob@x.json"}) {
+		t.Fatalf("reset = %v, want ada at each 404 and bob, which answered Opus 5.5 before, and not cy, or dan, whose week is spent", reset)
+	}
+	var texts []string
+	for _, e := range p.Status().Log {
+		texts = append(texts, e.Level+" "+e.Text)
+	}
+	sort.Strings(texts)
+	want := []string{
+		"INFO oneclaude cleared the proxy's blocks on ada, set after a 404 for Opus 5.5.",
+		"INFO oneclaude cleared the proxy's blocks on bob, set after a 404 for Opus 5.5.",
+		"WARN Anthropic returned 404 Not Found for Opus 5.5 on ada.",
+		"WARN Anthropic returned 404 Not Found for Opus 5.5 on bob.",
+		"WARN Anthropic returned 404 Not Found for Opus 5.5 on cy.",
+		"WARN Anthropic returned 404 Not Found for Opus 5.5 on dan.",
+	}
+	if !slices.Equal(texts, want) {
+		t.Fatalf("log = %q, want %q", texts, want)
+	}
+}
+
+func TestUsageImportsTheRequestsFromBeforeTheLogOnceUnderNoAccountRecorded(t *testing.T) {
+	root := claudeProjects(t)
+	folder := filepath.Join(root, "-Users-turing-dotfiles")
+	before := model.Tokens{Input: 10, Output: 1_000_000}
+	write := func(path, text string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		_, _ = f.WriteString(text)
+	}
+	tenDaysAgo := testNow.AddDate(0, 0, -10)
+	reply := func(at time.Time, request string, output int64) string {
+		return fmt.Sprintf(`{"type":"assistant","message":{"model":"claude-opus-5-5","usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":%d}},"requestId":"%s","timestamp":"%s"}`+"\n", output, request, at.UTC().Format(time.RFC3339Nano))
+	}
+	write(filepath.Join(folder, "s1.jsonl"), reply(tenDaysAgo, "req_old", 1)+reply(tenDaysAgo, "req_old", before.Output)+reply(testNow.Add(-time.Minute), "req_logged", 5))
+	write(filepath.Join(folder, "s1", "subagents", "agent-a7.jsonl"), reply(tenDaysAgo.Add(time.Hour), "req_review", before.Output))
+
+	dir := t.TempDir()
+	logged, _ := json.Marshal(requestLine{At: testNow.Add(-time.Minute), Model: "claude-opus-5-5", Family: "opus", Account: "0000beef", Outcome: "ok", Tokens: model.Tokens{Output: 5}})
+	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), append(logged, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	load := func() *Plugin {
+		p := New(Options{Name: "oneclaude", NoPoller: true, ClaudeProjects: root, Now: func() time.Time { return testNow }})
+		cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+		p.Call(MethodPluginRegister, cfg)
+		call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+		return p
+	}
+	p := load()
+	agents := usageOf(t, p, "month", "agent")
+	accounts := usageOf(t, p, "month", "account")
+	p.Shutdown()
+	if len(agents.Rows) != 2 || agents.Total.Tokens.Output != 2*before.Output+5 {
+		t.Fatalf("by agent = %+v, want the old main request and its code-reviewer, once each, beside the logged one", agents)
+	}
+	if labels := []string{agents.Rows[0].Label, agents.Rows[1].Label}; !(labels[0] == "Main sessions" && labels[1] == "code-reviewer" || labels[1] == "Main sessions" && labels[0] == "code-reviewer") {
+		t.Fatalf("by agent = %+v", agents.Rows)
+	}
+	unknown := slices.IndexFunc(accounts.Rows, func(row UsageRow) bool { return row.Label == "No account recorded" })
+	if accounts.Total.Tokens != agents.Total.Tokens || unknown < 0 || accounts.Rows[unknown].Tokens.Output != 2*before.Output {
+		t.Fatalf("by account = %+v, want every request, the imported ones under No account recorded", accounts)
+	}
+
+	again := load()
+	defer again.Shutdown()
+	if after := usageOf(t, again, "month", "agent"); after.Total.Tokens != agents.Total.Tokens {
+		t.Fatalf("a second load = %+v, want the import once", after.Total)
+	}
+}
+
+func TestTimeStepsByTheHourOverADayAndByTheWeekOver90Days(t *testing.T) {
+	dir := t.TempDir()
+	var log bytes.Buffer
+	for _, at := range []time.Time{testNow.Add(-3 * time.Hour), testNow.Add(-time.Hour), testNow.AddDate(0, 0, -40)} {
+		line, _ := json.Marshal(requestLine{At: at, Model: "claude-opus-5-5", Family: "opus", Account: "0000beef", Outcome: "ok", Tokens: model.Tokens{Output: 1000}})
+		log.Write(append(line, '\n'))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), log.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	hours := usageOf(t, p, "today", "time")
+	if len(hours.Rows) != 2 || hours.Rows[0].Label != testNow.Add(-time.Hour).In(time.Local).Format("15")+":00" || hours.Total.Label != "All hours" {
+		t.Fatalf("today by time = %+v, want two hours, newest first", hours)
+	}
+	weeks := usageOf(t, p, "quarter", "time")
+	if len(weeks.Rows) != 2 || !strings.HasPrefix(weeks.Rows[1].Label, "Week of ") || weeks.Total.Label != "All weeks" {
+		t.Fatalf("90 days by time = %+v, want two weeks", weeks)
 	}
 }
 
@@ -471,17 +630,14 @@ func TestUsageKeepsNinetyDaysAndPricesALineWithoutItsModelAsItsFamilysNewest(t *
 	p.Call(MethodPluginRegister, cfg)
 	defer p.Shutdown()
 	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
-	table := usageOf(t, p, "month", "model")
+	table := usageOf(t, p, "quarter", "model")
 	twentyDaysAgo := testNow.AddDate(0, 0, -20).In(time.Local).Format("2006-01-02")
-	if table.Since != twentyDaysAgo {
-		t.Fatalf("since = %q, want %s: the line 100 days old is past the 90 days kept", table.Since, twentyDaysAgo)
-	}
 	if len(table.Rows) != 1 || table.Rows[0].Label != "Opus 5.5" || math.Abs(costOf(table.Rows[0])-20) > 1e-9 {
-		t.Fatalf("rows = %+v, want Opus 5.5 output at $20", table.Rows)
+		t.Fatalf("rows = %+v, want Opus 5.5 output at $20: the line 100 days old is past the 90 days kept", table.Rows)
 	}
-	byDay := usageOf(t, p, "month", "day")
-	if len(byDay.Rows) != 1 || byDay.Rows[0].Label != testNow.AddDate(0, 0, -20).In(time.Local).Format("Jan 2") || byDay.Rows[0].Key != twentyDaysAgo {
-		t.Fatalf("by day = %+v", byDay.Rows)
+	byDay := usageOf(t, p, "month", "time")
+	if len(byDay.Rows) != 1 || byDay.Rows[0].Label != testNow.AddDate(0, 0, -20).In(time.Local).Format("Jan 2") || byDay.Rows[0].Key != twentyDaysAgo || byDay.Total.Label != "All days" {
+		t.Fatalf("by day = %+v", byDay)
 	}
 	if agents := usageOf(t, p, "month", "agent"); agents.Rows[0].Label != "Main sessions" {
 		t.Fatalf("an old main-session line = %+v", agents.Rows)
@@ -599,6 +755,72 @@ func proxyWithCodex(t *testing.T) HostFunc {
 			return okEnvelope(HostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(body)})
 		}
 		return okEnvelope(emptyResult)
+	}
+}
+
+func TestASignedOutAccountShowsUntilItAnswersAgainAndLogsOnce(t *testing.T) {
+	host := func(method string, payload []byte) ([]byte, error) {
+		switch method {
+		case MethodHostAuthList:
+			return okEnvelope(HostAuthListResponse{Files: []HostAuthFileEntry{{ID: "claude-ada@x.json", AuthIndex: "a1", Type: "claude", Email: "ada@x"}}})
+		case MethodHostAuthGet:
+			return okEnvelope(HostAuthGetResponse{AuthIndex: "a1", JSON: json.RawMessage(`{"access_token":"expired"}`)})
+		case MethodHostHTTPDo:
+			return okEnvelope(HostHTTPResponse{StatusCode: http.StatusUnauthorized})
+		}
+		return okEnvelope(emptyResult)
+	}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: host, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	if err := p.list(); err != nil {
+		t.Fatal(err)
+	}
+	p.refreshOne(testNow, map[string]time.Time{})
+	p.refreshOne(testNow, map[string]time.Time{})
+	st := p.Status()
+	if !st.Accounts[0].SignedOut || len(st.Log) != 1 || st.Log[0].Text != "Anthropic rejected ada's login (401)." {
+		t.Fatalf("account = %+v, log = %+v, want ada signed out and logged once", st.Accounts[0], st.Log)
+	}
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "back", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json"})
+	if p.Status().Accounts[0].SignedOut {
+		t.Fatal("ada answered, want signed in")
+	}
+}
+
+func TestUnblockClearsTheAccountsBlocksAndLogsIt(t *testing.T) {
+	var reset []string
+	host := func(method string, payload []byte) ([]byte, error) {
+		switch method {
+		case MethodHostAuthList:
+			return okEnvelope(HostAuthListResponse{Files: []HostAuthFileEntry{{ID: "claude-ada@x.json", AuthIndex: "a1", Type: "claude", Email: "ada@x"}}})
+		case MethodHostRoutingResetCooldown:
+			var req HostRoutingResetCooldownRequest
+			_ = json.Unmarshal(payload, &req)
+			reset = append(reset, req.AuthIndex)
+		}
+		return okEnvelope(emptyResult)
+	}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: host, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	if err := p.list(); err != nil {
+		t.Fatal(err)
+	}
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	unblock := func(body string) int {
+		return call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/unblock", Body: []byte(body)}).StatusCode
+	}
+	if got := unblock(`{"auth_index":"nobody"}`); got != http.StatusNotFound {
+		t.Fatalf("an unknown account = %d, want 404", got)
+	}
+	if got := unblock(`{"auth_index":"a1"}`); got != http.StatusOK || !slices.Equal(reset, []string{"a1"}) {
+		t.Fatalf("unblock = %d, reset = %v, want ada's blocks cleared", got, reset)
+	}
+	if log := p.Status().Log; len(log) != 1 || log[0].Text != "oneclaude cleared the proxy's blocks on ada on request." {
+		t.Fatalf("log = %+v", log)
 	}
 }
 

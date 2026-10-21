@@ -187,36 +187,28 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
 
 .pool { gap: 0.875rem; }
 
-.warnings { display: grid; gap: 0.5rem; list-style: none; }
+#log:empty { display: none; }
 
-.warnings[data-open="false"] .warning:nth-child(n + 7) { display: none; }
+.log { display: grid; gap: 0.5rem; list-style: none; }
 
-.warning {
+.log[data-open="false"] .log__line:nth-child(n + 11) { display: none; }
+
+.log__line {
   display: grid;
-  grid-template-columns: 6rem minmax(0, 1fr);
+  grid-template-columns: 7.5rem 2.5rem minmax(0, 1fr);
   gap: 1rem;
   align-items: baseline;
 }
 
-.warning__time {
+.log__time, .log__level {
   color: var(--text-secondary);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 
-.warning__detail { display: flex; align-items: baseline; gap: 0.625rem; text-wrap: pretty; }
+.log__line[data-level="WARN"] .log__level { color: var(--amber); }
 
-.warning__dot {
-  flex: none;
-  inline-size: 0.5rem;
-  block-size: 0.5rem;
-  border-radius: 50%;
-  background: var(--amber);
-  translate: 0 -0.0625rem;
-}
-
-.warning[data-kind="login"] .warning__dot { background: var(--failure); }
-.warning[data-kind="limit"] .warning__dot { background: var(--text-tertiary); }
+.log__text { text-wrap: pretty; }
 
 .scroller { overflow-x: auto; margin-inline: -0.5rem; padding-inline: 0.5rem; }
 
@@ -463,7 +455,7 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
 }
 
 @container page (max-width: 48rem) {
-  .scroller { overflow: visible; margin-inline: 0; padding-inline: 0; }
+  .scroller:has(> .accounts) { overflow: visible; margin-inline: 0; padding-inline: 0; }
   .accounts { min-inline-size: 0; }
   .accounts thead { display: none; }
   .accounts, .accounts tbody, .accounts td { display: block; }
@@ -491,7 +483,8 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
 
 @container page (max-width: 40rem) {
   .page { padding: 1.5rem 1rem 3rem; gap: 2rem; }
-  .warning { grid-template-columns: minmax(0, 1fr); gap: 0.125rem; }
+  .log__line { grid-template-columns: auto minmax(0, 1fr); gap: 0.125rem 0.75rem; }
+  .log__text { grid-column: 1 / -1; }
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -515,10 +508,10 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
     <p class="facts" id="meta" aria-live="polite"></p>
   </header>
   <section class="section" id="pool" aria-label="Combined usage"></section>
-  <section class="section" id="warnings" aria-label="Warnings"></section>
   <section class="section" id="accounts" aria-label="Claude accounts"></section>
   <section class="section" id="usage" aria-label="Usage"></section>
   <section class="section" id="history" aria-label="Requests in the last 7 days"></section>
+  <section class="section" id="log" aria-label="Log"></section>
   <section class="section" id="proxy" aria-label="Proxy"></section>
 </main>
 <script>
@@ -538,7 +531,7 @@ const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
 const HOUR = 3600e3
 const WEEK = 7 * 24 * HOUR
 const NEARLY_EMPTY = 0.95
-const SHOWN_WARNINGS = 6
+const SHOWN_LOG = 10
 const PROBLEMS = {
   'proxy-down': 'The proxy is not answering. This page fills in again when it is back.',
   'plugin-off': 'oneclaude is off in this proxy.',
@@ -581,8 +574,8 @@ const state = {
   proxyError: null,
   server: { version: '', built: '' },
   updatedAt: 0,
-  warningsOpen: false,
-  usage: { period: 'today', by: 'account', units: 'cost' },
+  logOpen: false,
+  usage: { period: 'month', by: 'account', units: 'cost' },
   usageTable: null,
   login: null,
   pending: {},
@@ -625,7 +618,7 @@ function conceal(text) {
 
 // signIn saves the panel's login with oneclaude's management key, the way
 // the panel saves it when Remember password is ticked, so the panel opens
-// signed in.
+// signed in. A login the person saved stays theirs.
 function signIn() {
   localStorage.setItem('cli-proxy-auth', conceal(JSON.stringify({
     state: { apiBase: location.origin, managementKey: MANAGEMENT_KEY, rememberPassword: true },
@@ -933,27 +926,28 @@ function poolView() {
     state.problem ? note(PROBLEMS[state.problem], 'bad') : null)
 }
 
-function warningsView() {
-  const status = state.status
-  if (!status) return []
-  const warnings = [...status.warnings].reverse()
-  const title = 'Warnings in the last 24 hours'
-  if (warnings.length === 0) return [head(title), note('None. Throttles, refused subagents and expired logins show up here.')]
-  const toggle = warnings.length > SHOWN_WARNINGS
+// logView is the last 7 days of the log, newest first: when, the level, and
+// what happened.
+function logView() {
+  const log = [...(state.history?.log ?? [])].reverse()
+  if (log.length === 0) return []
+  const toggle = log.length > SHOWN_LOG
     ? h('button', {
         class: 'button button--quiet',
         type: 'button',
-        'data-focus': 'warnings-toggle',
-        'aria-expanded': state.warningsOpen,
-        onclick: () => { state.warningsOpen = !state.warningsOpen; render() },
-      }, state.warningsOpen ? 'Show fewer' : `Show all ${warnings.length}`)
+        'data-focus': 'log-toggle',
+        'aria-expanded': state.logOpen,
+        onclick: () => { state.logOpen = !state.logOpen; render() },
+      }, state.logOpen ? 'Show fewer' : `Show all ${log.length}`)
     : null
+  const stamp = (iso) => new Date(iso).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
   return [
-    head(title, toggle),
-    h('ol', { class: 'warnings', 'data-open': state.warningsOpen },
-      warnings.map((warning) => h('li', { class: 'warning', 'data-kind': warning.kind },
-        h('time', { class: 'warning__time', datetime: warning.at, title: new Date(warning.at).toLocaleString() }, ago(warning.at, status.now)),
-        h('span', { class: 'warning__detail' }, h('span', { class: 'warning__dot', 'aria-hidden': 'true' }), warning.detail)))),
+    head('Log, last 7 days', toggle),
+    h('ol', { class: 'log', 'data-open': state.logOpen },
+      log.map((entry) => h('li', { class: 'log__line', 'data-level': entry.level },
+        h('time', { class: 'log__time', datetime: entry.at }, stamp(entry.at)),
+        h('span', { class: 'log__level' }, entry.level),
+        h('span', { class: 'log__text' }, entry.text)))),
   ]
 }
 
@@ -985,21 +979,15 @@ function accountRows() {
   return rows
 }
 
-function loginExpired(account, now) {
-  if (!account) return false
-  return (state.status?.warnings ?? []).some((warning) => warning.kind === 'login' && warning.account === account.name
-    && (!account.observed_at || Date.parse(warning.at) > Date.parse(account.observed_at))
-    && Date.parse(now) - Date.parse(warning.at) < 24 * HOUR)
-}
 
 function rowKey(row) {
   return row.file?.auth_index || row.file?.name || row.account?.name
 }
 
-function accountState(row, now) {
+function accountState(row) {
   const { account, file } = row
   if (file?.disabled) return ['Disabled']
-  if (loginExpired(account, now)) return ['Login expired', 'bad']
+  if (account?.signed_out) return ['Signed out', 'bad']
   if (file?.unavailable) return ['Unavailable', 'warn', file.status_message]
   if (account?.empty) return ['Empty', 'bad']
   if (!account) return ['Not in the pool yet']
@@ -1008,13 +996,13 @@ function accountState(row, now) {
   return null
 }
 
-function accountActions(row, now) {
+function accountActions(row) {
   if (!state.key) return null
   const key = rowKey(row)
   const busy = Boolean(state.pending[key])
   const buttons = []
-  if (loginExpired(row.account, now)) {
-    buttons.push(h('button', { class: 'button', type: 'button', 'data-focus': `relogin-${key}`, disabled: Boolean(state.login), onclick: startLogin }, 'Log in again'))
+  if (row.account?.signed_out) {
+    buttons.push(h('button', { class: 'button', type: 'button', 'data-focus': `relogin-${key}`, disabled: Boolean(state.login), onclick: startLogin }, 'Sign in'))
   }
   if (row.file) {
     const disabled = Boolean(row.file.disabled)
@@ -1033,7 +1021,7 @@ function accountActions(row, now) {
 function accountRow(row, now) {
   const { account, history, file } = row
   const name = account?.name ?? file.email ?? file.label ?? file.name
-  const badge = accountState(row, now)
+  const badge = accountState(row)
   const totals = weekTotals(history)
   const problems = OUTCOMES.map(([outcome]) => totals.outcomes[outcome] ?? 0).reduce((a, b) => a + b, 0)
   const throttled = totals.outcomes.throttled ?? 0
@@ -1062,7 +1050,7 @@ function accountRow(row, now) {
     h('td', { class: 'accounts__actions' },
       h('div', { class: 'state' },
         badge ? h('span', { class: 'badge', 'data-tone': badge[1], title: badge[2] }, badge[0]) : null,
-        accountActions(row, now)),
+        accountActions(row)),
       error ? h('p', { class: 'row-error', role: 'alert' }, error) : null))
 }
 
@@ -1180,8 +1168,8 @@ function historyView() {
   ]
 }
 
-const PERIODS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', '7 days'], ['month', '30 days']]
-const BREAKDOWNS = [['account', 'Account'], ['model', 'Model'], ['agent', 'Agent'], ['project', 'Project'], ['day', 'Day']]
+const PERIODS = [['quarter', '90 days'], ['month', '30 days'], ['week', '7 days'], ['yesterday', 'Yesterday'], ['today', 'Today']]
+const BREAKDOWNS = [['account', 'Account'], ['model', 'Model'], ['agent', 'Agent'], ['project', 'Project'], ['time', 'Time']]
 const UNITS = [['cost', 'Cost'], ['tokens', 'Tokens']]
 const KINDS = [['input', 'Input'], ['output', 'Output'], ['cache_write', 'Cache write'], ['cache_read', 'Cache read']]
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -1320,7 +1308,6 @@ function usageView() {
         h('tfoot', null, h('tr', null, h('td', null, table.total.label), cells(table.total, true))))),
       facts(
         fact(units === 'cost' ? 'At API list prices, cache writes at the 1-hour rate' : 'Tokens as Anthropic counts them'),
-        table.since ? fact(`oneclaude's log starts on ${dayLabel(table.since)}`) : null,
         unrecorded ? fact('Not recorded: requests from before oneclaude recorded agent types and projects') : null)),
     h('div', { class: 'panel' },
       h('h3', { class: 'subtitle' }, 'Usage per day, last 30 days'),
@@ -1533,7 +1520,7 @@ function render() {
   const caret = active instanceof HTMLInputElement ? [active.selectionStart, active.selectionEnd] : null
   paint('meta', metaView())
   paint('pool', poolView())
-  paint('warnings', warningsView())
+  paint('log', logView())
   paint('accounts', accountsView())
   paint('usage', usageView())
   paint('history', historyView())
@@ -1659,7 +1646,7 @@ document.addEventListener('visibilitychange', () => {
 })
 const open = new URLSearchParams(location.search).get('open')
 if (!embedded && open !== null) {
-  signIn()
+  if (panelKey() === null) signIn()
   location.replace(OPENS[open] ?? OPENS.dashboard)
 } else {
   render()

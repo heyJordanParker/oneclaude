@@ -1,10 +1,10 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/heyJordanParker/oneclaude/cli/internal/limits"
@@ -85,13 +85,19 @@ func (p *Plugin) poolFull(s model.Settings, family model.Family, now time.Time) 
 
 func (p *Plugin) refuse(s model.Settings, family model.Family, limit int, now time.Time) RequestInterceptResponse {
 	minutes := int(s.RetryAfter.Round(time.Minute) / time.Minute)
-	name := strings.ToUpper(string(family[:1])) + string(family[1:])
+	name := familyName(family)
 	message := fmt.Sprintf("Every Claude account is at its %s limit of %d agents. Retry this subagent in %d minutes.", name, limit, minutes)
 	body, _ := json.Marshal(map[string]any{
 		"type":  "error",
 		"error": map[string]string{"type": "rate_limit_error", "message": message},
 	})
-	p.warn(Warning{At: now, Kind: "refused", Family: family, Agents: limit, Detail: fmt.Sprintf("subagent refused, every account at its %s limit, told to retry in %d minutes", name, minutes)})
+	p.mu.Lock()
+	stalled := now.Sub(p.refusedAt) >= s.RetryAfter
+	p.refusedAt = now
+	p.mu.Unlock()
+	if stalled {
+		p.note(levelWarn, "oneclaude refused a new %s subagent: every account reached its limit of %d.", name, limit)
+	}
 	return RequestInterceptResponse{
 		ClearHeaders: bridgeHeaders,
 		Terminate:    true,
@@ -268,9 +274,26 @@ func outcomeOf(rec UsageRecord) string {
 		return "throttled"
 	case status == 529:
 		return "overloaded"
+	case status == statusClientClosed:
+		return "cancelled"
 	default:
 		return "error"
 	}
+}
+
+// statusClientClosed is the proxy's status for a request Claude Code dropped,
+// as when you press Esc.
+const statusClientClosed = 499
+
+// falseBlock is how recently an account must have answered a model for a 404
+// on it to be a block that can't be true.
+const falseBlock = 24 * time.Hour
+
+// unblock clears every block the proxy holds on an account.
+func (p *Plugin) unblock(authIndex string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return p.host.invokeCtx(ctx, MethodHostRoutingResetCooldown, HostRoutingResetCooldownRequest{AuthIndex: authIndex}, nil)
 }
 
 func (p *Plugin) observe(rec UsageRecord) {
@@ -290,6 +313,8 @@ func (p *Plugin) observe(rec UsageRecord) {
 	}
 	p.remember([]string{rec.AuthID})
 
+	outcome := outcomeOf(rec)
+	modelID := model.Canonical(rec.Model)
 	weekly, haveWeekly := usage.WeeklyFromHeaders(rec.ResponseHeaders, now)
 	p.mu.Lock()
 	a := p.accounts[rec.AuthID]
@@ -297,10 +322,28 @@ func (p *Plugin) observe(rec UsageRecord) {
 		a.weekly, a.known = weekly, true
 		p.dirty = true
 	}
+	served, throttled, overloaded, notFound := a.served[modelID], a.throttled, a.overloaded, a.notFound
+	limited := !a.throttled.Before(served) || !a.rejected.Before(served) || a.signedOut
+	switch outcome {
+	case "ok":
+		if a.served == nil {
+			a.served = map[string]time.Time{}
+		}
+		a.served[modelID], a.signedOut = now, false
+	case "throttled":
+		a.throttled = now
+	case "quota":
+		a.rejected = now
+	case "overloaded":
+		a.overloaded = now
+	case "error":
+		if rec.Failure.StatusCode == http.StatusNotFound {
+			a.notFound = now
+		}
+	}
 	plan, name := a.Plan, a.Name
 	p.mu.Unlock()
 
-	outcome := outcomeOf(rec)
 	retry := false
 	if key := r.id.Key(); tracked && key != "" {
 		if outcome == "ok" {
@@ -311,10 +354,34 @@ func (p *Plugin) observe(rec UsageRecord) {
 	}
 	agents := p.agents.Active(now)[rec.AuthID][family]
 
-	if outcome == "throttled" || outcome == "overloaded" {
-		p.warn(Warning{At: now, Kind: outcome, Account: name, Family: family, Agents: agents, Detail: fmt.Sprintf("%s on %s with %d %s agents on the account", outcome, name, agents, family)})
-		if outcome == "throttled" && p.book.Record(s, limits.Throttle{At: now, Plan: plan, Family: family, Account: rec.AuthID, Agents: agents}) {
-			p.warn(Warning{At: now, Kind: "limit", Family: family, Detail: fmt.Sprintf("%s limit for %s lowered after throttles on 3 days", family, plan)})
+	switch outcome {
+	case "throttled":
+		if now.Sub(throttled) >= episode {
+			p.note(levelWarn, "Anthropic rate limited %s (429).", name)
+		}
+		before := p.book.Limit(s, plan, family)
+		if p.book.Record(s, limits.Throttle{At: now, Plan: plan, Family: family, Account: rec.AuthID, Agents: agents}) {
+			p.note(levelInfo, "oneclaude lowered the %s agent limit from %d to %d after Anthropic rate limited accounts below %d on 3 separate days.", familyName(family), before, p.book.Limit(s, plan, family), before)
+		}
+	case "overloaded":
+		if now.Sub(overloaded) >= episode {
+			p.note(levelWarn, "Anthropic returned 529 Overloaded to %s.", name)
+		}
+	case "error":
+		if rec.Failure.StatusCode != http.StatusNotFound {
+			break
+		}
+		label := model.Label(modelID)
+		fresh := now.Sub(notFound) >= episode
+		if fresh {
+			p.note(levelWarn, "Anthropic returned 404 Not Found for %s on %s.", label, name)
+		}
+		if now.Sub(served) < falseBlock && !limited && rec.AuthIndex != "" {
+			p.host.spawn(func() {
+				if p.unblock(rec.AuthIndex) == nil && fresh {
+					p.note(levelInfo, "oneclaude cleared the proxy's blocks on %s, set after a 404 for %s.", name, label)
+				}
+			})
 		}
 	}
 
@@ -322,7 +389,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 	line := requestLine{
 		At:             now,
 		Plan:           plan,
-		Model:          model.Canonical(rec.Model),
+		Model:          modelID,
 		Family:         family,
 		Account:        p.hash(rec.AuthID),
 		Subagent:       r.id.Subagent(),

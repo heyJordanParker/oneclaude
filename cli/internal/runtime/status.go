@@ -23,6 +23,7 @@ const (
 	resourceHistoryPath   = "/history.json"
 	resourceUsagePath     = "/usage.json"
 	routeStatus           = "/status"
+	routeUnblock          = "/unblock"
 	historyWindow         = 7 * 24 * time.Hour
 	daysKept              = 90
 	dayLayout             = "2006-01-02"
@@ -33,13 +34,15 @@ var dashboardPage []byte
 
 var dashboardPolicy = "default-src 'none'; script-src " + scriptHash(dashboardPage) + "; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
+// Status is the pool as the mod draws it. Log is the last 24 hours of events,
+// newest last.
 type Status struct {
 	Version  string          `json:"version"`
 	Now      time.Time       `json:"now"`
 	Pool     PoolStatus      `json:"pool"`
 	Accounts []AccountStatus `json:"accounts"`
 	Codex    []CodexStatus   `json:"codex"`
-	Warnings []Warning       `json:"warnings"`
+	Log      []LogEntry      `json:"log"`
 }
 
 type CodexStatus struct {
@@ -51,42 +54,54 @@ type CodexStatus struct {
 	Empty     bool       `json:"empty"`
 }
 
+// PoolStatus is the whole pool. LimitReached is true while oneclaude refuses
+// new subagents because every account reached the agent limit.
 type PoolStatus struct {
-	Used       float64    `json:"used"`
-	Even       float64    `json:"even"`
-	Pace       float64    `json:"pace"`
-	NextRefill *time.Time `json:"next_refill,omitempty"`
-	RefillGain float64    `json:"refill_gain"`
-	Agents     int        `json:"agents"`
-	Accounts   int        `json:"accounts"`
-	Known      int        `json:"known"`
+	Used         float64    `json:"used"`
+	Even         float64    `json:"even"`
+	Pace         float64    `json:"pace"`
+	NextRefill   *time.Time `json:"next_refill,omitempty"`
+	RefillGain   float64    `json:"refill_gain"`
+	Agents       int        `json:"agents"`
+	Accounts     int        `json:"accounts"`
+	Known        int        `json:"known"`
+	LimitReached bool       `json:"limit_reached"`
 }
 
+// AccountStatus is one Claude account. AuthIndex is the proxy's id for it,
+// which its management API names blocks by. ThrottledAt is the last throttle
+// within the hour.
 type AccountStatus struct {
-	Name       string               `json:"name"`
-	Plan       string               `json:"plan,omitempty"`
-	Known      bool                 `json:"known"`
-	Used       float64              `json:"used"`
-	ResetsAt   *time.Time           `json:"resets_at,omitempty"`
-	ObservedAt *time.Time           `json:"observed_at,omitempty"`
-	Projected  bool                 `json:"projected"`
-	Empty      bool                 `json:"empty"`
-	Agents     map[model.Family]int `json:"agents"`
-	Limits     map[model.Family]int `json:"limits"`
+	Name        string               `json:"name"`
+	AuthIndex   string               `json:"auth_index,omitempty"`
+	Plan        string               `json:"plan,omitempty"`
+	Known       bool                 `json:"known"`
+	Used        float64              `json:"used"`
+	ResetsAt    *time.Time           `json:"resets_at,omitempty"`
+	ObservedAt  *time.Time           `json:"observed_at,omitempty"`
+	Projected   bool                 `json:"projected"`
+	Empty       bool                 `json:"empty"`
+	SignedOut   bool                 `json:"signed_out"`
+	ThrottledAt *time.Time           `json:"throttled_at,omitempty"`
+	Agents      map[model.Family]int `json:"agents"`
+	Limits      map[model.Family]int `json:"limits"`
 }
 
-// History is each account's requests by the hour for the last 7 days.
+// History is each account's requests by the hour, and the log, for the last
+// 7 days.
 type History struct {
 	Now      time.Time        `json:"now"`
 	Accounts []AccountHistory `json:"accounts"`
+	Log      []LogEntry       `json:"log"`
 }
 
-// dayKey is one day's requests for one account, by its hashed id, model,
-// agent type and project. agent is "main" for a main session and empty for a
-// subagent whose type Claude Code had not written down; project is empty
-// likewise.
+// dayKey is one hour's requests of a day for one account, by its hashed id,
+// model, agent type and project. account is empty for a request imported from
+// a transcript. agent is "main" for a main session and empty for a subagent
+// whose type Claude Code had not written down; project is empty likewise.
 type dayKey struct {
 	day, account, model, agent, project string
+	hour                                int
 }
 
 type dayUsage struct {
@@ -118,13 +133,13 @@ func newRequestHistory() requestHistory {
 	return requestHistory{hours: map[string]map[int64]*HourHistory{}, days: map[dayKey]*dayUsage{}}
 }
 
-// Status is the pool as the mod draws it. Every account counts equally; an
+// Status is the pool as the mod draws it. Every account counts equally, and an
 // account whose week reset since its last reading shows as projected.
 func (p *Plugin) Status() Status {
 	s := p.settings()
 	now := p.now()
 	active := p.agents.Active(now)
-	st := Status{Version: p.opts.Version, Now: now, Accounts: []AccountStatus{}, Codex: []CodexStatus{}, Warnings: []Warning{}}
+	st := Status{Version: p.opts.Version, Now: now, Accounts: []AccountStatus{}, Codex: []CodexStatus{}, Log: []LogEntry{}}
 	p.mu.Lock()
 	accounts := make([]accountState, 0, len(p.accounts))
 	for _, a := range p.accounts {
@@ -142,18 +157,22 @@ func (p *Plugin) Status() Status {
 		}
 		st.Codex = append(st.Codex, row)
 	}
-	for _, w := range p.warnings {
-		if now.Sub(w.At) <= 24*time.Hour {
-			st.Warnings = append(st.Warnings, w)
+	for _, e := range p.events {
+		if now.Sub(e.At) <= 24*time.Hour {
+			st.Log = append(st.Log, e)
 		}
 	}
+	st.Pool.LimitReached = now.Sub(p.refusedAt) < s.RetryAfter
 	p.mu.Unlock()
 	sort.Slice(accounts, func(i, j int) bool { return accounts[i].Name < accounts[j].Name })
 	sort.Slice(st.Codex, func(i, j int) bool { return st.Codex[i].Name < st.Codex[j].Name })
 
 	var used, even float64
 	for _, a := range accounts {
-		row := AccountStatus{Name: a.Name, Plan: a.Plan, Known: a.known, Agents: map[model.Family]int{}, Limits: map[model.Family]int{}}
+		row := AccountStatus{Name: a.Name, AuthIndex: a.AuthIndex, Plan: a.Plan, Known: a.known, SignedOut: a.signedOut, Agents: map[model.Family]int{}, Limits: map[model.Family]int{}}
+		if throttled := a.throttled; now.Sub(throttled) < time.Hour {
+			row.ThrottledAt = &throttled
+		}
 		for _, f := range model.Families {
 			row.Limits[f] = p.book.Limit(s, a.Plan, f)
 			if n := active[a.ID][f]; n > 0 {
@@ -209,6 +228,7 @@ func (p *Plugin) History() History {
 	}
 	hist := History{Now: now, Accounts: make([]AccountHistory, 0, len(rows))}
 	p.mu.Lock()
+	hist.Log = append([]LogEntry{}, p.events...)
 	for account, hours := range p.history.hours {
 		row, ok := rows[account]
 		if !ok {
@@ -235,14 +255,15 @@ func (p *Plugin) History() History {
 
 // readRequestLog adds the lines earlier loads wrote to requests.jsonl, the
 // last 90 days of them, once per load, after filling in the lines logged
-// before oneclaude recorded their agent and project. load starts it in the
+// before oneclaude recorded their agent and project, and, once per data
+// folder, importing the requests from before the log. load starts it in the
 // background, so the first History waits for it only while it is still
 // reading.
 func (p *Plugin) readRequestLog() {
 	p.historyMu.Lock()
 	defer p.historyMu.Unlock()
 	p.mu.Lock()
-	read, dir, loadedAt, log := p.historyRead, p.loadedDir, p.loadedAt, p.log
+	read, dir, loadedAt, log, imported := p.historyRead, p.loadedDir, p.loadedAt, p.log, p.imported
 	p.mu.Unlock()
 	if read || dir == "" {
 		return
@@ -254,6 +275,13 @@ func (p *Plugin) readRequestLog() {
 	}
 	path := filepath.Join(dir, "requests.jsonl")
 	p.backfill(path, log, stillLoaded)
+	if !imported && p.importTranscripts(path, log, loadedAt, stillLoaded) {
+		p.mu.Lock()
+		if p.loadedDir == dir && p.loadedAt.Equal(loadedAt) {
+			p.imported, p.dirty = true, true
+		}
+		p.mu.Unlock()
+	}
 	earlier := newRequestHistory()
 	hoursFrom := loadedAt.Add(-historyWindow)
 	daysFrom := loadedAt.AddDate(0, 0, -daysKept)
@@ -291,9 +319,10 @@ func (p *Plugin) readRequestLog() {
 	p.historyRead = true
 }
 
-// add counts one request, in its hour when withHour, and in its day.
+// add counts one request in its day, and in its account's hour when withHour
+// and it has an account.
 func (h requestHistory) add(line requestLine, withHour bool) {
-	if withHour {
+	if withHour && line.Account != "" {
 		h.bucket(line.Account, line.At.Truncate(time.Hour).UTC()).merge(&HourHistory{Requests: 1, Outcomes: map[string]int{line.Outcome: 1}, Tokens: line.Tokens})
 	}
 	agent := line.Agent
@@ -301,7 +330,8 @@ func (h requestHistory) add(line requestLine, withHour bool) {
 		agent = "main"
 	}
 	modelID := model.ModelOf(line.Model, line.Family)
-	h.day(dayKey{day: line.At.In(time.Local).Format(dayLayout), account: line.Account, model: modelID, agent: agent, project: line.Project}).
+	at := line.At.In(time.Local)
+	h.day(dayKey{day: at.Format(dayLayout), hour: at.Hour(), account: line.Account, model: modelID, agent: agent, project: line.Project}).
 		merge(&dayUsage{tokens: line.Tokens, cost: model.CostOf(modelID, line.Tokens)})
 }
 
@@ -369,13 +399,14 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 	p.mu.Unlock()
 	return okEnvelope(ManagementRegistrationResponse{
 		Routes: []ManagementRoute{
-			{Method: http.MethodGet, Path: mgmt + "/plugins/" + p.opts.Name + routeStatus, Description: "The pool's usage, pace, accounts and warnings as JSON."},
+			{Method: http.MethodGet, Path: mgmt + "/plugins/" + p.opts.Name + routeStatus, Description: "The pool's usage, pace, accounts and the last 24 hours of its log as JSON."},
+			{Method: http.MethodPost, Path: mgmt + "/plugins/" + p.opts.Name + routeUnblock, Description: "Clears every block the proxy holds on the account {auth_index}, and logs it."},
 		},
 		Resources: []ResourceRoute{
 			{Path: resource + resourceDashboardPath, Menu: "oneclaude", Description: "Your Claude pool, its accounts and the proxy"},
-			{Path: resource + resourceStatusPath, Description: "The pool's usage, pace, accounts and warnings as JSON, for the oneclaude mod."},
-			{Path: resource + resourceHistoryPath, Description: "Each account's requests per hour over the last 7 days as JSON, for the dashboard."},
-			{Path: resource + resourceUsagePath, Description: "Usage at API list prices for ?period=today|yesterday|week|month by ?by=account|model|agent|project|day, sorted by ?units=cost|tokens, as JSON."},
+			{Path: resource + resourceStatusPath, Description: "The pool's usage, pace, accounts and the last 24 hours of its log as JSON, for the oneclaude mod."},
+			{Path: resource + resourceHistoryPath, Description: "Each account's requests per hour and the log over the last 7 days as JSON, for the dashboard."},
+			{Path: resource + resourceUsagePath, Description: "Usage at API list prices for ?period=quarter|month|week|yesterday|today by ?by=account|model|agent|project|time, sorted by ?units=cost|tokens, as JSON."},
 		},
 	})
 }
@@ -407,9 +438,36 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 		return okEnvelope(jsonResponse(http.StatusOK, p.History()))
 	case req.Path == resource+resourceUsagePath:
 		return okEnvelope(jsonResponse(http.StatusOK, p.Usage(req.Query.Get("period"), req.Query.Get("by"), req.Query.Get("units"))))
+	case req.Path == mgmt+"/plugins/"+p.opts.Name+routeUnblock && req.Method == http.MethodPost:
+		return okEnvelope(p.unblockRoute(req.Body))
 	default:
 		return okEnvelope(jsonResponse(http.StatusNotFound, map[string]string{"error": "unknown path"}))
 	}
+}
+
+// unblockRoute clears every block on the account the person picked in the
+// pane.
+func (p *Plugin) unblockRoute(body []byte) ManagementResponse {
+	var req HostRoutingResetCooldownRequest
+	if json.Unmarshal(body, &req) != nil || req.AuthIndex == "" {
+		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "auth_index is required"})
+	}
+	name := ""
+	p.mu.Lock()
+	for _, a := range p.accounts {
+		if a.AuthIndex == req.AuthIndex {
+			name = a.Name
+		}
+	}
+	p.mu.Unlock()
+	if name == "" {
+		return jsonResponse(http.StatusNotFound, map[string]string{"error": "no Claude account has that auth_index"})
+	}
+	if err := p.unblock(req.AuthIndex); err != nil {
+		return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
+	}
+	p.note(levelInfo, "oneclaude cleared the proxy's blocks on %s on request.", name)
+	return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func jsonResponse(status int, body any) ManagementResponse {

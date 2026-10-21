@@ -66,6 +66,6 @@ Default `1h`, at least `10m`. An account with no reply for this long gets one us
 
 ### `data-dir`
 
-Default `~/.cli-proxy-api/plugins/oneclaude`. The folder oneclaude keeps its files in ([How it works](how-it-works.md#what-oneclaude-keeps)).
+The folder oneclaude keeps its files in ([How it works](how-it-works.md#what-oneclaude-keeps)). The install sets it to cmod's data folder for oneclaude, `~/.local/share/cmod/data/oneclaude`. With none set, oneclaude keeps no files.
 
 Durations read as Go writes them, such as `90s`, `5m`, or `1h30m`. A duration below its floor, or one that doesn't read, falls back to the default.

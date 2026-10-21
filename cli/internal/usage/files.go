@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -94,11 +95,24 @@ func NewLog(path string, keep time.Duration) *Log {
 // Rewrite passes every line of the log through edit and waits until the
 // writer has replaced the file. An edit that returns nil drops its line.
 func (l *Log) Rewrite(edit func(line []byte) []byte) {
-	finished := make(chan struct{})
+	l.edit(func() bool { return l.rewrite("", edit) })
+}
+
+// Prepend puts the lines of the file at head before the log's oldest line,
+// waits until the writer has replaced the file, and says whether it did.
+func (l *Log) Prepend(head string) bool {
+	return l.edit(func() bool { return l.rewrite(head, func(line []byte) []byte { return line }) })
+}
+
+// edit runs change on the writer and answers its result, or false once the
+// log is closed.
+func (l *Log) edit(change func() bool) bool {
+	done := make(chan bool, 1)
 	select {
-	case l.edits <- func() { defer close(finished); l.rewrite(edit) }:
-		<-finished
+	case l.edits <- func() { done <- change() }:
+		return <-done
 	case <-l.done:
+		return false
 	}
 }
 
@@ -187,7 +201,7 @@ func (l *Log) write(line []byte) {
 
 func (l *Log) prune() {
 	cutoff := time.Now().Add(-l.keep)
-	l.rewrite(func(raw []byte) []byte {
+	l.rewrite("", func(raw []byte) []byte {
 		var line struct {
 			At time.Time `json:"at"`
 		}
@@ -198,34 +212,60 @@ func (l *Log) prune() {
 	})
 }
 
-func (l *Log) rewrite(edit func(line []byte) []byte) {
+// rewrite replaces the file with the file at head, if any, then each of its
+// lines through edit, streaming both, so a long log never sits in memory. A
+// missing log reads as empty. It says whether it replaced the file.
+func (l *Log) rewrite(head string, edit func(line []byte) []byte) bool {
 	if l.path == "" {
-		return
+		return false
 	}
-	f, err := os.Open(l.path)
-	if err != nil {
-		return
+	in, err := os.Open(l.path)
+	if err != nil && (!os.IsNotExist(err) || head == "") {
+		return false
 	}
-	var kept [][]byte
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		if line := edit(append([]byte(nil), scanner.Bytes()...)); line != nil {
-			kept = append(kept, line)
-		}
+	if in != nil {
+		defer in.Close()
 	}
-	_ = f.Close()
-	if scanner.Err() != nil {
-		return
+	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
+		return false
 	}
 	tmp := l.path + ".tmp"
-	out, err := os.Create(tmp)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return
+		return false
 	}
-	for _, line := range kept {
-		_, _ = out.Write(append(line, '\n'))
+	fail := func() bool {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return false
 	}
-	_ = out.Close()
-	_ = os.Rename(tmp, l.path)
+	out := bufio.NewWriterSize(f, 1<<20)
+	if head != "" {
+		h, err := os.Open(head)
+		if err != nil {
+			return fail()
+		}
+		_, err = io.Copy(out, h)
+		_ = h.Close()
+		if err != nil {
+			return fail()
+		}
+	}
+	if in != nil {
+		scanner := bufio.NewScanner(in)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			if line := edit(append([]byte(nil), scanner.Bytes()...)); line != nil {
+				_, _ = out.Write(append(line, '\n'))
+			}
+		}
+		if scanner.Err() != nil {
+			return fail()
+		}
+	}
+	if out.Flush() != nil || f.Close() != nil {
+		_ = os.Remove(tmp)
+		return false
+	}
+	return os.Rename(tmp, l.path) == nil
 }

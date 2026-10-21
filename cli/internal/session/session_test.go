@@ -82,24 +82,29 @@ func assistant(at, request string, tokens model.Tokens) string {
 		tokens.Input, tokens.CacheWrite, tokens.CacheRead, tokens.Output, request, at)
 }
 
-func TestRecordedSinceFindsEachRequestWithItsAgentTypeAndItsSessionsProject(t *testing.T) {
+func TestRecordedBetweenFindsEachRequestWithItsTokensAgentTypeAndItsSessionsProject(t *testing.T) {
 	root := claudeProjects(t, "s1", "dotfiles", map[string]string{"a7": "code-reviewer"})
 	folder := filepath.Join(root, "-Users-turing-dotfiles")
 	main := model.Tokens{Input: 2, Output: 5411, CacheRead: 66598, CacheWrite: 19897}
 	review := model.Tokens{Input: 3, Output: 10, CacheRead: 100}
 	old := model.Tokens{Input: 4, Output: 20}
+	late := model.Tokens{Input: 5, Output: 30}
 	transcript, _ := os.ReadFile(filepath.Join(folder, "s1.jsonl"))
 	write(t, filepath.Join(folder, "s1.jsonl"), string(transcript)+
 		assistant("2026-10-14T23:00:00Z", "req_old", old)+
 		assistant("2026-10-15T16:14:48.1Z", "req_main", main)+
 		assistant("2026-10-15T16:14:48.1Z", "req_main", main)+
-		assistant("2026-10-15T16:20:00Z", "req_unwanted", model.Tokens{Input: 9}))
+		assistant("2026-10-15T16:20:00Z", "req_unwanted", model.Tokens{Input: 9})+
+		assistant("2026-10-16T00:00:00Z", "req_late", late))
 	write(t, filepath.Join(folder, "s1", "subagents", "agent-a7.jsonl"), assistant("2026-10-15T17:00:00Z", "req_review", review))
 
-	wanted := map[model.Tokens]bool{main: true, review: true, old: true}
-	found := NewRecords(root).RecordedSince(time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), wanted, 2, func() bool { return true })
-	if len(found) != 2 || len(found[old]) != 0 {
-		t.Fatalf("found = %+v, want the two requests since Oct 15", found)
+	wanted := map[model.Tokens]bool{main: true, review: true, old: true, late: true}
+	found := map[model.Tokens][]Recorded{}
+	for _, r := range NewRecords(root).RecordedBetween(time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC), func(t model.Tokens) bool { return wanted[t] }, 2, func() bool { return true }) {
+		found[r.Tokens] = append(found[r.Tokens], r)
+	}
+	if len(found) != 2 || len(found[old]) != 0 || len(found[late]) != 0 {
+		t.Fatalf("found = %+v, want the two requests on Oct 15", found)
 	}
 	if got := found[main]; len(got) != 2 || got[0].Request != "req_main" || got[0].Model != "claude-opus-5-5" || got[0].Subagent || got[0].Agent != "" || got[0].Project != "dotfiles" {
 		t.Fatalf("main session = %+v", got)

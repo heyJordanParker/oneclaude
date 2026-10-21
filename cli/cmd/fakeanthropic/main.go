@@ -65,6 +65,12 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limited"}}`)
 		return
 	}
+	if strings.Contains(text, "notfound") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"type":"error","error":{"type":"not_found_error","message":"model: claude-opus-5-5"}}`)
+		return
+	}
 	mu.Lock()
 	a.used += 0.001
 	used, reset := a.used, time.Now().Add(a.resetIn).Unix()

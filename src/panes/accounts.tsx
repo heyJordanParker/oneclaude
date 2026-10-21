@@ -6,8 +6,8 @@ import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
-import { ADD_ACCOUNT_URL, ago, agentsOf, BAR_CELLS, claudeKey, codexKey, DASHBOARD_URL, evenOf, FAMILIES, paceOf, percent, plural, POOL, PROBLEMS, until, type Account, type Codex, type Shown, type Status, type Warning } from '../status.js'
-import { BREAKDOWNS, dailyChart, dayLabel, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
+import { ACCOUNTS, ADD_ACCOUNT_URL, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, DASHBOARD_URL, evenOf, FAMILIES, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
+import { BREAKDOWNS, dailyChart, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
 const GAP = 2
@@ -19,7 +19,7 @@ const CONTROL = 7
 function usageColumns(state: OneclaudeState): number | undefined {
   const { table, usage } = state.memory
   if (table === null) return undefined
-  const controls = CONTROL + BREAKDOWNS.reduce((width, [, label]) => width + label.length + 3, 0)
+  const controls = CONTROL + Math.max(...[PERIODS, BREAKDOWNS].map((choices) => choices.reduce((width, [, label]) => width + label.length + 3, 0)))
   return INSET * 2 + Math.max(usageLayout(table, usage.units, true).width, controls)
 }
 
@@ -35,9 +35,12 @@ export async function showUsage(mod: Mod<OneclaudeState>, change: Partial<UsageV
 }
 
 // A Row is one bar: its name, the bar, then its facts, the first of which is
-// how full it is. A pane too narrow for every row on one line puts each
-// row's facts but the first on a second line, under the bar.
-type Row = { readonly name: string; readonly shown?: Shown; readonly facts: readonly Fact[]; readonly color?: string }
+// how full it is, then what needs the person on it. A pane too narrow for
+// every row on one line puts each row's facts but the first on a second line,
+// under the bar.
+type Row = { readonly key?: string; readonly name: string; readonly shown?: Shown; readonly facts: readonly Fact[]; readonly color?: string; readonly trouble?: RenderElement }
+
+const LOG_SHOWN = 10
 
 export const accountsPane = definePane<OneclaudeState>({
   id: 'accounts',
@@ -52,10 +55,10 @@ export const accountsPane = definePane<OneclaudeState>({
     const reading = mod.state.memory.reading
     if (reading === null) return <Text dimColor>Reading your accounts</Text>
     if ('problem' in reading) return <Text color="warning">{PROBLEMS[reading.problem]}</Text>
-    const { status } = reading
+    const { status, blocks } = reading
     const shown = mod.state.memory.shown
     const combined = combinedRow(status, shown[POOL])
-    const claude = status.accounts.map((account) => claudeRow(account, status.now, shown[claudeKey(account)]))
+    const claude = status.accounts.map((account) => claudeRow(mod, account, blocks, status.now, shown[claudeKey(account)]))
     const codex = status.codex.map((account) => codexRow(account, status.now, shown[codexKey(account)]))
     const rows = [combined, ...claude, ...codex]
     const width = Math.max(...rows.map((row) => row.name.length))
@@ -67,16 +70,12 @@ export const accountsPane = definePane<OneclaudeState>({
           <Text bold><Text color="claude">✻</Text> oneclaude</Text>
           {draw(combined)}
         </Box>
-        <Section title="Claude accounts">{claude.map(draw)}</Section>
+        <Section key={ACCOUNTS} title="Claude accounts">{claude.map(draw)}</Section>
         {codex.length > 0 ? <Section title="Codex accounts">{codex.map(draw)}</Section> : null}
         <ResetsSection accounts={status.accounts} now={status.now} width={width} columns={bodyColumns - INSET * 2} />
         <UsageSection mod={mod} table={mod.state.memory.table} view={mod.state.memory.usage} columns={bodyColumns - INSET * 2} />
         {mod.state.memory.table === null ? null : <ChartSection table={mod.state.memory.table} view={mod.state.memory.usage} />}
-        <Section key="warnings" title="Warnings in the last 24 hours">
-          {status.warnings.length === 0
-            ? [<Text dimColor>None</Text>]
-            : [...status.warnings].reverse().map((warning) => <WarningRow warning={warning} now={status.now} />)}
-        </Section>
+        {status.log.length === 0 ? null : <LogSection log={status.log} />}
         <Box paddingX={2} gap={2}>
           <Text dimColor>[<Link href={DASHBOARD_URL}>Open dashboard</Link>]</Text>
           <Text dimColor>[<Link href={ADD_ACCOUNT_URL}>Add account</Link>]</Text>
@@ -103,21 +102,36 @@ function ResetsSection({ accounts, now, width, columns }: { readonly accounts: r
   return <Section title="Weekly resets">{[<WeeklyResets calendar={calendar} width={width} />]}</Section>
 }
 
+// RowView draws a row, and its trouble on a line of its own under the bar,
+// or after the name of a row with no bar.
 function RowView({ row, width, isNarrow }: { readonly row: Row; readonly width: number; readonly isNarrow: boolean }): RenderElement {
   const name = <Box flexShrink={0}><Text>{row.name.padEnd(width)}</Text></Box>
-  const bar = row.shown === undefined ? null : <Box flexShrink={0}>{poolBar(row.shown)}</Box>
-  if (!isNarrow || row.shown === undefined) {
+  const trouble = row.trouble === undefined ? null : <Box paddingLeft={width + GAP}>{row.trouble}</Box>
+  if (row.shown === undefined) {
     return (
-      <Box gap={GAP}>
+      <Box key={row.key} gap={GAP}>
         {name}
-        {bar}
-        <Facts facts={row.facts} color={row.color} />
+        {row.facts.length === 0 ? null : <Facts facts={row.facts} color={row.color} />}
+        {row.trouble ?? null}
+      </Box>
+    )
+  }
+  const bar = <Box flexShrink={0}>{poolBar(row.shown)}</Box>
+  if (!isNarrow) {
+    return (
+      <Box key={row.key} flexDirection="column">
+        <Box gap={GAP}>
+          {name}
+          {bar}
+          <Facts facts={row.facts} color={row.color} />
+        </Box>
+        {trouble}
       </Box>
     )
   }
   const [first, ...rest] = row.facts
   return (
-    <Box flexDirection="column">
+    <Box key={row.key} flexDirection="column">
       <Box gap={GAP}>
         {name}
         {bar}
@@ -126,6 +140,7 @@ function RowView({ row, width, isNarrow }: { readonly row: Row; readonly width: 
       <Box paddingLeft={width + GAP}>
         <Facts facts={rest} color={row.color} />
       </Box>
+      {trouble}
     </Box>
   )
 }
@@ -146,19 +161,62 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
   }
 }
 
-function claudeRow(account: Account, now: string, shown: Shown | undefined): Row {
-  if (!account.known) return { name: account.name, facts: ['not read yet'] }
+// claudeRow is one Claude account. A signed-out account shows only that, with
+// the login that signs it back in, and a blocked one says until when, with
+// the button that clears its blocks.
+function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, now: string, shown: Shown | undefined): Row {
+  const key = rowKey(account)
+  if (isSignedOut(account, blocks)) {
+    return {
+      key,
+      name: account.name,
+      facts: [],
+      trouble: (
+        <Box gap={2}>
+          <Text color="warning">signed out</Text>
+          <Text dimColor>[<Link href={ADD_ACCOUNT_URL}>Sign in</Link>]</Text>
+        </Box>
+      ),
+    }
+  }
+  const blocked = blocksOf(account, blocks)
+  const trouble = blocked.length === 0 ? undefined : <BlockedView mod={mod} account={account} blocked={blocked} now={now} />
+  if (!account.known) return { key, name: account.name, facts: ['not read yet'], trouble }
   const agents = FAMILIES.filter((family) => (account.agents[family] ?? 0) > 0).map((family) => `${account.agents[family]} ${family}`)
   return {
+    key,
     name: account.name,
     shown: shown ?? { used: account.used, pace: paceOf(account, now) },
     color: account.empty ? 'error' : undefined,
     facts: [
       ...usageFacts(account, now),
+      ...(account.throttled_at === undefined ? [] : [`throttled ${ago(account.throttled_at, now)}`]),
       agentsOf(account) === 0 ? 'idle' : agents.join(', '),
       ...(account.projected ? ['refilled since its last reading'] : []),
     ],
+    trouble,
   }
+}
+
+function BlockedView({ mod, account, blocked, now }: { readonly mod: Mod<OneclaudeState>; readonly account: Account; readonly blocked: readonly Block[]; readonly now: string }): RenderElement {
+  const models = [...new Set(blocked.flatMap((block) => (block.model === undefined ? [] : [modelName(block.model)])))]
+  const last = blocked.map((block) => block.until).sort().at(-1) ?? now
+  const what = models.length === 0 || blocked.some((block) => block.model === undefined) ? 'blocked' : `blocked for ${models.join(', ')}`
+  const clear = async (): Promise<void> => {
+    const key = await keyOf(mod)
+    if (key === undefined || !(await unblock(account, key))) {
+      mod.ui.toast(`oneclaude could not clear the blocks on ${account.name}`)
+      return
+    }
+    const reading = mod.state.memory.reading
+    if (reading !== null && 'status' in reading) mod.state.memory.reading = { ...reading, blocks: Object.fromEntries(Object.entries(reading.blocks).filter(([index]) => index !== account.auth_index)) }
+  }
+  return (
+    <Box gap={2}>
+      <Text color="warning">{`${what} until ${momentOf(last, now)}`}</Text>
+      <Button key={`unblock-${account.name}`} plain dimColor onPress={clear}>[Unblock]</Button>
+    </Box>
+  )
 }
 
 function codexRow(account: Codex, now: string, shown: Shown | undefined): Row {
@@ -234,14 +292,7 @@ function UsageSection({ mod, table, view, columns }: { readonly mod: Mod<Oneclau
           {layout.rows.map((line) => <TableRow line={line} />)}
           <TableRow line={layout.total} isTotal />
         </Box>,
-        ...(table.since === undefined && !isUnrecorded
-          ? []
-          : [
-              <Box flexDirection="column">
-                {table.since === undefined ? null : <Text dimColor>{`oneclaude's log starts on ${dayLabel(table.since)}.`}</Text>}
-                {isUnrecorded ? <Text dimColor wrap="wrap">Not recorded: requests from before oneclaude recorded agent types and projects.</Text> : null}
-              </Box>,
-            ]),
+        ...(isUnrecorded ? [<Text dimColor wrap="wrap">Not recorded: requests from before oneclaude recorded agent types and projects.</Text>] : []),
         ...(mod.permissions.prompt ? [<Optimize mod={mod} />] : []),
       ]}
     </Section>
@@ -302,11 +353,24 @@ function ChartSection({ table, view }: { readonly table: UsageTable; readonly vi
   )
 }
 
-function WarningRow({ warning, now }: { readonly warning: Warning; readonly now: string }): RenderElement {
+// LogSection is the last 24 hours of the log, newest first: the time, the
+// level, and what happened. The dashboard holds the rest of the week.
+function LogSection({ log }: { readonly log: readonly LogEntry[] }): RenderElement {
+  const shown = [...log].reverse().slice(0, LOG_SHOWN)
   return (
-    <Box gap={2}>
-      <Box flexShrink={0}><Text dimColor>{ago(warning.at, now).padEnd(9)}</Text></Box>
-      <Text color="warning" wrap="wrap">{warning.detail}</Text>
-    </Box>
+    <Section key="log" title="Log">
+      {[
+        <Box flexDirection="column">
+          {shown.map((entry) => (
+            <Box gap={2}>
+              <Box flexShrink={0}><Text dimColor>{clockOf(entry.at)}</Text></Box>
+              <Box flexShrink={0}><Text color={entry.level === 'WARN' ? 'warning' : undefined} dimColor={entry.level === 'INFO'}>{entry.level}</Text></Box>
+              <Text wrap="wrap">{entry.text}</Text>
+            </Box>
+          ))}
+          {log.length > LOG_SHOWN ? <Text dimColor>{`${plural(log.length - LOG_SHOWN, 'earlier line')} on the dashboard`}</Text> : null}
+        </Box>,
+      ]}
+    </Section>
   )
 }

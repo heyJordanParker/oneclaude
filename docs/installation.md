@@ -59,24 +59,32 @@ This step runs only when no config turns up. oneclaude runs `brew install clipro
 - `server.host` becomes `127.0.0.1`, so only this Mac reaches the proxy;
 - the example's placeholder client keys, `your-api-key-1` and its siblings, are removed. Claude Code sends no client key of its own.
 
-### 3. Adding oneclaude
+### 3. Starting the proxy
+
+When the proxy is Homebrew's, oneclaude keeps it on the version it was tested with, CLIProxyAPI 8.0.35 or newer, before it changes the proxy's config:
+
+- an older one gets `brew upgrade cliproxyapi`;
+- when nothing listens on its port, oneclaude runs `brew services start cliproxyapi`, so the proxy also starts at every login;
+- when the running proxy started before Homebrew put the installed version in place, oneclaude runs `brew services restart cliproxyapi`. Claude Code resends a reply the restart drops, and every conversation keeps its account.
+
+A proxy that isn't Homebrew's stays as it is, so keep it on 8.0.35 or newer yourself.
+
+### 4. Adding oneclaude
 
 oneclaude rewrites only two blocks of the proxy config, `plugins` and `management`, and keeps every other byte of the file, its comments included. A config that is a symbolic link stays one.
 
+- It moves the plugin's files from the folder the config named before, or `~/.cli-proxy-api/plugins/oneclaude/` where versions before 0.7.10 kept them, into its data folder, `~/.local/share/cmod/data/oneclaude/`. `oneclaude install --data <folder>` names another.
 - It writes the routing plugin to `<plugins.dir>/darwin/arm64/oneclaude-v<version>.dylib`. `plugins.dir` defaults to `~/.cli-proxy-api/plugins`.
-- It sets `plugins.enabled` and `plugins.configs.oneclaude.enabled` to `true`, and `plugins.configs.oneclaude.store.version` to the new version. The proxy loads the new version without dropping a reply.
+- It sets `plugins.enabled` and `plugins.configs.oneclaude.enabled` to `true`, `plugins.configs.oneclaude.data-dir` to its data folder, and `plugins.configs.oneclaude.store.version` to the new version. The proxy loads the new version without dropping a reply.
 - It turns off Claude Seat Pacer, `plugins.configs.claude-seat-pacer`, when it is on. The proxy asks only one scheduler plugin which account to use.
-- It sets the management key, the password of the proxy's control panel, to `oneclaude`, saved as a bcrypt hash. The dashboard and `[Add account]` sign in with it. The panel answers only this Mac while `management.allow-remote` is `false`, the proxy's default, so keep it that way: the key `oneclaude` is public.
+- When the proxy has no management key, the password of its control panel, it sets one, `oneclaude`, saved as a bcrypt hash. The dashboard and `[Add account]` sign in with it. The panel answers only this Mac while `management.allow-remote` is `false`, the proxy's default, so keep it that way: the key `oneclaude` is public.
+- A proxy with a management key of its own keeps it. The install pane in Claude Code then asks for it once, and again whenever it changes. It checks the key against the hash in the proxy's config, on this Mac, so the proxy never refuses it. Until you enter it, the pane shows no blocks.
 
-oneclaude keeps the management key it replaced, and whether Seat Pacer was on, in its data folder, `~/.local/share/cmod/data/oneclaude/`, so removing it puts both back.
+oneclaude notes whether it set the management key, and whether Seat Pacer was on, in its data folder, `~/.local/share/cmod/data/oneclaude/`, so removing it takes the key out and turns Seat Pacer back on.
 
-### 4. Bringing over your Claude login
+### 5. Bringing over your Claude login
 
 When Claude Code is logged in to a Claude account, oneclaude copies that login into the proxy as its first account. It reads the account from `~/.claude.json` and the login from Claude Code's keychain item, `Claude Code-credentials`. It writes the file the proxy's own login writes, `claude-<id>-<email>.json` in the proxy's `oauth.auth-dir`, readable by you only. An account the proxy already holds stays as it is.
-
-### 5. Starting the proxy
-
-When the proxy is Homebrew's and nothing listens on its port, oneclaude runs `brew services start cliproxyapi`, so the proxy also starts at every login.
 
 ### At the next session start
 
@@ -106,7 +114,7 @@ cmod remove oneclaude
 
 - turns the routing plugin off in the proxy config and deletes its libraries;
 - turns Claude Seat Pacer back on, when oneclaude turned it off;
-- puts back the management key oneclaude replaced;
+- takes out the management key oneclaude set;
 - takes `env.ANTHROPIC_BASE_URL` out of `~/.claude/settings.json`, when it still points at the proxy, so Claude Code talks to Anthropic directly again.
 
 CLIProxyAPI and every account it holds stay, so nothing you logged in to is lost. `brew uninstall cliproxyapi` removes the proxy.

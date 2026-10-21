@@ -1,5 +1,7 @@
+import { compare } from '../node_modules/bcrypt-ts/dist/browser.js'
 import type { Color } from 'claude-code'
-import { http } from '../node_modules/@cmodjs/core/mod.js'
+import { fs, http, type Mod } from '../node_modules/@cmodjs/core/mod.js'
+import type { OneclaudeState } from './state.js'
 
 export const PROXY = 'http://127.0.0.1:8317'
 
@@ -16,6 +18,59 @@ export const DASHBOARD_URL = `${RESOURCES}/dashboard?open=dashboard`
 
 export const ADD_ACCOUNT_URL = `${RESOURCES}/dashboard?open=add-account`
 
+// The proxy's management API takes the proxy's management key: the one
+// oneclaude install sets on a proxy with none, or the one the person set. The
+// proxy bans an address for 30 minutes after 5 refused keys, so the mod sends
+// a key only once it fits the hash in the proxy's config.
+const MANAGEMENT = `${PROXY}/v0/management`
+export const MANAGEMENT_KEY = 'oneclaude'
+
+// PROXY_CONFIG is the file in the mod's data folder where oneclaude install
+// writes the path of the proxy's config.
+const PROXY_CONFIG = 'proxy-config'
+
+// secretKeyOf reads management.secret-key, or remote-management's, from the
+// proxy's config.
+export function secretKeyOf(config: string): string | undefined {
+  let isManagement = false
+  for (const line of config.split('\n')) {
+    if (/^\S/.test(line)) isManagement = /^(remote-)?management:\s*(#.*)?$/.test(line)
+    const value = isManagement ? /^\s+secret-key:\s*(.*)$/.exec(line)?.[1] : undefined
+    if (value !== undefined) return value.replace(/\s+#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2') || undefined
+  }
+  return undefined
+}
+
+// proxySecret is the management key as the proxy's config keeps it, or
+// undefined when the config can't be read or has none.
+export async function proxySecret(dataFolder: string): Promise<string | undefined> {
+  try {
+    return secretKeyOf(await fs.read((await fs.read(`${dataFolder}/${PROXY_CONFIG}`)).trim()))
+  } catch {
+    return undefined
+  }
+}
+
+// fits says whether key is the one the proxy keeps: as a bcrypt hash, or as
+// plain text the proxy has not hashed yet.
+export function fits(key: string, secret: string): Promise<boolean> {
+  return /^\$2[aby]\$/.test(secret) ? compare(key, secret) : Promise.resolve(key === secret)
+}
+
+// keyOf is the management key to send: the person's, or oneclaude's, once it
+// fits the proxy's config, so the proxy never refuses it.
+export async function keyOf(mod: Mod<OneclaudeState>): Promise<string | undefined> {
+  const secret = await proxySecret(mod.dataFolder)
+  if (secret === undefined) return undefined
+  const key = mod.state.global.managementKey ?? MANAGEMENT_KEY
+  let checked = mod.state.memory.checkedKey
+  if (checked?.key !== key || checked.secret !== secret) {
+    checked = { key, secret, fits: await fits(key, secret) }
+    mod.state.memory.checkedKey = checked
+  }
+  return checked.fits ? key : undefined
+}
+
 export type Family = 'opus' | 'sonnet' | 'haiku' | 'fable'
 
 export type Pool = {
@@ -27,10 +82,12 @@ export type Pool = {
   readonly agents: number
   readonly accounts: number
   readonly known: number
+  readonly limit_reached: boolean
 }
 
 export type Account = {
   readonly name: string
+  readonly auth_index?: string
   readonly plan?: string
   readonly known: boolean
   readonly used: number
@@ -38,17 +95,18 @@ export type Account = {
   readonly observed_at?: string
   readonly projected: boolean
   readonly empty: boolean
+  readonly signed_out: boolean
+  readonly throttled_at?: string
   readonly agents: Readonly<Partial<Record<Family, number>>>
   readonly limits: Readonly<Partial<Record<Family, number>>>
 }
 
-export type Warning = {
+// A LogEntry is one event that changed where requests go, worded by the
+// plugin.
+export type LogEntry = {
   readonly at: string
-  readonly kind: 'throttled' | 'overloaded' | 'refused' | 'login' | 'limit'
-  readonly account?: string
-  readonly family?: Family
-  readonly agents?: number
-  readonly detail: string
+  readonly level: 'WARN' | 'INFO'
+  readonly text: string
 }
 
 // A Codex account the proxy holds. oneclaude routes none of its requests and
@@ -68,12 +126,19 @@ export type Status = {
   readonly pool: Pool
   readonly accounts: readonly Account[]
   readonly codex: readonly Codex[]
-  readonly warnings: readonly Warning[]
+  readonly log: readonly LogEntry[]
 }
+
+// A Block is a cooldown the proxy holds on an account, for one model or for
+// all of them, until it ends. Blocks maps each account's auth_index to its
+// blocks.
+export type Block = { readonly model?: string; readonly until: string; readonly reason: string }
+
+export type Blocks = Readonly<Record<string, readonly Block[]>>
 
 export type Problem = 'proxy-down' | 'plugin-off' | 'unreadable'
 
-export type Reading = { readonly status: Status } | { readonly problem: Problem }
+export type Reading = { readonly status: Status; readonly blocks: Blocks } | { readonly problem: Problem }
 
 export const PROBLEMS: Readonly<Record<Problem, string>> = {
   'proxy-down': 'oneclaude: proxy down',
@@ -81,7 +146,7 @@ export const PROBLEMS: Readonly<Record<Problem, string>> = {
   unreadable: 'oneclaude: status unreadable',
 }
 
-export async function read(): Promise<Reading> {
+export async function read(): Promise<{ readonly status: Status } | { readonly problem: Problem }> {
   const response = await http.fetch(STATUS_URL).catch(() => undefined)
   if (response === undefined) return { problem: 'proxy-down' }
   if (response.status === 404) return { problem: 'plugin-off' }
@@ -91,6 +156,100 @@ export async function read(): Promise<Reading> {
   } catch {
     return { problem: 'unreadable' }
   }
+}
+
+type Cooldown = { readonly scope: string; readonly model_key?: string; readonly reason: string; readonly retry_at: string }
+
+// readBlocks reads every block the proxy holds on a Claude account.
+export async function readBlocks(key: string): Promise<Blocks> {
+  const response = await http.fetch(`${MANAGEMENT}/auth-files`, { headers: { Authorization: `Bearer ${key}` } }).catch(() => undefined)
+  if (response === undefined || !response.ok) return {}
+  try {
+    const { files } = JSON.parse(response.text) as { readonly files?: readonly { readonly auth_index?: string; readonly provider?: string; readonly cooldowns?: readonly Cooldown[] | null }[] }
+    const blocks: Record<string, readonly Block[]> = {}
+    for (const file of files ?? []) {
+      if (file.provider !== 'claude' || file.auth_index === undefined || !file.cooldowns?.length) continue
+      blocks[file.auth_index] = file.cooldowns.map((cooldown) => ({
+        ...(cooldown.scope === 'model' && cooldown.model_key !== undefined ? { model: cooldown.model_key } : {}),
+        until: cooldown.retry_at,
+        reason: cooldown.reason,
+      }))
+    }
+    return blocks
+  } catch {
+    return {}
+  }
+}
+
+// unblock asks the plugin to clear every block on the account, and says
+// whether it did.
+export async function unblock(account: Account, key: string): Promise<boolean> {
+  const response = await http.fetch(`${MANAGEMENT}/plugins/oneclaude/unblock`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auth_index: account.auth_index }),
+  }).catch(() => undefined)
+  return response?.ok === true
+}
+
+// A rate limit's block is a throttle, or a spent week, which the account's row
+// already shows, and a login's block is a signed-out account.
+const RATE_LIMITS = ['quota', 'credential_quota']
+const LOGINS = ['unauthorized', 'invalid_grant']
+
+// heldOn is every block the proxy holds on the account.
+function heldOn(account: Account, blocks: Blocks): readonly Block[] {
+  return account.auth_index === undefined ? [] : blocks[account.auth_index] ?? []
+}
+
+export function isSignedOut(account: Account, blocks: Blocks): boolean {
+  return account.signed_out || heldOn(account, blocks).some((block) => LOGINS.includes(block.reason))
+}
+
+// blocksOf is the account's blocks that no rate limit or login explains.
+export function blocksOf(account: Account, blocks: Blocks): readonly Block[] {
+  return heldOn(account, blocks).filter((block) => !RATE_LIMITS.includes(block.reason) && !LOGINS.includes(block.reason))
+}
+
+// A Trouble is one thing in the pool that needs the person, with the key of
+// the pane row it opens at.
+export type Trouble = { readonly text: string; readonly key: string }
+
+export const ACCOUNTS = 'accounts'
+
+export const rowKey = (account: Account): string => `account-${account.name}`
+
+export function troublesOf(status: Status, blocks: Blocks): readonly Trouble[] {
+  const signedOut = status.accounts.filter((account) => isSignedOut(account, blocks))
+  const blocked = status.accounts.filter((account) => !isSignedOut(account, blocks) && blocksOf(account, blocks).length > 0)
+  return [
+    ...(signedOut.length > 0 ? [{ text: `${plural(signedOut.length, 'account')} signed out`, key: rowKey(signedOut[0]!) }] : []),
+    ...(blocked.length > 0 ? [{ text: `${plural(blocked.length, 'account')} blocked`, key: rowKey(blocked[0]!) }] : []),
+    ...(status.pool.limit_reached ? [{ text: 'agent limit reached', key: ACCOUNTS }] : []),
+  ]
+}
+
+// modelName is a model id as Anthropic names it: claude-opus-5-5 is Opus 5.5.
+export function modelName(id: string): string {
+  const [family = id, ...version] = id.replace(/^claude-/, '').split('-')
+  const numbers = version.filter((part) => /^\d{1,2}$/.test(part))
+  return [family.charAt(0).toUpperCase() + family.slice(1), numbers.join('.')].filter(Boolean).join(' ')
+}
+
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// clockOf is iso's local time of day, as 04:50:12.
+export function clockOf(iso: string): string {
+  const at = new Date(iso)
+  return [at.getHours(), at.getMinutes(), at.getSeconds()].map((part) => String(part).padStart(2, '0')).join(':')
+}
+
+// momentOf is when iso falls: its local time, then its day when that is not
+// the day of now, as 04:50 or Oct 21 04:50.
+export function momentOf(iso: string, now: string): string {
+  const at = new Date(iso)
+  const time = clockOf(iso).slice(0, 5)
+  return at.toDateString() === new Date(now).toDateString() ? time : `${MONTHS[at.getMonth()]} ${at.getDate()} ${time}`
 }
 
 export const FAMILIES: readonly Family[] = ['opus', 'sonnet', 'haiku', 'fable']

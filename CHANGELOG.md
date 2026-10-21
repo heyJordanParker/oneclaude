@@ -2,6 +2,24 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and the Updated toast and /mods show it.
 
+## [0.7.10]
+
+### Added
+- Usage covers the 90 days before you installed oneclaude, from Claude Code's transcripts, as far back as Claude Code keeps them. By account counts those requests as No account recorded, because no transcript says which account answered.
+- Usage's Period runs 90 days, 30 days, 7 days, Yesterday, Today, and opens at 30 days. By Time goes by the hour over Today or Yesterday, by the week over 90 days, and by the day otherwise.
+- The line under the prompt names what needs you, only while it is true: `1 account signed out`, `1 account blocked`, or `agent limit reached`. The first two open the pane at the account, and the last at the Claude accounts.
+- A signed-out account's row has `[Sign in]`, and a blocked account's row says which models the proxy blocked and until when, with `[Unblock]` to clear them.
+- After a 404 on an account that answered that model within the last day, with no rate limit, spent week or failed login since, oneclaude clears the proxy's blocks on it, so a resumed conversation no longer takes a model offline for 12 hours.
+
+### Changed
+- The warnings are a log: one factual sentence per event, such as `Anthropic rate limited work (429).`, with its time and `WARN` or `INFO`, the last 24 hours in the pane and 7 days on the dashboard. A throttle, overload or 404 logs once per account until 10 minutes pass without one, and cancelled requests are left out.
+- Installing or updating oneclaude brings a Homebrew CLIProxyAPI to 8.0.35 or newer before it changes the proxy's config, and restarts it when it runs an older version. Replies the restart drops resend on their own.
+- oneclaude keeps its files in its cmod data folder, because the proxy listed them as accounts in its panel. Installing this version moves them there before the proxy loads it.
+- A CLIProxyAPI with a management key of its own keeps it. The install pane asks for the key once, and again when it changes, and checks it against the proxy's config on this Mac. oneclaude sets the key `oneclaude` only on a proxy with none, and the dashboard's links keep a panel login you saved.
+
+### Fixed
+- The dashboard fits a narrow window: the Usage table scrolls on its own instead of widening the whole page.
+
 ## [0.6.1]
 
 ### Changed

@@ -5,6 +5,7 @@
       "name": "oneclaude",
       "dependencies": {
         "@cmodjs/core": "^2.0.1",
+        "bcrypt-ts": "^9.0.2",
       },
     },
   },
@@ -14,6 +15,8 @@
     "@cmodjs/core": ["@cmodjs/core@2.0.1", "", { "dependencies": { "bun-types": "^1.4.2", "json-schema-to-ts": "^3.1.1" } }, "sha512-RHPxOoPs8HEv2ilJa8kvwVQoVvNEYSAy6lnKOQEDIoiOEr88UsZAP7LZ+0desqH6sWBvaVvSun2j3ZeiuqmYFg=="],
 
     "@types/node": ["@types/node@26.6.5", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg=="],
+
+    "bcrypt-ts": ["bcrypt-ts@9.0.2", "", {}, "sha512-esaMayGbxzD3bOpy7f00pa5wA15wqhP15RbDYGzh/xGbZRNr05G9HdNiqK4ywzrVdzO8rv+Z4l6m01/9pv1FRA=="],
 
     "bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 

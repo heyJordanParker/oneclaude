@@ -28,10 +28,11 @@ const (
 )
 
 const (
-	MethodHostHTTPDo   = "host.http.do"
-	MethodHostLog      = "host.log"
-	MethodHostAuthList = "host.auth.list"
-	MethodHostAuthGet  = "host.auth.get"
+	MethodHostHTTPDo               = "host.http.do"
+	MethodHostLog                  = "host.log"
+	MethodHostAuthList             = "host.auth.list"
+	MethodHostAuthGet              = "host.auth.get"
+	MethodHostRoutingResetCooldown = "host.routing.reset_cooldown"
 )
 
 const (
@@ -246,6 +247,10 @@ type HostAuthGetRequest struct {
 type HostAuthGetResponse struct {
 	AuthIndex string          `json:"auth_index"`
 	JSON      json.RawMessage `json:"json"`
+}
+
+type HostRoutingResetCooldownRequest struct {
+	AuthIndex string `json:"auth_index"`
 }
 
 type HostLogRequest struct {

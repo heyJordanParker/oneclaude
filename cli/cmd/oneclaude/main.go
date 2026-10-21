@@ -13,12 +13,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +33,9 @@ const (
 	seatPacerID   = "claude-seat-pacer"
 	defaultPort   = "8317"
 	managementKey = "oneclaude"
+	// proxyConfigMark is the file in the data folder that names the proxy's
+	// config, where the mod checks a management key against its hash.
+	proxyConfigMark = "proxy-config"
 	steps         = 5
 )
 
@@ -58,7 +63,8 @@ Usage:
   oneclaude --version
 
   --config  the proxy's config file, found on its own when left out
-  --data    the folder that keeps what remove puts back
+  --data    the folder that keeps the plugin's files and what remove puts back,
+            cmod's data folder for oneclaude when left out
 `
 
 func main() {
@@ -77,7 +83,7 @@ func main() {
 	}
 	flags := flag.NewFlagSet("oneclaude "+command, flag.ExitOnError)
 	config := flags.String("config", "", "the proxy's config file, found on its own when left out")
-	data := flags.String("data", "", "the folder that keeps what remove puts back")
+	data := flags.String("data", expandHome("~/.local/share/cmod/data/oneclaude"), "the folder that keeps the plugin's files and what remove puts back")
 	_ = flags.Parse(os.Args[2:])
 	if err := run(plugin{library, version}, *config, *data, command == "remove"); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -103,25 +109,132 @@ func run(built plugin, configPath, data string, remove bool) error {
 		}
 		configPath = found
 	}
+	if !remove && data == "" {
+		return errors.New("oneclaude install needs --data, the folder that keeps the plugin's files")
+	}
 	if !remove {
-		progress(2, "Adding oneclaude")
+		progress(2, "Starting the proxy")
+		if !isGiven && isHomebrewConfig(configPath) {
+			if err := keepProxyCurrent(portOf(configPath)); err != nil {
+				return err
+			}
+		}
+		progress(3, "Adding oneclaude")
 	}
 	authDir, err := apply(built, configPath, data, remove)
 	if err != nil || remove {
 		return err
 	}
-	progress(3, "Bringing over your Claude login")
+	progress(4, "Bringing over your Claude login")
 	if err := bringLogin(authDir, home()); err != nil {
 		return err
 	}
-	progress(4, "Starting the proxy")
-	if !isGiven && isHomebrewConfig(configPath) && !isListening(portOf(configPath)) {
-		if out, err := exec.Command("brew", "services", "start", "cliproxyapi").CombinedOutput(); err != nil {
-			return fmt.Errorf("brew services start cliproxyapi failed: %s", lastLine(out))
-		}
-	}
 	progress(steps, "oneclaude routes your Claude accounts")
 	return nil
+}
+
+// minimumProxy is the CLIProxyAPI this oneclaude is tested with. 8.0.12 added
+// the routing reset that clears a block, 8.0.14 stopped Claude Code's 404 for
+// an expired conversation from blocking a model for 12 hours, and 8.0.30 stopped
+// a late reply from undoing a block's end.
+const minimumProxy = "8.0.35"
+
+// keepProxyCurrent brings the Homebrew proxy to minimumProxy, then starts it,
+// or restarts it when it runs an older version than the one installed.
+// Claude Code resends a reply the restart drops.
+func keepProxyCurrent(port string) error {
+	installed := brewVersion()
+	if isOlder(installed, minimumProxy) {
+		if out, err := exec.Command("brew", "upgrade", "cliproxyapi").CombinedOutput(); err != nil {
+			return fmt.Errorf("brew upgrade cliproxyapi failed: %s", lastLine(out))
+		}
+		fmt.Printf("CLIProxyAPI %s is now %s\n", installed, brewVersion())
+	}
+	action := ""
+	switch {
+	case !isListening(port):
+		action = "start"
+	case startedBefore(port, brewInstalledAt()):
+		action = "restart"
+	default:
+		return nil
+	}
+	if out, err := exec.Command("brew", "services", action, "cliproxyapi").CombinedOutput(); err != nil {
+		return fmt.Errorf("brew services %s cliproxyapi failed: %s", action, lastLine(out))
+	}
+	return nil
+}
+
+// brewVersion is the newest CLIProxyAPI Homebrew holds, or "" for none.
+func brewVersion() string {
+	out, err := exec.Command("brew", "list", "--versions", "cliproxyapi").Output()
+	if err != nil {
+		return ""
+	}
+	newest := ""
+	for _, v := range strings.Fields(string(out))[1:] {
+		if newest == "" || isOlder(newest, v) {
+			newest = v
+		}
+	}
+	return newest
+}
+
+// brewInstalledAt is when Homebrew put the linked CLIProxyAPI in place.
+func brewInstalledAt() time.Time {
+	prefix, err := exec.Command("brew", "--prefix", "cliproxyapi").Output()
+	if err != nil {
+		return time.Time{}
+	}
+	info, err := os.Stat(strings.TrimSpace(string(prefix)))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+// startedBefore reports whether the process listening on port started before
+// at, so it still runs the program it started with.
+func startedBefore(port string, at time.Time) bool {
+	pids, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN", "-t").Output()
+	if err != nil || at.IsZero() {
+		return false
+	}
+	for _, pid := range strings.Fields(string(pids)) {
+		out, err := exec.Command("ps", "-o", "lstart=", "-p", pid).Output()
+		if err != nil {
+			continue
+		}
+		started, err := time.ParseInLocation("Mon Jan _2 15:04:05 2006", strings.TrimSpace(string(out)), time.Local)
+		if err == nil && started.Before(at) {
+			return true
+		}
+	}
+	return false
+}
+
+// isOlder compares dotted versions number by number, without Homebrew's
+// revision, the _1 of 8.0.35_1. An unknown version is older than any.
+func isOlder(version, than string) bool {
+	if version == "" {
+		return true
+	}
+	version, _, _ = strings.Cut(version, "_")
+	than, _, _ = strings.Cut(than, "_")
+	a, b := strings.Split(version, "."), strings.Split(than, ".")
+	for i := range max(len(a), len(b)) {
+		x, y := 0, 0
+		if i < len(a) {
+			x, _ = strconv.Atoi(a[i])
+		}
+		if i < len(b) {
+			y, _ = strconv.Atoi(b[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
 }
 
 // progress moves the bar cmod draws while the install step runs.
@@ -364,29 +477,44 @@ func apply(built plugin, configPath, data string, remove bool) (string, error) {
 		return authDir, nil
 	}
 
+	kept := expandHome("~/.cli-proxy-api/plugins/" + pluginID)
+	if own := lookup(configs, pluginID); own != nil {
+		kept = expandHome(scalar(own, "data-dir", kept))
+	}
+	if filepath.Clean(kept) != filepath.Clean(data) {
+		if err := moveData(kept, data); err != nil {
+			return "", err
+		}
+	}
 	target := filepath.Join(dir, runtime.GOOS, runtime.GOARCH, pluginID+"-v"+built.version+".dylib")
 	if err := place(built.library, target); err != nil {
 		return "", err
 	}
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(data, proxyConfigMark), []byte(configPath), 0o600); err != nil {
+		return "", err
+	}
 	management := child(root, "management")
-	if current := scalar(management, "secret-key", ""); !isManagementKey(current) {
+	secret := scalar(management, "secret-key", "")
+	if remote := lookup(root, "remote-management"); remote != nil && remote.Kind == yaml.MappingNode {
+		secret = scalar(remote, "secret-key", secret)
+	}
+	if secret == "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(managementKey), bcrypt.DefaultCost)
 		if err != nil {
 			return "", err
 		}
-		if data != "" {
-			if err := os.MkdirAll(data, 0o755); err != nil {
-				return "", err
-			}
-			if err := os.WriteFile(keyMark, []byte(current), 0o600); err != nil {
-				return "", err
-			}
+		if err := os.WriteFile(keyMark, nil, 0o600); err != nil {
+			return "", err
 		}
 		set(management, "secret-key", string(hash), "!!str")
 	}
 	set(plugins, "enabled", "true", "!!bool")
 	own := child(configs, pluginID)
 	set(own, "enabled", "true", "!!bool")
+	set(own, "data-dir", data, "!!str")
 	set(child(own, "store"), "version", built.version, "!!str")
 	if pacer := lookup(configs, seatPacerID); pacer != nil && scalar(pacer, "enabled", "false") == "true" {
 		set(pacer, "enabled", "false", "!!bool")
@@ -404,6 +532,59 @@ func apply(built plugin, configPath, data string, remove bool) (string, error) {
 	}
 	fmt.Printf("oneclaude %s routes through %s\n", built.version, configPath)
 	return authDir, nil
+}
+
+// moveData moves the files the plugin kept in from, its folder before this
+// version, into data, before the proxy loads this version. A file data
+// already holds stays, and an old log's lines go after the lines there, so
+// the log's first line, where the transcript import stopped, stays first.
+func moveData(from, data string) error {
+	entries, err := os.ReadDir(from)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		old, target := filepath.Join(from, e.Name()), filepath.Join(data, e.Name())
+		if !exists(target) {
+			if err := os.Rename(old, target); err != nil {
+				return err
+			}
+			continue
+		}
+		if e.Name() == "requests.jsonl" {
+			if err := appendFile(old, target); err != nil {
+				return err
+			}
+		}
+		if err := os.Remove(old); err != nil {
+			return err
+		}
+	}
+	_ = os.Remove(from)
+	return nil
+}
+
+func appendFile(from, to string) error {
+	in, err := os.Open(from)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(to, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // isManagementKey says whether the config's secret-key, a bcrypt hash as the

@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -197,9 +196,15 @@ func (p *Plugin) refreshOne(now time.Time, failedAt map[string]time.Time) {
 		failedAt[next.attempt] = now
 		if status == http.StatusUnauthorized && !next.codex {
 			p.mu.Lock()
-			name := p.accounts[next.id].Name
+			a := p.accounts[next.id]
+			signedOut := a != nil && !a.signedOut
+			if signedOut {
+				a.signedOut = true
+			}
 			p.mu.Unlock()
-			p.warn(Warning{At: now, Kind: "login", Account: name, Detail: fmt.Sprintf("login expired on %s, log it in again with [Add account] in /accounts", name)})
+			if signedOut {
+				p.note(levelWarn, "Anthropic rejected %s's login (401).", a.Name)
+			}
 		}
 		return
 	}
@@ -217,6 +222,7 @@ func (p *Plugin) refreshOne(now time.Time, failedAt map[string]time.Time) {
 	if a == nil {
 		return
 	}
+	a.signedOut = false
 	if next.plan {
 		if plan := usage.PlanFromProfile(body); plan != "" {
 			a.Plan, a.PlanAt = plan, now
