@@ -33,6 +33,7 @@ oneclaude runs every Claude subscription account a person has as one pool: a CLI
 - The repository root is a cmod mod: `src/mod.tsx` is the `defineMod`, `hooks/register.ts` only registers it, and `tests/` holds its `bun test` suite. `node_modules/@cmodjs/core/docs/` is the cmod documentation for the installed version.
 - `cmod check .` runs every check on the mod. It skips `.target/`, so every build output and the dev proxy live there.
 - The dev proxy is Homebrew's `cliproxyapi` binary, run from the repository root with `dev/config.yaml`, whose folders are relative to it, on port 8318 against `cli/cmd/fakeanthropic` on port 8319. `ONECLAUDE_DEV_PROXY=1 go test -run DevProxy` in `cli/` checks routing through it, and its subagent test needs 5 minutes since the last run, while the earlier run's agents still count as active.
+- `cliproxyapi` run without `-config dev/config.yaml`, even with a flag it doesn't know such as `--version`, loads the live config and deletes the older plugin libraries in its plugin folder.
 - The dev proxy serves its management panel only when it starts with `MANAGEMENT_PASSWORD` set, and downloads `management.html` into `dev/static/`, beside its config, on the first visit.
 - `README.md` links every page of `docs/`, the user documentation. A change to what oneclaude does for its users changes the page that describes it in the same commit.
 - The live proxy on port 8317 serves the Architect's running agents. Plugin builds go to the dev proxy first.
