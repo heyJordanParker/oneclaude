@@ -63,10 +63,10 @@ export async function keyOf(mod: Mod<OneclaudeState>): Promise<string | undefine
   const secret = await proxySecret(mod.dataFolder)
   if (secret === undefined) return undefined
   const key = mod.state.global.managementKey ?? MANAGEMENT_KEY
-  let checked = mod.state.memory.checkedKey
+  let checked = mod.state.global.checkedKey
   if (checked?.key !== key || checked.secret !== secret) {
     checked = { key, secret, fits: await fits(key, secret) }
-    mod.state.memory.checkedKey = checked
+    mod.state.global.checkedKey = checked
   }
   return checked.fits ? key : undefined
 }
@@ -181,6 +181,21 @@ export async function readBlocks(key: string): Promise<Blocks> {
   }
 }
 
+const BLOCKS = 'blocks.json'
+const SHARED_MS = 14_000
+
+export async function sharedBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
+  const shared = await fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => JSON.parse(text) as { readonly at: number; readonly blocks: Blocks }).catch(() => undefined)
+  if (shared !== undefined && Date.now() - shared.at < SHARED_MS) return shared.blocks
+  return freshBlocks(mod, key)
+}
+
+export async function freshBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
+  const blocks = await readBlocks(key)
+  await fs.write(`${mod.dataFolder}/${BLOCKS}`, JSON.stringify({ at: Date.now(), blocks })).catch((error: unknown) => mod.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(error)}`))
+  return blocks
+}
+
 // unblock asks the plugin to clear every block on the account, and says
 // whether it did.
 export async function unblock(account: Account, key: string): Promise<boolean> {
@@ -212,7 +227,7 @@ export function blocksOf(account: Account, blocks: Blocks): readonly Block[] {
 }
 
 // A Trouble is one thing in the pool that needs the person, with the key of
-// the pane row it opens at.
+// the Accounts page row it opens at.
 export type Trouble = { readonly text: string; readonly key: string }
 
 export const ACCOUNTS = 'accounts'
@@ -364,8 +379,9 @@ export const FRAME_MS = 33
 
 export type Shown = { readonly used: number; readonly pace: number }
 
-// LINE is the bar under the prompt. The pane's bars are POOL and one per
-// account, so opening the pane grows them from 0 and leaves LINE where it is.
+// LINE is the bar under the prompt. The Accounts page's bars are POOL and one
+// per account, so opening the page grows them from 0 and leaves LINE where it
+// is.
 export const LINE = 'line'
 export const POOL = 'pool'
 

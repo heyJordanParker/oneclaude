@@ -1,14 +1,12 @@
 import { expect, test } from 'bun:test'
 import { hashSync } from '../node_modules/bcrypt-ts/dist/browser.js'
-import type { HttpResponse, RenderPropsOf } from 'claude-code'
-import { PromptHint } from '../node_modules/@cmodjs/core/mod.js'
+import type { HttpResponse } from 'claude-code'
+import { BelowPrompt } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { calendarOf } from '../src/components/weekly-resets.js'
 import { oneclaude, REFRESH_MS } from '../src/mod.js'
 import { bar, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, fits, glide, modelName, momentOf, paceState, PROXY, secretKeyOf, troublesOf, until, type Cell, type Status } from '../src/status.js'
 import { dailyChart, GUTTER, money, tokenCount, usageLayout, type TableLine, type Tokens, type UsageRow, type UsageTable } from '../src/usage.js'
-
-const hint: RenderPropsOf['PromptHint'] = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
 
 const now = '2026-10-15T16:00:00Z'
 
@@ -56,14 +54,14 @@ function answering(response: Partial<HttpResponse> | Error, cooldowns: Readonly<
 
 async function hintLines(tested: ReturnType<typeof testMod>): Promise<string> {
   await tested.settle()
-  return (await tested.lines(PromptHint, hint)).join('\n')
+  return (await tested.lines(BelowPrompt)).join('\n')
 }
 
 const BAR = /[█▏▎▍▌▋▊▉]/
 
-test('the hint line shows the pool after the engine line', async () => {
+test('the hint line shows the pool\'s bar, usage and pace', async () => {
   const line = await hintLines(answering({ text: JSON.stringify(status) }))
-  expect(line.indexOf('PromptHint')).toBeLessThan(line.search(BAR))
+  expect(line.search(BAR)).toBe(0)
   expect(line).toContain('58% · 9% under')
   expect(line).not.toContain('warning')
   expect(line).toMatch(/\S \[\+\]/)
@@ -86,7 +84,7 @@ test('the hint line names only what needs the person: a signed-out account, a bl
   expect(line).not.toContain('2 accounts blocked')
 })
 
-test('the toggle after the line shows [-] while the accounts pane is open', async () => {
+test('the toggle after the line shows [-] while the Accounts page is open', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
   expect(await hintLines(tested)).toContain('[-]')
@@ -127,11 +125,11 @@ test('the hint line refreshes on its timer', async () => {
 test('/accounts shows the combined usage, every account with its pace, and the log newest first', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const pane = (await tested.lines('accounts')).join('\n')
+  const pane = (await tested.shown.page.lines()).join('\n')
   expect(pane).toContain('9% under pace · next refill in 2d frees 11% · 14 agents')
   expect(pane).toContain('26% over pace · refills in 6d · 9 opus, 2 haiku')
   expect(pane).not.toContain('/19')
-  expect(pane.trimStart().startsWith('✻ oneclaude\n\n')).toBe(true)
+  expect(pane).toMatch(/^\s*╭─+╮\n\s*│ Combined usage /)
   expect(pane).toContain('Combined usage')
   expect(pane).toContain('[Open dashboard]')
   expect(pane).toContain('[Add account]')
@@ -152,7 +150,7 @@ test('/accounts puts each account\'s trouble on its row, with what fixes it', as
   const blocks = { t1: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] }
   const tested = answering({ text: JSON.stringify(troubled) }, blocks)
   await tested.type('/accounts')
-  const pane = (await tested.lines('accounts')).join('\n')
+  const pane = (await tested.shown.page.lines()).join('\n')
   expect(pane).toMatch(/jarvis +signed out {2}\[Sign in\]/)
   expect(pane).toContain(`blocked for Opus 5.5 until ${momentOf('2026-10-15T20:50:00Z', now)}  [Unblock]`)
   expect(pane).toContain('throttled 12m ago')
@@ -167,15 +165,15 @@ test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'
       return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
     }
     if (url.endsWith('/auth-files')) {
-      const files = [{ auth_index: 't1', provider: 'claude', cooldowns: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] }]
-      return { status: 200, ok: true, headers: {}, text: JSON.stringify({ files }) }
+      const cooldowns = asked.length === 0 ? [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] : []
+      return { status: 200, ok: true, headers: {}, text: JSON.stringify({ files: [{ auth_index: 't1', provider: 'claude', cooldowns }] }) }
     }
     return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
   }
   await tested.type('/accounts')
-  await tested.press('accounts', 'unblock-turing')
+  await tested.shown.page.press('unblock-turing')
   expect(asked).toEqual([{ url: `${PROXY}/v0/management/plugins/oneclaude/unblock`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
-  expect((await tested.lines('accounts')).join('\n')).not.toContain('[Unblock]')
+  expect((await tested.shown.page.lines()).join('\n')).not.toContain('[Unblock]')
 })
 
 // sentKeys starts the mod against a proxy whose management key is proxyKey,
@@ -228,7 +226,7 @@ test('/accounts shows the newest 10 log lines and counts the rest', async () => 
   const log = Array.from({ length: 12 }, (_, i) => ({ at: new Date(Date.parse(now) - (12 - i) * 60_000).toISOString(), level: 'WARN' as const, text: `Anthropic rate limited turing (429). ${i}` }))
   const tested = answering({ text: JSON.stringify({ ...status, log }) })
   await tested.type('/accounts')
-  const pane = (await tested.lines('accounts')).join('\n')
+  const pane = (await tested.shown.page.lines()).join('\n')
   expect(pane).toContain('(429). 11')
   expect(pane).toContain('(429). 2')
   expect(pane).not.toContain('(429). 1\n')
@@ -238,13 +236,13 @@ test('/accounts shows the newest 10 log lines and counts the rest', async () => 
 test('/accounts leaves the log out when nothing happened', async () => {
   const tested = answering({ text: JSON.stringify({ ...status, log: [] }) })
   await tested.type('/accounts')
-  expect((await tested.lines('accounts')).join('\n')).not.toContain('Log')
+  expect((await tested.shown.page.lines()).join('\n')).not.toContain('Log')
 })
 
 test('/accounts shows each Codex account apart from the Claude pool', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const pane = (await tested.lines('accounts')).join('\n')
+  const pane = (await tested.shown.page.lines()).join('\n')
   expect(pane.indexOf('Claude accounts')).toBeLessThan(pane.indexOf('Codex accounts'))
   expect(pane).toContain('52% under pace · refills in 1d 5h')
 })
@@ -252,7 +250,7 @@ test('/accounts shows each Codex account apart from the Claude pool', async () =
 test('every section title has an empty line under it, and every bar an empty line between it and the next', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const pane = (await tested.lines('accounts')).map((row) => row.trim()).join('\n')
+  const pane = (await tested.shown.page.lines()).map((row) => row.trim()).join('\n')
   expect(pane).toContain('Claude accounts\n\nturing ')
   expect(pane).toContain('Codex accounts\n\nada ')
   expect(pane).toContain('Log\n\n')
@@ -262,20 +260,19 @@ test('every section title has an empty line under it, and every bar an empty lin
   for (let i = 1; i < barRows.length; i++) expect(barRows[i]! - barRows[i - 1]!).toBeGreaterThan(1)
 })
 
-test('a pane too narrow for one line puts each row\'s facts under its bar, and every bar starts in its column', async () => {
+test('a Sidebar too narrow for one line puts each row\'s facts under its bar, and every bar starts in its column', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const rows = await tested.lines('accounts')
+  const rows = await tested.shown.page.lines()
   const barStart = (row: string): number => row.search(BAR)
-  const borderTheTestKitLeavesOut = 1
   const header = rows.find((row) => row.includes('Combined usage'))!
-  expect(header.trimEnd().endsWith('58%')).toBe(true)
+  expect(header.replace(/│\s*$/, '').trimEnd().endsWith('58%')).toBe(true)
   const turing = rows.findIndex((row) => row.includes('turing ') && barStart(row) >= 0)
   expect(rows[turing]!.trimEnd().endsWith('40%')).toBe(true)
   expect(rows[turing + 1]!.indexOf('26% over pace')).toBe(barStart(rows[turing]!))
   for (const name of ['turing ', 'lamport', 'ada ']) {
     const row = rows.find((each) => each.includes(name) && barStart(each) >= 0)!
-    expect(barStart(row)).toBe(barStart(header) + borderTheTestKitLeavesOut)
+    expect(barStart(row)).toBe(barStart(header))
   }
 })
 
@@ -300,24 +297,74 @@ test('the hint line leaves a base URL the person pointed elsewhere', async () =>
   expect(settingsUpdates(tested)).toEqual([])
 })
 
+test('the hint line leaves Claude Code\'s settings file unwritten when it already points at the proxy', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: PROXY } })
+  await hintLines(tested)
+  expect(settingsUpdates(tested)).toEqual([])
+})
+
+test('the hint line shows the pool while the proxy\'s blocks are still on their way', async () => {
+  const tested = testMod(oneclaude, { files: proxyFiles('oneclaude') })
+  tested.fakes.http.fetch = async (url) => {
+    if (url.endsWith('/auth-files')) return new Promise<HttpResponse>(() => {})
+    return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
+  }
+  expect(await hintLines(tested)).toContain('58% · 9% under')
+})
+
+// blocksRequests starts the mod with blocks.json in its data folder written
+// ago ms before, and counts the mod's requests for the proxy's blocks.
+async function blocksRequests(ago: number): Promise<{ readonly requests: number; readonly line: string }> {
+  const shared = { at: Date.now() - ago, blocks: { t1: [{ model: 'claude-opus-5-5', until: '2026-10-15T20:50:00Z', reason: 'not_found' }] } }
+  const tested = testMod(oneclaude, { files: { ...proxyFiles('oneclaude'), '/test/home/.local/share/cmod/data/oneclaude/blocks.json': JSON.stringify(shared) } })
+  let requests = 0
+  tested.fakes.http.fetch = async (url) => {
+    if (url.endsWith('/auth-files')) {
+      requests++
+      return { status: 200, ok: true, headers: {}, text: '{"files":[]}' }
+    }
+    return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
+  }
+  return { line: await hintLines(tested), requests }
+}
+
+test('open sessions share one reading of the proxy\'s blocks, so the proxy checks the management key once per refresh', async () => {
+  expect(await blocksRequests(1_000)).toEqual({ requests: 0, line: expect.stringContaining('1 account blocked') })
+  expect(await blocksRequests(60_000)).toEqual({ requests: 1, line: expect.not.stringContaining('blocked') })
+})
+
+test('a later session trusts the saved management key check instead of running bcrypt again', async () => {
+  const files = proxyFiles('their own key')
+  const secret = secretKeyOf(files['/test/proxy.yaml']!)!
+  const tested = testMod(oneclaude, { files, state: { global: { managementKey: null, checkedKey: { key: 'oneclaude', secret, fits: true } } } })
+  const sent: (string | undefined)[] = []
+  tested.fakes.http.fetch = async (url, init) => {
+    if (url.endsWith('/auth-files')) sent.push(init?.headers?.['Authorization'])
+    return { status: 200, ok: true, headers: {}, text: url.endsWith('/auth-files') ? '{"files":[]}' : JSON.stringify(status) }
+  }
+  await hintLines(tested)
+  expect(sent).toEqual(['Bearer oneclaude'])
+})
+
 test('the hint line leaves Claude Code alone while the proxy is down', async () => {
   const tested = answering(new Error('connection refused'))
   await hintLines(tested)
   expect(settingsUpdates(tested)).toEqual([])
 })
 
-test('/accounts closes the pane it opened', async () => {
+test('/accounts closes the Sidebar page it opened', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  expect(await tested.lines('accounts')).not.toHaveLength(0)
+  expect(await tested.shown.page.lines()).not.toHaveLength(0)
   await tested.type('/accounts')
-  await expect(tested.lines('accounts')).rejects.toThrow()
+  await expect(tested.shown.page.lines()).rejects.toThrow()
 })
 
 test('/accounts lays each read Claude account\'s week on the days around now, soonest reset first, after every account', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const rows = await tested.lines('accounts')
+  const rows = await tested.shown.page.lines()
   const pane = rows.join('\n')
   expect(pane.indexOf('Codex accounts')).toBeLessThan(pane.indexOf('Weekly resets'))
   expect(pane.indexOf('Weekly resets')).toBeLessThan(pane.indexOf('Usage'))
@@ -469,9 +516,10 @@ function withUsage(permissions?: readonly string[]) {
   return { tested, asked }
 }
 
+// usagePane opens the page in a Sidebar wide enough for every Usage column.
 async function usagePane(tested: ReturnType<typeof testMod>): Promise<string> {
-  if (!tested.shown.openPanes.has('accounts')) await tested.type('/accounts')
-  return (await tested.lines('accounts')).map((line) => line.trimEnd()).join('\n')
+  if ((await tested.shown.page.lines().catch(() => null)) === null) await tested.type('/accounts')
+  return (await tested.shown.page.lines({ columns: 110 })).map((line) => line.trimEnd()).join('\n')
 }
 
 test('/accounts shows the last 30 days of usage by account, with the total last in each row', async () => {
@@ -493,12 +541,12 @@ test('/accounts shows the last 30 days of usage by account, with the total last 
 test('the Usage controls read the table for the chosen period, breakdown and units', async () => {
   const { tested, asked } = withUsage()
   await usagePane(tested)
-  await tested.press('accounts', 'by-time')
+  await tested.shown.page.press('by-time')
   const pane = await usagePane(tested)
   expect(asked.at(-1)).toContain('period=month&by=time&units=cost')
   expect(pane).toContain('[Time]')
   expect(pane).toMatch(/Oct 15( +\S+){5} +2% +\$0\.90\n +Oct 14( +\S+){5} +46% +\$18\n +Oct 3( +\S+){4} +51% +\$20\n/)
-  await tested.press('accounts', 'show-tokens')
+  await tested.shown.page.press('show-tokens')
   await tested.settle()
   expect(asked.at(-1)).toContain('period=month&by=time&units=tokens')
 })
@@ -506,9 +554,9 @@ test('the Usage controls read the table for the chosen period, breakdown and uni
 test('the By row stays the same for every period, and Time over a day goes by the hour', async () => {
   const { tested, asked } = withUsage()
   await usagePane(tested)
-  await tested.press('accounts', 'by-time')
+  await tested.shown.page.press('by-time')
   const before = await usagePane(tested)
-  await tested.press('accounts', 'period-today')
+  await tested.shown.page.press('period-today')
   const pane = await usagePane(tested)
   expect(asked.at(-1)).toContain('period=today&by=time&units=cost')
   for (const shown of [before, pane]) expect(shown).toMatch(/By +Account +Model +Agent +Project +\[Time\]\n/)
@@ -518,8 +566,8 @@ test('the By row stays the same for every period, and Time over a day goes by th
 test('Usage says what Not recorded means when a row has no agent type or project', async () => {
   const { tested } = withUsage()
   await usagePane(tested)
-  await tested.press('accounts', 'period-month')
-  await tested.press('accounts', 'by-agent')
+  await tested.shown.page.press('period-month')
+  await tested.shown.page.press('by-agent')
   const pane = await usagePane(tested)
   expect(pane).toMatch(/Not recorded( +\S+){6}/)
   expect(pane).toContain('Not recorded: requests from before oneclaude recorded agent types and projects.')
@@ -555,16 +603,16 @@ test('the daily chart stands each day on the baseline, exact to an eighth, with 
 test('[Optimize usage] asks before it sends this session the last 30 days by agent type, project and model', async () => {
   const { tested } = withUsage()
   await usagePane(tested)
-  await tested.press('accounts', 'optimize')
+  await tested.shown.page.press('optimize')
   const asking = await usagePane(tested)
   expect(asking).toContain('Ask your agent to optimize your usage?')
   expect(asking).toContain("We'll send it your last 30 days of usage, by agent, project and model.")
   expect(asking).toContain('[Ask your agent]')
   expect(tested.shown.prompts).toHaveLength(0)
-  await tested.press('accounts', 'optimize-cancel')
+  await tested.shown.page.press('optimize-cancel')
   expect(await usagePane(tested)).toContain('[Optimize usage]')
-  await tested.press('accounts', 'optimize')
-  await tested.press('accounts', 'optimize-send')
+  await tested.shown.page.press('optimize')
+  await tested.shown.page.press('optimize-send')
   const [prompt] = tested.shown.prompts
   expect(prompt).toContain('Optimize my Claude usage')
   expect(prompt).toContain('- explorer: $20 (cache writes $0, cache reads $0, output $20, input $0), 1M tokens')
@@ -592,4 +640,45 @@ test('pace is on within 5 points, and far over past 25', () => {
   expect(paceState(0.4, 0.5)).toBe('under')
   expect(paceState(0.6, 0.5)).toBe('over')
   expect(paceState(0.8, 0.5)).toBe('far-over')
+})
+
+// SESSION_FILTERS is the test session's filters, which the plugin reads for
+// its requests.
+const SESSION_FILTERS = '/test/home/.local/share/cmod/data/oneclaude/filters/test-session.json'
+
+async function savedFilters(tested: ReturnType<typeof testMod>): Promise<unknown> {
+  const { read } = tested.fakes.fs
+  if (read === undefined) throw new Error('the test kit fakes no fs.read')
+  return JSON.parse(await read(SESSION_FILTERS))
+}
+
+async function addFilter(tested: ReturnType<typeof testMod>, input: object): Promise<unknown> {
+  return tested.fire('cmod.call', { to: 'oneclaude', method: 'addFilter', input })
+}
+
+test('a mod adds its filter to this session, and adding it again replaces it in its place', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  expect(await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4100/', responses: true, timeoutSeconds: 120 })).toEqual({ value: undefined })
+  await addFilter(tested, { name: 'inspect', url: 'unix:/tmp/inspect.sock', observabilityMode: true })
+  await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4200/', responses: true, timeoutSeconds: 120, failOpen: true })
+  expect(await savedFilters(tested)).toEqual([
+    { name: 'memory', url: 'http://127.0.0.1:4200/', responses: true, timeoutSeconds: 120, failOpen: true },
+    { name: 'inspect', url: 'unix:/tmp/inspect.sock', observabilityMode: true },
+  ])
+  await tested.fire('cmod.call', { to: 'oneclaude', method: 'removeFilter', input: { name: 'memory' } })
+  expect(await savedFilters(tested)).toEqual([{ name: 'inspect', url: 'unix:/tmp/inspect.sock', observabilityMode: true }])
+})
+
+test('a filter must stay on this computer and wait at most 120 seconds', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  expect(await addFilter(tested, { name: 'memory', url: 'https://example.com/filter' })).toEqual({ deny: expect.stringContaining("the memory filter's url must be on this computer") })
+  expect(await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4100/', timeoutSeconds: 300 })).toEqual({ deny: expect.stringContaining('from 1 to 120') })
+})
+
+test('oneclaude takes back the filters a session held as it starts there again, and the Accounts page never lists them', async () => {
+  const tested = testMod(oneclaude, { files: { ...proxyFiles('oneclaude'), [SESSION_FILTERS]: '[{"name":"memory","url":"http://127.0.0.1:4100/"}]' } })
+  tested.fakes.http.fetch = async () => ({ status: 200, ok: true, headers: {}, text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  expect(await savedFilters(tested)).toEqual([])
+  expect((await tested.shown.page.lines()).join('\n')).not.toContain('memory')
 })

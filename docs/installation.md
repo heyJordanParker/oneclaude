@@ -32,7 +32,7 @@ cmod install heyJordanParker/oneclaude
 
 An update from a version before 0.5.2 asks only for the last one.
 
-In a terminal it ends with `Set up oneclaude? [y/N]`. In Claude Code the same list opens as the `Install oneclaude` pane, with `Accept` and `Not now`, and adds `Update oneclaude automatically from the oneclaude marketplace` when you haven't chosen an update setting for it yet.
+In a terminal it ends with `Set up oneclaude? [y/N]`. In Claude Code the same list opens as the `Install oneclaude` tab in cmod's Sidebar, with `Accept` and `Not now`, and adds `Update oneclaude automatically from the oneclaude marketplace` when you haven't chosen an update setting for it yet.
 
 Once you agree, cmod downloads `oneclaude-darwin-arm64` from the GitHub release that matches the plugin's version and checks it against the release's `SHA256SUMS`. It keeps the program in `~/.local/share/cmod/bin/oneclaude/<version>/`, and links it as `~/.local/share/cmod/programs/oneclaude` and `~/.local/bin/oneclaude`. The program carries the routing plugin inside it.
 
@@ -78,7 +78,7 @@ oneclaude rewrites only two blocks of the proxy config, `plugins` and `managemen
 - It sets `plugins.enabled` and `plugins.configs.oneclaude.enabled` to `true`, `plugins.configs.oneclaude.data-dir` to its data folder, and `plugins.configs.oneclaude.store.version` to the new version. The proxy loads the new version without dropping a reply.
 - It turns off Claude Seat Pacer, `plugins.configs.claude-seat-pacer`, when it is on. The proxy asks only one scheduler plugin which account to use.
 - When the proxy has no management key, the password of its control panel, it sets one, `oneclaude`, saved as a bcrypt hash. The dashboard and `[Add account]` sign in with it. The panel answers only this Mac while `management.allow-remote` is `false`, the proxy's default, so keep it that way: the key `oneclaude` is public.
-- A proxy with a management key of its own keeps it. The install pane in Claude Code then asks for it once, and again whenever it changes. It checks the key against the hash in the proxy's config, on this Mac, so the proxy never refuses it. Until you enter it, the pane shows no blocks.
+- A proxy with a management key of its own keeps it. oneclaude's install tab in cmod's Sidebar then asks for it once, and again whenever it changes. It checks the key against the hash in the proxy's config, on this Mac, so the proxy never refuses it. Until you enter it, the Accounts tab shows no blocks.
 
 oneclaude notes whether it set the management key, and whether Seat Pacer was on, in its data folder, `~/.local/share/cmod/data/oneclaude/`, so removing it takes the key out and turns Seat Pacer back on.
 
@@ -92,7 +92,7 @@ Once the proxy answers with oneclaude's status, the mod sets `env.ANTHROPIC_BASE
 
 ## Add your other accounts
 
-Run `/accounts` and press `[Add account]`. The proxy's control panel opens at its OAuth login page, signed in with the management key. Log in to each Claude subscription you have. A Codex account logged in there shows its weekly usage in the pane too.
+Run `/accounts` and press `[Add account]`. The proxy's control panel opens at its OAuth login page, signed in with the management key. Log in to each Claude subscription you have. A Codex account logged in there shows its weekly usage in the Accounts tab too.
 
 ## Update
 

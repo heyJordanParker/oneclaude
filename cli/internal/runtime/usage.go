@@ -41,7 +41,7 @@ const (
 	removedAccounts = "Removed accounts"
 )
 
-// UsageTable is the Usage section of the pane and the dashboard: one row per
+// UsageTable is the Usage section of the Accounts tab and the dashboard: one row per
 // account, model, agent type, project or step of time of a period, at API
 // list prices. Rows run from the largest in the chosen units, or newest first
 // by time. Days is the last 30 days, oldest first, each split the same way,

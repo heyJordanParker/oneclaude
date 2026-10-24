@@ -446,7 +446,7 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 }
 
 // unblockRoute clears every block on the account the person picked in the
-// pane.
+// Accounts tab.
 func (p *Plugin) unblockRoute(body []byte) ManagementResponse {
 	var req HostRoutingResetCooldownRequest
 	if json.Unmarshal(body, &req) != nil || req.AuthIndex == "" {

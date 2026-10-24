@@ -1,10 +1,12 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/heyJordanParker/oneclaude/cli/internal/limits"
@@ -54,9 +56,34 @@ func (p *Plugin) interceptBefore(payload []byte) ([]byte, error) {
 		}
 	}
 
+	var body []byte
+	headers := http.Header{}
+	cleared := append(slices.Clone(bridgeHeaders), headerCacheKey)
+	filters, err := p.filters.of(s.DataDir, id.Session, now)
+	if err != nil {
+		p.host.spawn(func() {
+			p.host.log("warn", "oneclaude keeps the filters it read before, because a filters file does not parse", map[string]any{"error": err.Error()})
+		})
+	}
+	if len(filters) > 0 {
+		c := p.chainOf(filters)
+		out := p.filterRequest(req, c)
+		if out.answer != nil {
+			return okEnvelope(*out.answer)
+		}
+		if !bytes.Equal(out.body, req.Body) {
+			body = out.body
+		}
+		headers, cleared = out.set, append(cleared, out.cleared...)
+		if out.cacheKey != "" {
+			key = "cache/" + out.cacheKey
+		}
+		p.expectResponse(req.RequestID, out.responses, c, now)
+	}
+
 	if rid := requestKey(req.TraceID, req.RequestID); rid != "" {
 		p.mu.Lock()
-		p.requests[rid] = request{id: id, family: family, at: now}
+		p.requests[rid] = request{id: id, key: key, family: family, at: now}
 		if len(p.requests) > 20000 {
 			for rid, r := range p.requests {
 				if now.Sub(r.at) > 30*time.Minute {
@@ -66,12 +93,11 @@ func (p *Plugin) interceptBefore(payload []byte) ([]byte, error) {
 		}
 		p.mu.Unlock()
 	}
-	headers := http.Header{}
 	headers.Set(headerFamily, string(family))
 	if key != "" {
 		headers.Set(headerKey, key)
 	}
-	return okEnvelope(RequestInterceptResponse{ClearHeaders: bridgeHeaders, Headers: headers})
+	return okEnvelope(RequestInterceptResponse{ClearHeaders: cleared, Headers: headers, Body: body})
 }
 
 // poolFull reports whether every known account is at its limit for family.
@@ -345,7 +371,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 	p.mu.Unlock()
 
 	retry := false
-	if key := r.id.Key(); tracked && key != "" {
+	if key := r.key; tracked && key != "" {
 		if outcome == "ok" {
 			p.agents.Touch(key, rec.AuthID, family, now)
 		} else {

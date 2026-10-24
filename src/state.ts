@@ -21,15 +21,15 @@ export type OneclaudeState = {
     usage: UsageView
     table: UsageTable | null
     isConfirming: boolean
-    checkedKey: CheckedKey | null
     keyAnswer: 'saved' | 'wrong' | null
   }
   global: {
     managementKey: string | null
+    checkedKey: CheckedKey | null
   }
 }
 
 export const initialState: OneclaudeState = {
-  memory: { reading: null, isOpen: false, shown: {}, usage: { period: 'month', by: 'account', units: 'cost' }, table: null, isConfirming: false, checkedKey: null, keyAnswer: null },
-  global: { managementKey: null },
+  memory: { reading: null, isOpen: false, shown: {}, usage: { period: 'month', by: 'account', units: 'cost' }, table: null, isConfirming: false, keyAnswer: null },
+  global: { managementKey: null, checkedKey: null },
 }

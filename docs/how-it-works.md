@@ -42,7 +42,7 @@ Anthropic can throttle an account below its limit. When throttles below a plan's
 
 Every reply from Anthropic carries the account's weekly usage in its rate-limit headers, so oneclaude reads usage from the replies your agents already get, at no extra cost. An account that answered nothing for an hour, `quota.poll-interval`, gets one small usage read. An account whose login expired shows as signed out until it answers again, and `[Sign in]` on its row in `/accounts` logs it in again.
 
-oneclaude routes no Codex requests. It reads each Codex account's weekly usage from ChatGPT's usage endpoint, `chatgpt.com/backend-api/wham/usage`, so the pane can show it beside the Claude pool.
+oneclaude routes no Codex requests. It reads each Codex account's weekly usage from ChatGPT's usage endpoint, `chatgpt.com/backend-api/wham/usage`, so the Accounts tab can show it beside the Claude pool.
 
 ## Blocks
 
@@ -53,7 +53,7 @@ The proxy blocks a model on an account, or the whole account, after some failed 
 
 ## The log
 
-The plugin logs each event that changed where requests go, one sentence each, and keeps 7 days of it, 500 lines at most. The pane shows the last 24 hours and the dashboard all of it.
+The plugin logs each event that changed where requests go, one sentence each, and keeps 7 days of it, 500 lines at most. The Accounts tab shows the last 24 hours and the dashboard all of it.
 
 - **Rate limits**: `Anthropic rate limited work (429).` once per account until 10 minutes pass without one.
 - **Overloads**: `Anthropic returned 529 Overloaded to work.` once per account the same way.
@@ -107,7 +107,7 @@ The plugin adds these addresses to the proxy, which answer anyone who reaches th
 
 - `/v0/resource/plugins/oneclaude/status.json`: the pool, every account, and the last 24 hours of the log, which the mod reads. Each account shows as the part of its address before the `@`.
 - `/v0/resource/plugins/oneclaude/history.json`: each account's requests by the hour, and the log, for the last 7 days.
-- `/v0/resource/plugins/oneclaude/usage.json`: the Usage table for `?period=quarter`, `month`, `week`, `yesterday`, or `today`, by `?by=account`, `model`, `agent`, `project`, or `time`, which steps by the hour over a day, the week over 90 days, and the day otherwise, sorted by `?units=cost` or `tokens`, with the last 30 days for the chart. The pane, the dashboard, and `[Optimize usage]` read it.
+- `/v0/resource/plugins/oneclaude/usage.json`: the Usage table for `?period=quarter`, `month`, `week`, `yesterday`, or `today`, by `?by=account`, `model`, `agent`, `project`, or `time`, which steps by the hour over a day, the week over 90 days, and the day otherwise, sorted by `?units=cost` or `tokens`, with the last 30 days for the chart. The Accounts tab, the dashboard, and `[Optimize usage]` read it.
 - `/v0/resource/plugins/oneclaude/dashboard`: the dashboard page, which the control panel shows under oneclaude in its plugin menu.
 
 `POST /v0/management/plugins/oneclaude/unblock` with `{"auth_index": "<the account's>"}` clears every block on that account and logs it. It needs the proxy's management key.

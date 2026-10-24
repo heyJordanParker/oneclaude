@@ -1,16 +1,17 @@
 {
   "name": "oneclaude",
-  "version": "0.7.10",
+  "version": "0.8.1",
   "description": "Every Claude subscription you have, as one pool: routing, usage, pace and agents under the prompt",
   "author": {
     "name": "Jordan Parker",
     "email": "jordan@parkerlabs.co"
   },
   "repository": "https://github.com/heyJordanParker/oneclaude",
+  "types": "./types/index.d.ts",
   "dependencies": [
     {
       "name": "cmod",
-      "version": "^2.0.0"
+      "version": ">=4.1.0"
     }
   ]
 }

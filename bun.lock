@@ -4,7 +4,7 @@
     "": {
       "name": "oneclaude",
       "dependencies": {
-        "@cmodjs/core": "^2.0.1",
+        "@cmodjs/core": "^4.1.0",
         "bcrypt-ts": "^9.0.2",
       },
     },
@@ -12,7 +12,7 @@
   "packages": {
     "@babel/runtime": ["@babel/runtime@7.29.10", "", {}, "sha512-NpugTzbKgGrNe45Ui32cN8vCFFMxVtP/9rtfwv0nP5FRDAjvYBxJcLVpYA9mr1jxP6cnIT7x9LUzuDTbWYYNRA=="],
 
-    "@cmodjs/core": ["@cmodjs/core@2.0.1", "", { "dependencies": { "bun-types": "^1.4.2", "json-schema-to-ts": "^3.1.1" } }, "sha512-RHPxOoPs8HEv2ilJa8kvwVQoVvNEYSAy6lnKOQEDIoiOEr88UsZAP7LZ+0desqH6sWBvaVvSun2j3ZeiuqmYFg=="],
+    "@cmodjs/core": ["@cmodjs/core@4.1.0", "", { "dependencies": { "bun-types": "^1.4.2", "json-schema-to-ts": "^3.1.1" } }, "sha512-Vc5vBgk7UZjpPfR+BEroniN7AsmK4sqM0u3AMHnLBNHhNWB+KuQXkhGCgu54VSmmRwkKj8SVG0AapxvZs+V0HQ=="],
 
     "@types/node": ["@types/node@26.6.5", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg=="],
 

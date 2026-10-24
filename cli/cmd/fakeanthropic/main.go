@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +28,8 @@ var (
 		"fake-key-b": {used: 0.60, resetIn: 20 * time.Hour},
 	}
 	served = map[string]int{}
+	// headers is the last request's headers, as the proxy sent them upstream.
+	headers http.Header
 )
 
 func main() {
@@ -39,6 +42,11 @@ func main() {
 		for key, n := range served {
 			fmt.Fprintf(w, "%s %d\n", key, n)
 		}
+	})
+	http.HandleFunc("/headers", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(headers)
 	})
 	log.Printf("fake anthropic on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
@@ -53,6 +61,7 @@ func messages(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	a, ok := accounts[key]
 	served[key]++
+	headers = r.Header.Clone()
 	mu.Unlock()
 	if !ok {
 		http.Error(w, `{"type":"error","error":{"type":"authentication_error","message":"unknown key"}}`, http.StatusUnauthorized)

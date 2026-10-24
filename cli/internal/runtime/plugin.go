@@ -52,7 +52,7 @@ type accountState struct {
 }
 
 // codexAccount is a Codex account the proxy holds. oneclaude routes none of
-// its requests and reads only its weekly usage, so the pane can show it.
+// its requests and reads only its weekly usage, so the Accounts tab can show it.
 type codexAccount struct {
 	Name      string
 	AuthIndex string
@@ -60,8 +60,11 @@ type codexAccount struct {
 	known     bool
 }
 
+// request is an intercepted request until its usage arrives. key is the
+// agent the pick placed it as: its session's, or a filter's cache key.
 type request struct {
 	id     session.Identity
+	key    string
 	family model.Family
 	at     time.Time
 }
@@ -87,10 +90,10 @@ const episode = 10 * time.Minute
 // usage concurrently, so shared state sits behind mu, held only for field
 // access and never across a host callback.
 type Plugin struct {
-	opts   Options
-	host   host
-	now    func() time.Time
-	cfg    atomic.Pointer[model.Settings]
+	opts    Options
+	host    host
+	now     func() time.Time
+	cfg     atomic.Pointer[model.Settings]
 	agents  *session.Agents
 	book    *limits.Book
 	records *session.Records
@@ -111,6 +114,11 @@ type Plugin struct {
 	history      requestHistory
 	historyRead  bool
 	imported     bool
+
+	filterFailedAt map[string]time.Time
+	responses      map[string]*response
+	responding     atomic.Int32
+	filters        filterSet
 
 	historyMu sync.Mutex
 
@@ -133,6 +141,9 @@ func New(opts Options) *Plugin {
 		codex:    map[string]*codexAccount{},
 		requests: map[string]request{},
 		history:  newRequestHistory(),
+
+		filterFailedAt: map[string]time.Time{},
+		responses:      map[string]*response{},
 	}
 	s := model.Defaults()
 	s.Enabled = false
@@ -176,7 +187,7 @@ func Degrade(method, code, message string) ([]byte, bool) {
 		result = SchedulerPickResponse{Handled: false}
 	case MethodRequestInterceptBefore:
 		result = RequestInterceptResponse{ClearHeaders: bridgeHeaders}
-	case MethodRequestInterceptAfter, MethodUsageHandle:
+	case MethodRequestInterceptAfter, MethodResponseInterceptAfter, MethodStreamChunkIntercept, MethodUsageHandle:
 		result = emptyResult
 	case MethodManagementHandle:
 		result = jsonResponse(500, map[string]string{"error": "plugin request failed"})
@@ -204,6 +215,10 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 		return p.interceptBefore(payload)
 	case MethodRequestInterceptAfter:
 		return okEnvelope(emptyResult)
+	case MethodStreamChunkIntercept:
+		return p.interceptChunk(payload)
+	case MethodResponseInterceptAfter:
+		return p.interceptResponse(payload)
 	case MethodSchedulerPick:
 		return p.pickEnvelope(payload)
 	case MethodUsageHandle:
@@ -241,10 +256,12 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 			ConfigFields:     p.opts.ConfigFields,
 		},
 		Capabilities: map[string]bool{
-			CapabilityRequestInterceptor: true,
-			CapabilityScheduler:          true,
-			CapabilityUsagePlugin:        true,
-			CapabilityManagementAPI:      true,
+			CapabilityRequestInterceptor:  true,
+			CapabilityStreamInterceptor:   true,
+			CapabilityResponseInterceptor: true,
+			CapabilityScheduler:           true,
+			CapabilityUsagePlugin:         true,
+			CapabilityManagementAPI:       true,
 		},
 	})
 }
@@ -294,6 +311,7 @@ func (p *Plugin) load(dir string) {
 	if dir == "" {
 		return
 	}
+	p.host.spawn(func() { pruneFilters(dir, p.now()) })
 	var saved savedUsage
 	if usage.ReadJSON(filepath.Join(dir, "usage.json"), &saved) == nil {
 		p.mu.Lock()

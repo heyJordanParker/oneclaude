@@ -12,7 +12,9 @@ import (
 
 const ABIVersion uint32 = 1
 
-const SchemaVersion uint32 = 1
+// SchemaVersion 5 keeps each stream chunk to the chunk itself, without the
+// request body or the chunks before it.
+const SchemaVersion uint32 = 5
 
 const (
 	MethodPluginRegister         = "plugin.register"
@@ -21,6 +23,8 @@ const (
 	MethodPluginShutdown         = "plugin.shutdown"
 	MethodRequestInterceptBefore = "request.intercept_before"
 	MethodRequestInterceptAfter  = "request.intercept_after"
+	MethodStreamChunkIntercept   = "response.intercept_stream_chunk"
+	MethodResponseInterceptAfter = "response.intercept_after"
 	MethodSchedulerPick          = "scheduler.pick"
 	MethodUsageHandle            = "usage.handle"
 	MethodManagementRegister     = "management.register"
@@ -36,10 +40,12 @@ const (
 )
 
 const (
-	CapabilityRequestInterceptor = "request_interceptor"
-	CapabilityScheduler          = "scheduler"
-	CapabilityUsagePlugin        = "usage_plugin"
-	CapabilityManagementAPI      = "management_api"
+	CapabilityRequestInterceptor  = "request_interceptor"
+	CapabilityStreamInterceptor   = "response_stream_interceptor"
+	CapabilityResponseInterceptor = "response_interceptor"
+	CapabilityScheduler           = "scheduler"
+	CapabilityUsagePlugin         = "usage_plugin"
+	CapabilityManagementAPI       = "management_api"
 )
 
 type Envelope struct {
@@ -104,6 +110,27 @@ type RequestInterceptResponse struct {
 	StatusCode      int         `json:"StatusCode,omitempty"`
 	ResponseHeaders http.Header `json:"ResponseHeaders,omitempty"`
 	ResponseBody    []byte      `json:"ResponseBody,omitempty"`
+}
+
+// ResponseInterceptRequest is a successful response that wasn't streamed.
+type ResponseInterceptRequest struct {
+	RequestID string `json:"RequestID"`
+	Body      []byte `json:"Body"`
+}
+
+type ResponseInterceptResponse struct {
+	Body []byte `json:"Body,omitempty"`
+}
+
+type StreamChunkInterceptRequest struct {
+	RequestID  string `json:"RequestID"`
+	Body       []byte `json:"Body"`
+	ChunkIndex int    `json:"ChunkIndex"`
+}
+
+type StreamChunkInterceptResponse struct {
+	Body      []byte `json:"Body,omitempty"`
+	DropChunk bool   `json:"DropChunk,omitempty"`
 }
 
 type SchedulerPickRequest struct {

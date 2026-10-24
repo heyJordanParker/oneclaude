@@ -7,15 +7,20 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // These checks run against the dev proxy (dev/config.yaml) and the fake
 // Anthropic server: go test -run DevProxy with ONECLAUDE_DEV_PROXY set.
 
 const devProxy = "http://127.0.0.1:8318"
+
+const headerCacheKeyName = "X-Oneclaude-Cache-Key"
 
 func devOnly(t *testing.T) {
 	if os.Getenv("ONECLAUDE_DEV_PROXY") == "" {
@@ -166,4 +171,138 @@ func TestDevProxyServesTheDashboardAndItsHistory(t *testing.T) {
 	if resp.StatusCode != 200 || json.Unmarshal(body, &history) != nil || len(history.Accounts) == 0 {
 		t.Fatalf("history = %d %s", resp.StatusCode, body)
 	}
+}
+
+// TestDevProxyAFilterRewritesTheRequestAndEachEventOfItsReply runs a filter
+// that turns the prompt into "slow", which the fake answers over 6 seconds,
+// and every text delta into "filtered".
+func TestDevProxyAFilterRewritesAWholeResponseAndAnswersARequestItself(t *testing.T) {
+	devOnly(t)
+	filter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var post struct {
+			Request *struct {
+				Body json.RawMessage `json:"body"`
+			} `json:"request"`
+			Response *struct {
+				Body json.RawMessage `json:"body"`
+			} `json:"response"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&post)
+		switch {
+		case post.Request != nil && strings.Contains(string(post.Request.Body), "refuse me"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"immediateResponse": map[string]any{"status": 403, "body": map[string]any{"type": "error", "error": map[string]string{"type": "permission_error", "message": "the policy filter refused this"}}}})
+		case post.Request != nil:
+			_ = json.NewEncoder(w).Encode(map[string]any{"headers": map[string]any{"anthropic-beta": "oneclaude-filter-test", "x-oneclaude-cache-key": "whole"}})
+		case post.Response != nil:
+			_ = json.NewEncoder(w).Encode(map[string]any{"body": json.RawMessage(strings.Replace(string(post.Response.Body), `"text":"ok"`, `"text":"rewritten"`, 1))})
+		}
+	}))
+	defer filter.Close()
+	session := fmt.Sprintf("whole-%d", rand.Int())
+	filters := "../.target/dev/data/filters/" + session + ".json"
+	raw, _ := json.Marshal([]map[string]any{{"name": "dev", "url": filter.URL, "responses": true}})
+	if err := os.MkdirAll("../.target/dev/data/filters", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filters, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(filters)
+
+	send := func(prompt string) (int, string) {
+		body := fmt.Sprintf(`{"model":"claude-opus-5-5","max_tokens":20,"messages":[{"role":"user","content":%q}]}`, prompt)
+		req, _ := http.NewRequest(http.MethodPost, devProxy+"/v1/messages", strings.NewReader(body))
+		req.Header.Set("x-api-key", "dev-client")
+		req.Header.Set("content-type", "application/json")
+		req.Header.Set("anthropic-version", "2023-06-01")
+		req.Header.Set("X-Claude-Code-Session-Id", session)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("send: %v", err)
+		}
+		defer resp.Body.Close()
+		out, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(out)
+	}
+
+	if status, body := send("hi"); status != 200 || !strings.Contains(body, `"text":"rewritten"`) {
+		t.Fatalf("whole response: %d %s, want the filter's rewrite", status, body)
+	}
+	resp, err := http.Get("http://127.0.0.1:8319/headers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var upstream http.Header
+	_ = json.NewDecoder(resp.Body).Decode(&upstream)
+	_ = resp.Body.Close()
+	if !strings.Contains(upstream.Get("Anthropic-Beta"), "oneclaude-filter-test") || upstream.Get(headerCacheKeyName) != "" {
+		t.Fatalf("Anthropic got headers %v, want the filter's beta and no cache key", upstream)
+	}
+	if status, body := send("refuse me"); status != 403 || !strings.Contains(body, "the policy filter refused this") {
+		t.Fatalf("answered request: %d %s, want the filter's own answer", status, body)
+	}
+}
+
+func TestDevProxyAFilterRewritesTheRequestAndEachEventOfItsResponse(t *testing.T) {
+	devOnly(t)
+	var mu sync.Mutex
+	var sessions, paths []string
+	filter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var post struct {
+			Request *struct {
+				Path    string            `json:"path"`
+				Headers map[string]string `json:"headers"`
+				Body    map[string]any    `json:"body"`
+			} `json:"request"`
+			Response *struct {
+				Body map[string]any `json:"body"`
+			} `json:"response"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&post)
+		switch {
+		case post.Request != nil:
+			mu.Lock()
+			sessions = append(sessions, post.Request.Headers["x-claude-code-session-id"])
+			paths = append(paths, post.Request.Path)
+			mu.Unlock()
+			body := post.Request.Body
+			body["messages"] = []map[string]string{{"role": "user", "content": "slow"}}
+			_ = json.NewEncoder(w).Encode(map[string]any{"body": body})
+		case post.Response != nil && post.Response.Body["type"] == "content_block_delta":
+			event := post.Response.Body
+			event["delta"] = map[string]string{"type": "text_delta", "text": "filtered "}
+			_ = json.NewEncoder(w).Encode(map[string]any{"body": event})
+		}
+	}))
+	defer filter.Close()
+
+	session := fmt.Sprintf("filter-%d", rand.Int())
+	filters := "../.target/dev/data/filters/" + session + ".json"
+	raw, _ := json.Marshal([]map[string]any{{"name": "dev", "url": filter.URL, "responses": true, "timeoutSeconds": 5}})
+	if err := os.MkdirAll("../.target/dev/data/filters", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filters, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(filters)
+
+	started := time.Now()
+	resp := devSend(t, session, "", "claude-opus-5-5", "hi")
+	reply, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	took := time.Since(started)
+
+	if resp.StatusCode != 200 || took < 5*time.Second {
+		t.Fatalf("status %d in %s, want 200 after the fake's slow reply", resp.StatusCode, took)
+	}
+	if strings.Contains(string(reply), "chunk") || !strings.Contains(string(reply), `"text":"filtered "`) {
+		t.Fatalf("reply was not filtered: %s", reply)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sessions) == 0 || sessions[0] != session || paths[0] != "/v1/messages" {
+		t.Fatalf("the filter saw sessions %v on paths %v, want %s on /v1/messages", sessions, paths, session)
+	}
+	t.Logf("filtered reply in %s:\n%s", took, reply)
 }

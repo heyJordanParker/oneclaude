@@ -10,7 +10,7 @@ oneclaude/
 │   ├── cmd/oneclaude/       the program cmod runs to install and remove the plugin
 │   ├── cmd/fakeanthropic/   a stand-in for Anthropic that the dev proxy talks to
 │   └── Makefile             build, dist, test, and vet
-├── src/                     the Claude Code mod: the line under the prompt and the pane
+├── src/                     the Claude Code mod: the line under the prompt and the Accounts tab
 ├── hooks/                   registers the mod with Claude Code
 ├── setup/                   the install and uninstall steps cmod runs
 ├── tests/                   the mod's tests
