@@ -353,6 +353,15 @@ test('the hint line leaves Claude Code alone while the proxy is down', async () 
   expect(settingsUpdates(tested)).toEqual([])
 })
 
+test('a row\'s details wrap between facts, never inside one', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  const pane = (await tested.shown.page.lines({ columns: 60 })).join('\n')
+  expect(pane).toContain('14 agents')
+  expect(pane).toContain('1 account not read yet')
+  expect(pane).toContain('next refill in 2d frees 11%')
+})
+
 test('/accounts closes the Sidebar page it opened', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
