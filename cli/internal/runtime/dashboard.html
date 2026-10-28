@@ -521,12 +521,6 @@ const PANEL = '/management.html'
 const MANAGEMENT = '/v8/management'
 const RESOURCE = new URL('.', location.href).pathname
 const OBFUSCATED = 'enc::v1::'
-const MANAGEMENT_KEY = 'oneclaude'
-// OPENS is where each ?open= link lands once the panel is signed in.
-const OPENS = {
-  dashboard: `${PANEL}#/plugin-pages/oneclaude/0`,
-  'add-account': `${PANEL}#/oauth`,
-}
 const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
 const HOUR = 3600e3
 const WEEK = 7 * 24 * HOUR
@@ -612,21 +606,6 @@ function reveal(payload) {
   return new TextDecoder().decode(storageMask(Uint8Array.from(atob(payload), (char) => char.charCodeAt(0))))
 }
 
-function conceal(text) {
-  return OBFUSCATED + btoa(String.fromCharCode(...storageMask(new TextEncoder().encode(text))))
-}
-
-// signIn saves the panel's login with oneclaude's management key, the way
-// the panel saves it when Remember password is ticked, so the panel opens
-// signed in. A login the person saved stays theirs.
-function signIn() {
-  localStorage.setItem('cli-proxy-auth', conceal(JSON.stringify({
-    state: { apiBase: location.origin, managementKey: MANAGEMENT_KEY, rememberPassword: true },
-    version: 0,
-  })))
-  localStorage.setItem('isLoggedIn', 'true')
-}
-
 function proxyBase(input) {
   let base = String(input || '').trim().replace(/\/+$/, '').replace(/\/v8\/management$/i, '')
   if (base && !/^https?:\/\//i.test(base)) base = `http://${base}`
@@ -647,7 +626,7 @@ function panelKey() {
 }
 
 function readKey() {
-  const key = panelKey() ?? MANAGEMENT_KEY
+  const key = panelKey()
   state.key = key !== state.refused ? key : null
 }
 
@@ -1644,18 +1623,12 @@ addEventListener('storage', (event) => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refreshAll()
 })
-const open = new URLSearchParams(location.search).get('open')
-if (!embedded && open !== null) {
-  if (panelKey() === null) signIn()
-  location.replace(OPENS[open] ?? OPENS.dashboard)
-} else {
-  render()
-  refreshAll()
-  every(15e3, loadStatus)
-  every(60e3, loadHistory)
-  every(60e3, loadUsage)
-  every(60e3, loadProxy)
-}
+render()
+refreshAll()
+every(15e3, loadStatus)
+every(60e3, loadHistory)
+every(60e3, loadUsage)
+every(60e3, loadProxy)
 </script>
 </body>
 </html>

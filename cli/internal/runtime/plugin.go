@@ -118,7 +118,7 @@ type Plugin struct {
 	filterFailedAt map[string]time.Time
 	responses      map[string]*response
 	responding     atomic.Int32
-	filters        filterSet
+	sessions       recordSet
 
 	historyMu sync.Mutex
 
@@ -311,7 +311,7 @@ func (p *Plugin) load(dir string) {
 	if dir == "" {
 		return
 	}
-	p.host.spawn(func() { pruneFilters(dir, p.now()) })
+	p.sessions.load(dir, p.now())
 	var saved savedUsage
 	if usage.ReadJSON(filepath.Join(dir, "usage.json"), &saved) == nil {
 		p.mu.Lock()

@@ -60,62 +60,16 @@ func FromRequest(headers http.Header, body []byte) Identity {
 	return id
 }
 
-// Records reads what Claude Code writes about its sessions under its
-// projects folder: the folder a session runs in, from the cwd its transcript
-// records, and a subagent's type, from the meta file Claude Code writes as it
-// starts the subagent. Each answer is read once; a session or subagent not
-// written yet is looked for again a minute later.
+// Records reads the requests Claude Code's transcripts under its projects
+// folder record, for the import of the requests from before oneclaude.
 type Records struct {
 	root string
-
-	mu       sync.Mutex
-	sessions map[string]lookup[sessionRecord]
-	types    map[string]lookup[string]
 }
-
-// sessionRecord is where a session's transcript lives and the project it
-// runs in.
-type sessionRecord struct {
-	folder  string
-	project string
-}
-
-// lookup is one answer read from Claude Code's files, or a miss and when it
-// was looked for.
-type lookup[T any] struct {
-	value   T
-	found   bool
-	checked time.Time
-}
-
-const (
-	lookAgain  = time.Minute
-	remembered = 10000
-)
 
 // NewRecords reads the projects folder at root, Claude Code's
 // ~/.claude/projects.
 func NewRecords(root string) *Records {
-	return &Records{root: root, sessions: map[string]lookup[sessionRecord]{}, types: map[string]lookup[string]{}}
-}
-
-// remember answers key from cache, or reads it when it was never looked for
-// or was missing a minute or more ago.
-func remember[T any](r *Records, cache map[string]lookup[T], key string, now time.Time, read func() (T, bool)) T {
-	r.mu.Lock()
-	known, ok := cache[key]
-	r.mu.Unlock()
-	if ok && (known.found || now.Sub(known.checked) < lookAgain) {
-		return known.value
-	}
-	value, found := read()
-	r.mu.Lock()
-	if len(cache) >= remembered {
-		clear(cache)
-	}
-	cache[key] = lookup[T]{value: value, found: found, checked: now}
-	r.mu.Unlock()
-	return value
+	return &Records{root: root}
 }
 
 // ClaudeProjects is where Claude Code keeps its transcripts.
@@ -128,33 +82,6 @@ func ClaudeProjects() string {
 		return ""
 	}
 	return filepath.Join(home, ".claude", "projects")
-}
-
-// Of answers an agent's type and its session's project: the folder name of
-// the session's working directory. A main session's type is empty.
-func (r *Records) Of(id Identity, now time.Time) (agentType, project string) {
-	if id.Session == "" || r.root == "" {
-		return id.Type, ""
-	}
-	record := remember(r, r.sessions, id.Session, now, func() (sessionRecord, bool) { return r.session(id.Session) })
-	if id.Agent == "" || id.Type != "" || record.folder == "" {
-		return id.Type, record.project
-	}
-	return remember(r, r.types, id.Key(), now, func() (string, bool) { return agentTypeIn(record.folder, id) }), record.project
-}
-
-func (r *Records) session(sessionID string) (sessionRecord, bool) {
-	entries, err := os.ReadDir(r.root)
-	if err != nil {
-		return sessionRecord{}, false
-	}
-	for _, entry := range entries {
-		folder := filepath.Join(r.root, entry.Name())
-		if cwd := cwdOf(filepath.Join(folder, sessionID+".jsonl")); cwd != "" {
-			return sessionRecord{folder: folder, project: filepath.Base(cwd)}, true
-		}
-	}
-	return sessionRecord{}, false
 }
 
 func agentTypeIn(folder string, id Identity) (string, bool) {

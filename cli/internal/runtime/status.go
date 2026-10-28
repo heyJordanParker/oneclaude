@@ -24,6 +24,7 @@ const (
 	resourceUsagePath     = "/usage.json"
 	routeStatus           = "/status"
 	routeUnblock          = "/unblock"
+	routeSession          = "/session"
 	historyWindow         = 7 * 24 * time.Hour
 	daysKept              = 90
 	dayLayout             = "2006-01-02"
@@ -401,6 +402,7 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 		Routes: []ManagementRoute{
 			{Method: http.MethodGet, Path: mgmt + "/plugins/" + p.opts.Name + routeStatus, Description: "The pool's usage, pace, accounts and the last 24 hours of its log as JSON."},
 			{Method: http.MethodPost, Path: mgmt + "/plugins/" + p.opts.Name + routeUnblock, Description: "Clears every block the proxy holds on the account {auth_index}, and logs it."},
+			{Method: http.MethodPost, Path: mgmt + "/plugins/" + p.opts.Name + routeSession, Description: "Keeps a Claude Code session's record from the oneclaude mod: {session, project, agents, filters}."},
 		},
 		Resources: []ResourceRoute{
 			{Path: resource + resourceDashboardPath, Menu: "oneclaude", Description: "Your Claude pool, its accounts and the proxy"},
@@ -440,6 +442,8 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 		return okEnvelope(jsonResponse(http.StatusOK, p.Usage(req.Query.Get("period"), req.Query.Get("by"), req.Query.Get("units"))))
 	case req.Path == mgmt+"/plugins/"+p.opts.Name+routeUnblock && req.Method == http.MethodPost:
 		return okEnvelope(p.unblockRoute(req.Body))
+	case req.Path == mgmt+"/plugins/"+p.opts.Name+routeSession && req.Method == http.MethodPost:
+		return okEnvelope(p.sessionRoute(req.Body))
 	default:
 		return okEnvelope(jsonResponse(http.StatusNotFound, map[string]string{"error": "unknown path"}))
 	}

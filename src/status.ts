@@ -1,74 +1,56 @@
-import { compare } from '../node_modules/bcrypt-ts/dist/browser.js'
-import type { Color } from 'claude-code'
-import { fs, http, type Mod } from '../node_modules/@cmodjs/core/mod.js'
+import type { Color, HttpResponse } from 'claude-code'
+import { fs, http, settings, type Mod } from '../node_modules/@cmodjs/core/mod.js'
 import type { OneclaudeState } from './state.js'
 
-export const PROXY = 'http://127.0.0.1:8317'
+// LOCAL_POOL is the pool oneclaude installs on this machine, where it points
+// Claude Code when nothing else is set.
+export const LOCAL_POOL = 'http://127.0.0.1:8317'
 
-const RESOURCES = `${PROXY}/v0/resource/plugins/oneclaude`
-
-export const STATUS_URL = `${RESOURCES}/status.json`
-
-export const USAGE_URL = `${RESOURCES}/usage.json`
-
-// The dashboard page signs the proxy's panel in with oneclaude's management
-// key, then opens the panel at the dashboard, or at its OAuth login page to
-// add an account.
-export const DASHBOARD_URL = `${RESOURCES}/dashboard?open=dashboard`
-
-export const ADD_ACCOUNT_URL = `${RESOURCES}/dashboard?open=add-account`
-
-// The proxy's management API takes the proxy's management key: the one
-// oneclaude install sets on a proxy with none, or the one the person set. The
-// proxy bans an address for 30 minutes after 5 refused keys, so the mod sends
-// a key only once it fits the hash in the proxy's config.
-const MANAGEMENT = `${PROXY}/v0/management`
-export const MANAGEMENT_KEY = 'oneclaude'
-
-// PROXY_CONFIG is the file in the mod's data folder where oneclaude install
-// writes the path of the proxy's config.
-const PROXY_CONFIG = 'proxy-config'
-
-// secretKeyOf reads management.secret-key, or remote-management's, from the
-// proxy's config.
-export function secretKeyOf(config: string): string | undefined {
-  let isManagement = false
-  for (const line of config.split('\n')) {
-    if (/^\S/.test(line)) isManagement = /^(remote-)?management:\s*(#.*)?$/.test(line)
-    const value = isManagement ? /^\s+secret-key:\s*(.*)$/.exec(line)?.[1] : undefined
-    if (value !== undefined) return value.replace(/\s+#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2') || undefined
-  }
-  return undefined
+// baseUrlOf is the proxy Claude Code's user settings send it to, if any.
+export async function baseUrlOf(): Promise<unknown> {
+  const env = (await settings.user.read())['env']
+  return typeof env === 'object' && env !== null ? (env as Record<string, unknown>)['ANTHROPIC_BASE_URL'] : undefined
 }
 
-// proxySecret is the management key as the proxy's config keeps it, or
-// undefined when the config can't be read or has none.
-export async function proxySecret(dataFolder: string): Promise<string | undefined> {
-  try {
-    return secretKeyOf(await fs.read((await fs.read(`${dataFolder}/${PROXY_CONFIG}`)).trim()))
-  } catch {
-    return undefined
-  }
+// poolOf is the pool Claude Code uses, on this machine or another.
+export async function poolOf(): Promise<string> {
+  const base = await baseUrlOf()
+  return typeof base === 'string' && base !== '' ? base.replace(/\/+$/, '') : LOCAL_POOL
 }
 
-// fits says whether key is the one the proxy keeps: as a bcrypt hash, or as
-// plain text the proxy has not hashed yet.
-export function fits(key: string, secret: string): Promise<boolean> {
-  return /^\$2[aby]\$/.test(secret) ? compare(key, secret) : Promise.resolve(key === secret)
-}
+const resourcesOf = (pool: string): string => `${pool}/v0/resource/plugins/oneclaude`
 
-// keyOf is the management key to send: the person's, or oneclaude's, once it
-// fits the proxy's config, so the proxy never refuses it.
+export const statusUrl = (pool: string): string => `${resourcesOf(pool)}/status.json`
+
+export const usageUrl = (pool: string): string => `${resourcesOf(pool)}/usage.json`
+
+// The panel shows oneclaude's dashboard as its first plugin page, and asks
+// for its login first when it holds none.
+export const dashboardUrl = (pool: string): string => `${pool}/management.html#/plugin-pages/oneclaude/0`
+
+export const addAccountUrl = (pool: string): string => `${pool}/management.html#/oauth`
+
+// KEY is the file in the mod's data folder that holds the proxy's management
+// key, written by oneclaude install or the management-key step once the proxy
+// took it. The proxy bans an address for 30 minutes after 5 refused keys, so
+// the mod sends no other key, and empties the file at a refusal.
+const KEY = 'management-key'
+
 export async function keyOf(mod: Mod<OneclaudeState>): Promise<string | undefined> {
-  const secret = await proxySecret(mod.dataFolder)
-  if (secret === undefined) return undefined
-  const key = mod.state.global.managementKey ?? MANAGEMENT_KEY
-  let checked = mod.state.global.checkedKey
-  if (checked?.key !== key || checked.secret !== secret) {
-    checked = { key, secret, fits: await fits(key, secret) }
-    mod.state.global.checkedKey = checked
-  }
-  return checked.fits ? key : undefined
+  const key = await fs.read(`${mod.dataFolder}/${KEY}`).then((text) => text.trim(), () => '')
+  return key === '' ? undefined : key
+}
+
+export async function saveKey(mod: Mod<OneclaudeState>, key: string): Promise<void> {
+  await fs.write(`${mod.dataFolder}/${KEY}`, key)
+}
+
+// manage sends a request to the pool's management API with key.
+export async function manage(mod: Mod<OneclaudeState>, key: string, path: string, init: { readonly method?: string; readonly body?: string } = {}): Promise<HttpResponse | undefined> {
+  const headers = { Authorization: `Bearer ${key}`, ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }) }
+  const response = await http.fetch(`${mod.state.memory.pool}/v0/management${path}`, { ...init, headers }).catch(() => undefined)
+  if (response?.status === 401) await saveKey(mod, '')
+  return response
 }
 
 export type Family = 'opus' | 'sonnet' | 'haiku' | 'fable'
@@ -146,8 +128,8 @@ export const PROBLEMS: Readonly<Record<Problem, string>> = {
   unreadable: 'oneclaude: status unreadable',
 }
 
-export async function read(): Promise<{ readonly status: Status } | { readonly problem: Problem }> {
-  const response = await http.fetch(STATUS_URL).catch(() => undefined)
+export async function read(pool: string): Promise<{ readonly status: Status } | { readonly problem: Problem }> {
+  const response = await http.fetch(statusUrl(pool)).catch(() => undefined)
   if (response === undefined) return { problem: 'proxy-down' }
   if (response.status === 404) return { problem: 'plugin-off' }
   if (!response.ok) return { problem: 'proxy-down' }
@@ -161,8 +143,8 @@ export async function read(): Promise<{ readonly status: Status } | { readonly p
 type Cooldown = { readonly scope: string; readonly model_key?: string; readonly reason: string; readonly retry_at: string }
 
 // readBlocks reads every block the proxy holds on a Claude account.
-export async function readBlocks(key: string): Promise<Blocks> {
-  const response = await http.fetch(`${MANAGEMENT}/auth-files`, { headers: { Authorization: `Bearer ${key}` } }).catch(() => undefined)
+export async function readBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
+  const response = await manage(mod, key, '/auth-files')
   if (response === undefined || !response.ok) return {}
   try {
     const { files } = JSON.parse(response.text) as { readonly files?: readonly { readonly auth_index?: string; readonly provider?: string; readonly cooldowns?: readonly Cooldown[] | null }[] }
@@ -191,19 +173,15 @@ export async function sharedBlocks(mod: Mod<OneclaudeState>, key: string): Promi
 }
 
 export async function freshBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
-  const blocks = await readBlocks(key)
+  const blocks = await readBlocks(mod, key)
   await fs.write(`${mod.dataFolder}/${BLOCKS}`, JSON.stringify({ at: Date.now(), blocks })).catch((error: unknown) => mod.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(error)}`))
   return blocks
 }
 
 // unblock asks the plugin to clear every block on the account, and says
 // whether it did.
-export async function unblock(account: Account, key: string): Promise<boolean> {
-  const response = await http.fetch(`${MANAGEMENT}/plugins/oneclaude/unblock`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ auth_index: account.auth_index }),
-  }).catch(() => undefined)
+export async function unblock(mod: Mod<OneclaudeState>, account: Account, key: string): Promise<boolean> {
+  const response = await manage(mod, key, '/plugins/oneclaude/unblock', { method: 'POST', body: JSON.stringify({ auth_index: account.auth_index }) })
   return response?.ok === true
 }
 

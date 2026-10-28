@@ -44,10 +44,10 @@ oneclaude has two parts:
 
 You need:
 
-- macOS on Apple silicon
+- macOS 13 or later, or Linux with systemd, on arm64 or x64
 - [Claude Code](https://code.claude.com)
 - one or more Claude Pro or Max subscriptions
-- [Homebrew](https://brew.sh), unless CLIProxyAPI is already running
+- on macOS, [Homebrew](https://brew.sh), unless CLIProxyAPI is already running
 - Node.js with npm, or Bun, to install cmod
 
 Install cmod once, then oneclaude:
@@ -59,7 +59,7 @@ cmod install heyJordanParker/oneclaude
 
 cmod lists what oneclaude will change and asks you to agree. Then it downloads the `oneclaude` program from this repository's release and checks it against the release's `SHA256SUMS`, and the install step:
 
-1. finds CLIProxyAPI, or installs it with Homebrew and keeps it on this machine only;
+1. finds CLIProxyAPI, or installs it, with Homebrew on macOS and from its release on Linux, and keeps it on this machine only, or uses the pool on another machine that Claude Code's `ANTHROPIC_BASE_URL` names;
 2. adds the routing plugin to the proxy;
 3. copies the Claude account Claude Code is logged in to into the proxy, as its first account;
 4. starts the proxy.

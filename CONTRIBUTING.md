@@ -22,6 +22,7 @@ oneclaude/
 
 - macOS on Apple silicon, with the Xcode command line tools for cgo
 - [Go](https://go.dev) 1.25 or later: `brew install go`
+- [zig](https://ziglang.org), which builds the routing plugin for Linux: `brew install zig`
 - [Bun](https://bun.sh) 1.2 or later
 - [Claude Code](https://code.claude.com), and cmod: `npm install -g @cmodjs/cli`
 
@@ -34,7 +35,7 @@ bun install
 cmod link .
 ```
 
-`cmod link .` builds the `oneclaude` program with `make dist` in `cli/`, links it into cmod's programs folder and `~/.local/bin`, loads the checkout as the oneclaude mod in every new Claude Code session, and runs the install step against the proxy Claude Code talks to. To try a change, raise `version` in `.claude-plugin/plugin.json` and `pluginVersion` in `cli/main.go` together, then run `cmod link .` again. The proxy loads the new plugin with no dropped reply. A version already in place is never overwritten, because the proxy may have it loaded.
+`cmod link .` builds the `oneclaude` program for this machine with `make dist` in `cli/`, links it into cmod's programs folder and `~/.local/bin`, loads the checkout as the oneclaude mod in every new Claude Code session, and runs the install step against the proxy Claude Code talks to. To try a change, raise `version` in `.claude-plugin/plugin.json` and `pluginVersion` in `cli/main.go` together, then run `cmod link .` again. The proxy loads the new plugin with no dropped reply. A version already in place is never overwritten, because the proxy may have it loaded.
 
 `cmod unlink .` stops loading the checkout and runs the uninstall step, as a removal does: oneclaude leaves the proxy, and Claude Code talks to Anthropic directly again.
 
@@ -57,7 +58,7 @@ The dev proxy is a second CLIProxyAPI on port 8318, which talks to a stand-in fo
 ```bash
 make -C cli build
 mkdir -p .target/dev/plugins/darwin/arm64
-cp .target/dist/oneclaude-v*.dylib .target/dev/plugins/darwin/arm64/
+cp .target/dist/darwin-arm64/oneclaude-v*.dylib .target/dev/plugins/darwin/arm64/
 go run -C cli ./cmd/fakeanthropic
 MANAGEMENT_PASSWORD=dev "$(brew --prefix)/opt/cliproxyapi/bin/cliproxyapi" -config dev/config.yaml
 ```

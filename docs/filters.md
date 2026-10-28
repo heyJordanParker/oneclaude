@@ -1,15 +1,15 @@
 # Filters
 
-Every Claude Code request from every session on your Mac goes through oneclaude. A filter lets another mod rewrite, answer, or watch the requests of a session it chose, and their successful responses. It works the way Envoy's external processing filter does: oneclaude sends the filter each request, then each event of the response, and applies its answers.
+Every Claude Code request from every session that uses the pool goes through oneclaude. A filter lets another mod rewrite, answer, or watch the requests of a session it chose, and their successful responses. It works the way Envoy's external processing filter does: oneclaude sends the filter each request, then each event of the response, and applies its answers.
 
-A filter is a program your mod runs, at an address on this Mac. oneclaude runs nothing itself.
+A filter is a program your mod runs, at an address on the machine the pool runs on. oneclaude runs nothing itself. A session on another machine that uses the pool, such as a Mac whose `ANTHROPIC_BASE_URL` is `http://devbox:8317`, adds the address of its program on the pool's machine.
 
 ## Add a filter
 
 List oneclaude as a dependency in your mod's `.claude-plugin/plugin.json`:
 
 ```json
-"dependencies": [{ "name": "cmod", "version": ">=4.3.2" }, { "name": "oneclaude", "version": ">=0.8.1" }]
+"dependencies": [{ "name": "cmod", "version": ">=4.3.2" }, { "name": "oneclaude", "version": ">=0.9.0" }]
 ```
 
 Then add your program's address in the session it should filter:
@@ -24,13 +24,15 @@ await mod.dependencies.oneclaude.addFilter({
 ```
 
 - `name` is your mod's name, which oneclaude's log uses when the filter fails.
-- `url` is your program's address: `http://127.0.0.1:<port>/…`, `http://localhost:<port>/…`, or `unix:<socket path>`. oneclaude refuses any other address, so no request leaves your Mac for a filter.
+- `url` is your program's address on the pool's machine: `http://127.0.0.1:<port>/…`, `http://localhost:<port>/…`, or `unix:<socket path>`. The pool refuses any other address, so no request leaves its machine for a filter, and `addFilter` rejects with the reason.
 - `responses: true` also sends the filter each successful response. It is off by default.
 - `timeoutSeconds` is how long oneclaude waits for each answer: 2 by default, up to 120.
 - `failOpen: true` sends the traffic on unchanged when your program doesn't answer in time, can't be reached, or answers with an error or a redirect, and skips your program for the rest of that response. By default a failure answers Claude Code with a 503 error it retries, and ends a response in progress with an error event.
 - `observabilityMode: true` sends your program each request and response event in order, without waiting for it, and ignores its answers. When your program fails, oneclaude skips it for the rest of that response.
 
 `removeFilter({ name })` takes the filter out of the session.
+
+oneclaude sends the pool the session's filters with its management key ([Installation](installation.md#3-adding-oneclaude)). A filter added while the pool doesn't answer reaches it within a second of the pool answering again, and `addFilter` doesn't wait for that.
 
 ## Which traffic a filter sees
 

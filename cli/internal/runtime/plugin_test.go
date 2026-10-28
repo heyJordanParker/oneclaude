@@ -576,11 +576,11 @@ func costOf(row UsageRow) float64 {
 }
 
 func TestUsageSplitsAPeriodByAccountModelAgentAndProjectAtListPrices(t *testing.T) {
-	p := New(Options{Name: "oneclaude", NoPoller: true, ClaudeProjects: claudeProjects(t), Now: func() time.Time { return testNow }})
+	p := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return testNow }})
 	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
 	p.Call(MethodPluginRegister, cfg)
 	defer p.Shutdown()
-	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	sendRecord(t, p, sessionRecord{Session: "s1", Project: "/Users/turing/dotfiles", Agents: map[string]string{"a7": "code-reviewer"}})
 	account := "claude-turing@example.com.json"
 	spend(t, p, "r1", "s1", "", "claude-opus-5-5", account, UsageDetail{InputTokens: 2, OutputTokens: 127, CacheCreationTokens: 43544})
 	spend(t, p, "r2", "s1", "", "claude-opus-5-5", account, UsageDetail{InputTokens: 2, OutputTokens: 127, CacheCreationTokens: 43544})
@@ -600,7 +600,7 @@ func TestUsageSplitsAPeriodByAccountModelAgentAndProjectAtListPrices(t *testing.
 	}
 	projects := usageOf(t, p, "today", "project")
 	if projects.Rows[0].Label != "dotfiles" || projects.Rows[1].Label != "Not recorded" || projects.Rows[1].Key != "" {
-		t.Fatalf("by project = %+v, want dotfiles, then the session Claude Code wrote nothing for", projects.Rows)
+		t.Fatalf("by project = %+v, want dotfiles, then the session no mod sent a record for", projects.Rows)
 	}
 	models := usageOf(t, p, "today", "model")
 	if models.Rows[0].Label != "Opus 5.5" || models.Rows[1].Label != "Haiku 5.5" || models.Rows[2].Label != "Sonnet 5.5" {

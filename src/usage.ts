@@ -1,5 +1,5 @@
 import { http } from '../node_modules/@cmodjs/core/mod.js'
-import { MONTHS, percent, USAGE_URL } from './status.js'
+import { MONTHS, percent, usageUrl } from './status.js'
 
 export type Period = 'quarter' | 'month' | 'week' | 'yesterday' | 'today'
 export type Breakdown = 'account' | 'model' | 'agent' | 'project' | 'time'
@@ -29,8 +29,8 @@ export type UsageTable = {
   readonly days: readonly { readonly day: string; readonly rows: readonly UsageRow[] }[]
 }
 
-export async function readUsage(period: Period, by: Breakdown, units: Units): Promise<UsageTable | null> {
-  const response = await http.fetch(`${USAGE_URL}?period=${period}&by=${by}&units=${units}`).catch(() => undefined)
+export async function readUsage(pool: string, period: Period, by: Breakdown, units: Units): Promise<UsageTable | null> {
+  const response = await http.fetch(`${usageUrl(pool)}?period=${period}&by=${by}&units=${units}`).catch(() => undefined)
   if (response === undefined || !response.ok) return null
   try {
     const table = JSON.parse(response.text) as Partial<UsageTable>
@@ -136,7 +136,7 @@ export function dailyChart(table: UsageTable, units: Units): DailyChart {
 
 // optimizePrompt asks Claude, in the person's session, to make the last 30
 // days cost less, with the numbers by agent type, project and model.
-export function optimizePrompt(agents: UsageTable, projects: UsageTable, models: UsageTable): string {
+export function optimizePrompt(pool: string, agents: UsageTable, projects: UsageTable, models: UsageTable): string {
   const lines = (table: UsageTable): string[] => table.rows.filter((row) => totalOf(row, 'cost') > 0).slice(0, 12).map((row) => {
     const cached = cachedOf(row.tokens)
     return `- ${row.label}: ${money(totalOf(row, 'cost'))} (cache writes ${money(row.cost.cache_write)}, cache reads ${money(row.cost.cache_read)}, output ${money(row.cost.output)}, input ${money(row.cost.input)}), ${tokenCount(totalOf(row, 'tokens'))} tokens${cached === undefined ? '' : `, ${percent(cached)} from cache`}`
@@ -153,7 +153,7 @@ export function optimizePrompt(agents: UsageTable, projects: UsageTable, models:
     'By model:',
     ...lines(models),
     '',
-    `Any period and breakdown: ${USAGE_URL}?period=month&by=agent (period quarter, month, week, yesterday or today; by account, model, agent, project or time).`,
+    `Any period and breakdown: ${usageUrl(pool)}?period=month&by=agent (period quarter, month, week, yesterday or today; by account, model, agent, project or time).`,
     '',
     'Read the agent definitions, Skills and settings behind the most expensive rows, find what drives their cache writes and their output, and propose changes ranked by what each would save per day. Change nothing until I approve.',
   ].join('\n')

@@ -59,13 +59,7 @@ func (p *Plugin) interceptBefore(payload []byte) ([]byte, error) {
 	var body []byte
 	headers := http.Header{}
 	cleared := append(slices.Clone(bridgeHeaders), headerCacheKey)
-	filters, err := p.filters.of(s.DataDir, id.Session, now)
-	if err != nil {
-		p.host.spawn(func() {
-			p.host.log("warn", "oneclaude keeps the filters it read before, because a filters file does not parse", map[string]any{"error": err.Error()})
-		})
-	}
-	if len(filters) > 0 {
+	if filters := p.sessions.of(id.Session).Filters; len(filters) > 0 {
 		c := p.chainOf(filters)
 		out := p.filterRequest(req, c)
 		if out.answer != nil {
@@ -411,7 +405,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 		}
 	}
 
-	agentType, project := p.records.Of(r.id, now)
+	agentType, project := p.labelsOf(r.id.Session, r.id.Agent, r.id.Type)
 	line := requestLine{
 		At:             now,
 		Plan:           plan,

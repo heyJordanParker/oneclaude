@@ -5,7 +5,7 @@ import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
-import { ACCOUNTS, ADD_ACCOUNT_URL, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, DASHBOARD_URL, evenOf, FAMILIES, freshBlocks, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
+import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, freshBlocks, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
 import { BREAKDOWNS, dailyChart, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
@@ -19,7 +19,7 @@ const CONTROL = 7
 export async function showUsage(mod: Mod<OneclaudeState>, change: Partial<UsageView> = {}): Promise<void> {
   const view = { ...mod.state.memory.usage, ...change }
   mod.state.memory.usage = view
-  const table = await readUsage(view.period, view.by, view.units)
+  const table = await readUsage(mod.state.memory.pool, view.period, view.by, view.units)
   const { period, by, units } = mod.state.memory.usage
   if (table !== null && period === view.period && by === view.by && units === view.units) mod.state.memory.table = table
 }
@@ -60,8 +60,8 @@ export const accountsPage: PageInit<OneclaudeState> = {
         {mod.state.memory.table === null ? null : <ChartSection table={mod.state.memory.table} view={mod.state.memory.usage} />}
         {status.log.length === 0 ? null : <LogSection log={status.log} />}
         <Box paddingX={2} gap={2}>
-          <Text dimColor>[<Link href={DASHBOARD_URL}>Open dashboard</Link>]</Text>
-          <Text dimColor>[<Link href={ADD_ACCOUNT_URL}>Add account</Link>]</Text>
+          <Text dimColor>[<Link href={dashboardUrl(mod.state.memory.pool)}>Open dashboard</Link>]</Text>
+          <Text dimColor>[<Link href={addAccountUrl(mod.state.memory.pool)}>Add account</Link>]</Text>
         </Box>
       </Box>
     )
@@ -157,7 +157,7 @@ function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, n
       trouble: (
         <Box gap={2}>
           <Text color="warning">signed out</Text>
-          <Text dimColor>[<Link href={ADD_ACCOUNT_URL}>Sign in</Link>]</Text>
+          <Text dimColor>[<Link href={addAccountUrl(mod.state.memory.pool)}>Sign in</Link>]</Text>
         </Box>
       ),
     }
@@ -187,7 +187,7 @@ function BlockedView({ mod, account, blocked, now }: { readonly mod: Mod<Oneclau
   const what = models.length === 0 || blocked.some((block) => block.model === undefined) ? 'blocked' : `blocked for ${models.join(', ')}`
   const clear = async (): Promise<void> => {
     const key = await keyOf(mod)
-    if (key === undefined || !(await unblock(account, key))) {
+    if (key === undefined || !(await unblock(mod, account, key))) {
       mod.toast.error(`oneclaude could not clear the blocks on ${account.name}`)
       return
     }
@@ -291,13 +291,13 @@ function Optimize({ mod }: { readonly mod: Mod<OneclaudeState> }): RenderElement
     return <Box><Button key="optimize" plain dimColor onPress={() => { mod.state.memory.isConfirming = true }}>[Optimize usage]</Button></Box>
   }
   const send = async (): Promise<void> => {
-    const [agents, projects, models] = await Promise.all((['agent', 'project', 'model'] as const).map((by) => readUsage('month', by, 'cost')))
+    const [agents, projects, models] = await Promise.all((['agent', 'project', 'model'] as const).map((by) => readUsage(mod.state.memory.pool, 'month', by, 'cost')))
     mod.state.memory.isConfirming = false
     if (!agents || !projects || !models) {
       mod.toast.error('oneclaude could not read the usage, so nothing was sent')
       return
     }
-    await sessions.current.send({ type: Prompt, text: optimizePrompt(agents, projects, models) })
+    await sessions.current.send({ type: Prompt, text: optimizePrompt(mod.state.memory.pool, agents, projects, models) })
   }
   return (
     <Box flexDirection="column">
