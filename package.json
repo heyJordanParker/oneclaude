@@ -1,8 +1,8 @@
 {
   "name": "oneclaude",
   "private": true,
-  "os": ["darwin"],
-  "cpu": ["arm64"],
+  "os": ["darwin", "linux"],
+  "cpu": ["arm64", "x64"],
   "type": "module",
   "scripts": {
     "test": "bun test"
@@ -24,7 +24,6 @@
     "types"
   ],
   "dependencies": {
-    "@cmodjs/core": "^4.3.2",
-    "bcrypt-ts": "^9.0.2"
+    "@cmodjs/core": "^4.3.2"
   }
 }

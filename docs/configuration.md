@@ -1,6 +1,6 @@
 # Configuration
 
-oneclaude works with no settings. Its routing plugin reads a few from its block in the proxy config, `plugins.configs.oneclaude`. The install finds that file ([Installation](installation.md#1-finding-cliproxyapi)), and Homebrew keeps it at `/opt/homebrew/etc/cliproxyapi.conf`. The proxy's control panel shows the `limits`, `subagents`, `affinity`, and `quota` settings on oneclaude's plugin page, and saves them to the same block.
+oneclaude works with no settings. Its routing plugin reads a few from its block in the proxy config, `plugins.configs.oneclaude`. The install finds that file ([Installation](installation.md#1-finding-cliproxyapi)), Homebrew keeps it at `/opt/homebrew/etc/cliproxyapi.conf`, and the Linux install at `~/.cli-proxy-api/config.yaml`. The proxy's control panel shows the `limits`, `subagents`, `affinity`, and `quota` settings on oneclaude's plugin page, and saves them to the same block.
 
 ```yaml
 plugins:

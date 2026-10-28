@@ -1,14 +1,18 @@
 # How it works
 
-oneclaude runs every Claude subscription you have as one pool. Claude Code sends each request to [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) on this Mac, which holds a login for each of your accounts. oneclaude is the proxy's scheduler plugin: for each request, the proxy asks it which account to use.
+oneclaude runs every Claude subscription you have as one pool. Claude Code sends each request to [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) at its `ANTHROPIC_BASE_URL`, `127.0.0.1:8317` on this machine by default, which holds a login for each of your accounts. oneclaude is the proxy's scheduler plugin: for each request, the proxy asks it which account to use.
 
 ```text
-Claude Code ──request──> CLIProxyAPI on 127.0.0.1:8317 ──one of your logins──> Anthropic
+Claude Code ──request──> CLIProxyAPI at ANTHROPIC_BASE_URL ──one of your logins──> Anthropic
                                │
                                │ asks which account
                                ▼
                          oneclaude plugin ──status.json──> the oneclaude mod in Claude Code
+                               ▲
+                               └──session record──────── the oneclaude mod in Claude Code
 ```
+
+The pool can run on another machine, and every machine whose `ANTHROPIC_BASE_URL` names it shares it ([A pool on another machine](installation.md#a-pool-on-another-machine)).
 
 ## Which account a conversation gets
 
@@ -49,7 +53,7 @@ oneclaude routes no Codex requests. It reads each Codex account's weekly usage f
 The proxy blocks a model on an account, or the whole account, after some failed requests, and sends it nothing until the block ends. A block after Anthropic rate limits an account is right, and its row says `throttled`. Other blocks can outlive their cause: the proxy blocks a model on an account for 12 hours after a 404, even when the account answered that model a minute before.
 
 - After a 404 on an account that answered that model within the last day, with no rate limit, spent week or failed login since, oneclaude clears every block the proxy holds on that account at once. A block like that can't be right.
-- The mod reads every other block from the proxy's management API with the proxy's management key, and shows it on the account's row and under the prompt. `[Unblock]` clears every block the proxy holds on that account, through the plugin, which logs it. The mod sends the key only once it fits the hash in the proxy's config, because the proxy bans an address for 30 minutes after 5 refused keys.
+- The mod reads every other block from the proxy's management API with the proxy's management key, and shows it on the account's row and under the prompt. `[Unblock]` clears every block the proxy holds on that account, through the plugin, which logs it. The mod sends only the key the install or its install tab checked the proxy takes, because the proxy bans an address for 30 minutes after 5 refused keys.
 
 ## The log
 
@@ -77,9 +81,10 @@ The plugin keeps its files in cmod's data folder for oneclaude, `~/.local/share/
 - `limits.json`: the limits it lowered, and the throttles behind them;
 - `agents.json`: each conversation's account;
 - `requests.jsonl`: one line per request, kept for 90 days, with its account, model, agent type, project, and tokens, which Usage and the dashboard's history add up;
-- `install.key`: a random salt for the account ids it writes there.
+- `install.key`: a random salt for the account ids it writes there;
+- `sessions/<session id>.json`: each session's record, kept 30 days after its last change.
 
-A request's agent type and project come from the files Claude Code keeps in `~/.claude/projects/`. Claude Code sends a custom agent's type only as `custom`, so the plugin reads the type from the file Claude Code writes as it starts each subagent, `<session>/subagents/agent-<id>.meta.json`. A session's project is the last folder of the working directory its transcript records. The plugin reads each once.
+A request's agent type and project come from its session's record, which the oneclaude mod in that session sends the plugin, from whichever machine it runs on. The record holds the folder the session runs in, the type of each subagent it started, and its filters ([Filters](filters.md)). Claude Code sends a custom agent's type only as `custom`, and no folder, so the requests alone can't say either. The mod sends the record as the session starts, as each subagent starts, and as a filter changes, with the proxy's management key. A request from a session that runs no oneclaude mod counts as Not recorded.
 
 Versions before 0.5.1 logged no agent type or project. The first time 0.5.3 or later loads such a log, it fills them in once, in the background on two cores: each old request takes the agent type, project and model of the one request a transcript records with the same tokens within a minute. It reads only the transcripts written since the log's first request, from their end back to it. A request no transcript records stays Not recorded.
 
@@ -87,9 +92,9 @@ The first time 0.7.10 or later loads a data folder, it adds to the start of the 
 
 The plugin adds up the log when the proxy starts, in the background, and counts each request as it comes in, so Usage never waits on the file.
 
-The install step notes whether it set the management key, whether Seat Pacer was on, and where the proxy's config is, in cmod's data folder for oneclaude, `~/.local/share/cmod/data/oneclaude/`. cmod records the one Claude Code setting the mod changed, `env.ANTHROPIC_BASE_URL`, so removing the mod takes out only that value.
+The install step notes whether it set the management key, whether Seat Pacer was on, and the management key the proxy took, in cmod's data folder for oneclaude, `~/.local/share/cmod/data/oneclaude/`. cmod records the one Claude Code setting the mod changed, `env.ANTHROPIC_BASE_URL`, so removing the mod takes out only that value.
 
-## What leaves your Mac
+## What leaves your machine
 
 Your requests go to Anthropic, as they did before, through the logins the proxy holds. oneclaude adds three kinds of request, each with the account's own login:
 
@@ -99,7 +104,7 @@ Your requests go to Anthropic, as they did before, through the logins the proxy 
 
 oneclaude sends nothing else. The proxy's control panel downloads its own page from GitHub the first time it opens, which is CLIProxyAPI's doing.
 
-A proxy oneclaude installs listens on `127.0.0.1`, so only this Mac reaches it. A proxy that was running before keeps its own `server.host` ([Installation](installation.md#1-finding-cliproxyapi)).
+A proxy oneclaude installs listens on `127.0.0.1`, so only this machine reaches it, or on the address a shared `ANTHROPIC_BASE_URL` names, so the machines that share it reach it there. A proxy that was running before keeps its own `server.host` ([Installation](installation.md#1-finding-cliproxyapi)).
 
 ## What the proxy serves
 
@@ -110,4 +115,4 @@ The plugin adds these addresses to the proxy, which answer anyone who reaches th
 - `/v0/resource/plugins/oneclaude/usage.json`: the Usage table for `?period=quarter`, `month`, `week`, `yesterday`, or `today`, by `?by=account`, `model`, `agent`, `project`, or `time`, which steps by the hour over a day, the week over 90 days, and the day otherwise, sorted by `?units=cost` or `tokens`, with the last 30 days for the chart. The Accounts tab, the dashboard, and `[Optimize usage]` read it.
 - `/v0/resource/plugins/oneclaude/dashboard`: the dashboard page, which the control panel shows under oneclaude in its plugin menu.
 
-`POST /v0/management/plugins/oneclaude/unblock` with `{"auth_index": "<the account's>"}` clears every block on that account and logs it. It needs the proxy's management key.
+`POST /v0/management/plugins/oneclaude/unblock` with `{"auth_index": "<the account's>"}` clears every block on that account and logs it. `POST /v0/management/plugins/oneclaude/session` with `{"session", "project", "agents", "filters"}` keeps a session's record, and refuses a filter that isn't an address on the pool's machine. Both need the proxy's management key.

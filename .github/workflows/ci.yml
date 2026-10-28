@@ -32,8 +32,9 @@ jobs:
         with:
           bun-version: 1.2.21
 
-      - name: Install Claude Code and cmod, which check and publish the mod
+      - name: Install zig, which builds the routing plugin for Linux, and Claude Code and cmod, which check and publish the mod
         run: |
+          brew install zig
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           npm install -g @cmodjs/cli

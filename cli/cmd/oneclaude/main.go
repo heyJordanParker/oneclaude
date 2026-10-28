@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -33,17 +34,20 @@ const (
 	seatPacerID   = "claude-seat-pacer"
 	defaultPort   = "8317"
 	managementKey = "oneclaude"
-	// proxyConfigMark is the file in the data folder that names the proxy's
-	// config, where the mod checks a management key against its hash.
-	proxyConfigMark = "proxy-config"
-	steps         = 5
+	// keyFile is the file in the data folder that holds the management key
+	// the mod sends, written only once the proxy takes it.
+	keyFile = "management-key"
+	steps   = 5
 )
 
-// library is the routing plugin, which make copies here before it builds
-// this program.
+// library is the routing plugin for the machine this program runs on, which
+// make copies here before it builds the program for that machine.
 //
-//go:embed oneclaude.dylib
+//go:embed plugin.lib
 var library []byte
+
+// goos is the system the install runs on. Tests set it.
+var goos = runtime.GOOS
 
 // version is the routing plugin's version, which make sets from main.go.
 var version = "dev"
@@ -95,38 +99,59 @@ func run(built plugin, configPath, data string, remove bool) error {
 	isGiven := configPath != ""
 	if !remove {
 		progress(0, "Finding CLIProxyAPI")
+		if data == "" {
+			return errors.New("oneclaude install needs --data, the folder that keeps the plugin's files")
+		}
+		forgetOldFiles(data)
 	}
+	base := baseURL(home())
 	if !isGiven {
+		if pool := remotePool(base); pool != "" {
+			if remove {
+				return nil
+			}
+			fmt.Printf("Claude Code uses the pool at %s, so oneclaude sets up no proxy here.\n", pool)
+			if err := keepKey(data, func(key string) bool { return takesKey(pool, key) }); err != nil {
+				return err
+			}
+			progress(steps, "oneclaude uses the pool at "+pool)
+			return nil
+		}
 		found, err := findConfig()
 		if err != nil && remove {
 			return nil
 		}
 		if err != nil {
 			progress(1, "Installing CLIProxyAPI")
-			if found, err = installProxy(); err != nil {
+			if found, err = installProxy(listenHost(base)); err != nil {
 				return err
 			}
 		}
 		configPath = found
 	}
-	if !remove && data == "" {
-		return errors.New("oneclaude install needs --data, the folder that keeps the plugin's files")
-	}
 	if !remove {
-		progress(2, "Starting the proxy")
-		if !isGiven && isHomebrewConfig(configPath) {
-			if err := keepProxyCurrent(portOf(configPath)); err != nil {
-				return err
-			}
-		}
-		progress(3, "Adding oneclaude")
+		progress(2, "Adding oneclaude")
 	}
-	authDir, err := apply(built, configPath, data, remove)
+	authDir, err := apply(built, configPath, data, isShared(base), remove)
 	if err != nil || remove {
 		return err
 	}
-	progress(4, "Bringing over your Claude login")
+	progress(3, "Bringing over your Claude login")
 	if err := bringLogin(authDir, home()); err != nil {
+		return err
+	}
+	// The proxy starts last, so it starts with oneclaude and the login in
+	// place: a proxy started first can miss a change made before its file
+	// watcher runs.
+	progress(4, "Starting the proxy")
+	switch {
+	case isGiven:
+	case isHomebrewConfig(configPath):
+		err = keepProxyCurrent(portOf(configPath))
+	case isReleaseConfig(configPath):
+		err = keepReleaseCurrent()
+	}
+	if err != nil {
 		return err
 	}
 	progress(steps, "oneclaude routes your Claude accounts")
@@ -196,11 +221,10 @@ func brewInstalledAt() time.Time {
 // startedBefore reports whether the process listening on port started before
 // at, so it still runs the program it started with.
 func startedBefore(port string, at time.Time) bool {
-	pids, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN", "-t").Output()
-	if err != nil || at.IsZero() {
+	if at.IsZero() {
 		return false
 	}
-	for _, pid := range strings.Fields(string(pids)) {
+	for _, pid := range listeners(port) {
 		out, err := exec.Command("ps", "-o", "lstart=", "-p", pid).Output()
 		if err != nil {
 			continue
@@ -275,6 +299,19 @@ func isListening(port string) bool {
 // keychainLogin is the item Claude Code keeps its own login in on macOS.
 const keychainLogin = "Claude Code-credentials"
 
+// claudeLogin answers the login Claude Code keeps, and where it keeps it: the
+// keychain on macOS, and ~/.claude/.credentials.json elsewhere, which holds
+// the same JSON.
+func claudeLogin(home string) (login []byte, kept string, err error) {
+	if goos == "darwin" {
+		login, err = exec.Command("security", "find-generic-password", "-s", keychainLogin, "-w").Output()
+		return login, "the keychain's " + keychainLogin + " item", err
+	}
+	kept = filepath.Join(home, ".claude", ".credentials.json")
+	login, err = os.ReadFile(kept)
+	return login, kept, err
+}
+
 // bringLogin copies the account Claude Code is logged in to into the proxy
 // as a credential file, the same file the proxy writes after its own login,
 // unless the proxy already holds that account. A Claude Code with no login,
@@ -300,9 +337,9 @@ func bringLogin(authDir, home string) error {
 		}
 		return err
 	}
-	secret, err := exec.Command("security", "find-generic-password", "-s", keychainLogin, "-w").Output()
+	secret, kept, err := claudeLogin(home)
 	if err != nil {
-		fmt.Printf("the keychain holds no %s item, so oneclaude brings no login\n", keychainLogin)
+		fmt.Printf("Claude Code keeps no login in %s, so oneclaude brings no login\n", kept)
 		return nil
 	}
 	var login struct {
@@ -312,8 +349,12 @@ func bringLogin(authDir, home string) error {
 			ExpiresAt    int64  `json:"expiresAt"`
 		} `json:"claudeAiOauth"`
 	}
-	if err := json.Unmarshal(secret, &login); err != nil || login.OAuth.RefreshToken == "" {
-		return fmt.Errorf("the keychain's %s item holds no Claude login oneclaude can read", keychainLogin)
+	if err := json.Unmarshal(secret, &login); err != nil {
+		return fmt.Errorf("%s holds no Claude login oneclaude can read", kept)
+	}
+	if login.OAuth.RefreshToken == "" {
+		fmt.Printf("Claude Code is signed out in %s, so oneclaude brings no login\n", kept)
+		return nil
 	}
 	credential, err := json.Marshal(map[string]string{
 		"type":              "claude",
@@ -379,10 +420,13 @@ func writeAtomically(path string, content []byte, mode os.FileMode) error {
 	return os.Rename(partial, path)
 }
 
-// installProxy installs CLIProxyAPI with Homebrew and makes its example
-// config safe to run: it listens on this machine only and takes requests with
-// no client key, as Claude Code sends none of its own.
-func installProxy() (string, error) {
+// installProxy installs CLIProxyAPI, with Homebrew on macOS and from its
+// release on Linux, and makes its example config safe to run, listening on
+// host.
+func installProxy(host string) (string, error) {
+	if goos == "linux" {
+		return installRelease(host)
+	}
 	if _, err := exec.LookPath("brew"); err != nil {
 		return "", errors.New("oneclaude routes through CLIProxyAPI, which installs with Homebrew, and Homebrew is not installed: install it from https://brew.sh, then install oneclaude again")
 	}
@@ -394,10 +438,14 @@ func installProxy() (string, error) {
 		return "", err
 	}
 	config := filepath.Join(strings.TrimSpace(string(prefix)), "etc", "cliproxyapi.conf")
-	return config, secure(config)
+	return config, secure(config, host)
 }
 
-func secure(configPath string) error {
+// secure makes an example config safe to run: the proxy listens on host only
+// and takes requests with no client key, as Claude Code sends none of its
+// own. It also names the plugins folder from home, as the example's relative
+// one resolves against whichever folder a program runs in.
+func secure(configPath, host string) error {
 	before, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
@@ -410,7 +458,10 @@ func secure(configPath string) error {
 		return fmt.Errorf("%s holds no settings", configPath)
 	}
 	root := doc.Content[0]
-	set(child(root, "server"), "host", "127.0.0.1", "!!str")
+	set(child(root, "server"), "host", host, "!!str")
+	if plugins := child(root, "plugins"); !filepath.IsAbs(expandHome(scalar(plugins, "dir", ""))) {
+		set(plugins, "dir", "~/.cli-proxy-api/plugins", "!!str")
+	}
 	if keys := lookup(child(root, "access"), "api-keys"); keys != nil && keys.Kind == yaml.SequenceNode {
 		kept := keys.Content[:0]
 		for _, key := range keys.Content {
@@ -423,7 +474,7 @@ func secure(configPath string) error {
 			keys.Style = yaml.FlowStyle
 		}
 	}
-	return write(configPath, before, &doc, "server", "access")
+	return write(configPath, before, &doc, "server", "access", "plugins")
 }
 
 func lastLine(out []byte) string {
@@ -433,7 +484,7 @@ func lastLine(out []byte) string {
 
 // apply adds oneclaude to the proxy config, or takes it out, and answers the
 // folder the proxy keeps its credential files in.
-func apply(built plugin, configPath, data string, remove bool) (string, error) {
+func apply(built plugin, configPath, data string, shared, remove bool) (string, error) {
 	before, err := os.ReadFile(configPath)
 	if err != nil {
 		return "", err
@@ -486,20 +537,27 @@ func apply(built plugin, configPath, data string, remove bool) (string, error) {
 			return "", err
 		}
 	}
-	target := filepath.Join(dir, runtime.GOOS, runtime.GOARCH, pluginID+"-v"+built.version+".dylib")
+	extension := ".so"
+	if goos == "darwin" {
+		extension = ".dylib"
+	}
+	target := filepath.Join(dir, goos, runtime.GOARCH, pluginID+"-v"+built.version+extension)
 	if err := place(built.library, target); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(data, 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(data, proxyConfigMark), []byte(configPath), 0o600); err != nil {
-		return "", err
-	}
 	management := child(root, "management")
+	if shared {
+		set(management, "allow-remote", "true", "!!bool")
+	}
 	secret := scalar(management, "secret-key", "")
 	if remote := lookup(root, "remote-management"); remote != nil && remote.Kind == yaml.MappingNode {
 		secret = scalar(remote, "secret-key", secret)
+	}
+	if err := keepKey(data, func(key string) bool { return secret == "" || fits(key, secret) }); err != nil {
+		return "", err
 	}
 	if secret == "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(managementKey), bcrypt.DefaultCost)
@@ -599,7 +657,7 @@ func isManagementKey(hash string) bool {
 func findConfig() (string, error) {
 	home, _ := os.UserHomeDir()
 	candidates := []string{
-		runningConfig(proxyPort(home)),
+		runningConfig(portOfURL(baseURL(home))),
 		"/opt/homebrew/etc/cliproxyapi.conf",
 		"/usr/local/etc/cliproxyapi.conf",
 		"/home/linuxbrew/.linuxbrew/etc/cliproxyapi.conf",
@@ -613,28 +671,138 @@ func findConfig() (string, error) {
 	return "", errors.New("no CLIProxyAPI config found: Claude Code's ANTHROPIC_BASE_URL names no running proxy started with -config, and none of the usual config files exists")
 }
 
-func proxyPort(home string) string {
-	base := os.Getenv("ANTHROPIC_BASE_URL")
-	if base == "" {
-		var settings struct {
-			Env map[string]string `json:"env"`
-		}
-		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil && json.Unmarshal(raw, &settings) == nil {
-			base = settings.Env["ANTHROPIC_BASE_URL"]
-		}
+// baseURL is the proxy Claude Code sends its traffic to, or "" for none.
+func baseURL(home string) string {
+	if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" {
+		return base
 	}
+	var settings struct {
+		Env map[string]string `json:"env"`
+	}
+	if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil && json.Unmarshal(raw, &settings) == nil {
+		return settings.Env["ANTHROPIC_BASE_URL"]
+	}
+	return ""
+}
+
+func portOfURL(base string) string {
 	if parsed, err := url.Parse(base); err == nil && parsed.Port() != "" {
 		return parsed.Port()
 	}
 	return defaultPort
 }
 
-func runningConfig(port string) string {
-	pids, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN", "-t").Output()
+// isShared says whether Claude Code reaches the proxy by a name other
+// machines can use too, as http://devbox:8317, so they need its management API.
+func isShared(base string) bool {
+	parsed, err := url.Parse(base)
+	if err != nil || base == "" {
+		return false
+	}
+	switch parsed.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return false
+	}
+	return true
+}
+
+// remotePool is the pool Claude Code uses when it runs on another machine:
+// base names a shared host that none of this machine's addresses answer for.
+func remotePool(base string) string {
+	if !isShared(base) {
+		return ""
+	}
+	parsed, _ := url.Parse(base)
+	if hereAt(parsed.Hostname()) != "" {
+		return ""
+	}
+	return strings.TrimRight(base, "/")
+}
+
+// hereAt is the address of this machine that host names, or "" when it names
+// another machine or doesn't resolve.
+func hereAt(host string) string {
+	ips, err := net.LookupHost(host)
 	if err != nil {
 		return ""
 	}
-	for _, pid := range strings.Fields(string(pids)) {
+	addresses, _ := net.InterfaceAddrs()
+	for _, ip := range ips {
+		for _, address := range addresses {
+			if network, ok := address.(*net.IPNet); ok && network.IP.Equal(net.ParseIP(ip)) {
+				return ip
+			}
+		}
+	}
+	return ""
+}
+
+// listenHost is where a proxy oneclaude installs listens: the address of this
+// machine that a shared base URL names, so the other machines reach it, else
+// this machine only.
+func listenHost(base string) string {
+	if parsed, err := url.Parse(base); err == nil && isShared(base) {
+		if ip := hereAt(parsed.Hostname()); ip != "" {
+			return ip
+		}
+	}
+	return "127.0.0.1"
+}
+
+// takesKey says whether the pool's management API takes key.
+func takesKey(pool, key string) bool {
+	req, err := http.NewRequest(http.MethodGet, pool+"/v0/management/plugins/"+pluginID+"/status", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	response, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return false
+	}
+	response.Body.Close()
+	return response.StatusCode == http.StatusOK
+}
+
+// fits says whether key is the config's secret-key, a bcrypt hash as the
+// proxy keeps it, or the plain key the proxy hasn't hashed yet.
+func fits(key, secret string) bool {
+	return key == secret || bcrypt.CompareHashAndPassword([]byte(secret), []byte(key)) == nil
+}
+
+// keepKey stores oneclaude's management key for the mod once the proxy takes
+// it. A stored key stays, as it may be the one the person entered.
+func keepKey(data string, takes func(key string) bool) error {
+	path := filepath.Join(data, keyFile)
+	if stored, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(stored)) != "" {
+		return nil
+	}
+	if !takes(managementKey) {
+		fmt.Println("the proxy didn't take the management key oneclaude, so oneclaude's setup asks for yours")
+		return nil
+	}
+	return writeAtomically(path, []byte(managementKey), 0o600)
+}
+
+// forgetOldFiles deletes what versions before 0.9.0 kept in the data folder:
+// the proxy config's path, and each session's filters, which the session
+// record carries now.
+func forgetOldFiles(data string) {
+	_ = os.Remove(filepath.Join(data, "proxy-config"))
+	_ = os.RemoveAll(filepath.Join(data, "filters"))
+}
+
+// listeners are the processes listening on port on any address here.
+func listeners(port string) []string {
+	pids, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN", "-t").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(pids))
+}
+
+func runningConfig(port string) string {
+	for _, pid := range listeners(port) {
 		args, err := exec.Command("ps", "-o", "args=", "-p", pid).Output()
 		if err != nil {
 			continue

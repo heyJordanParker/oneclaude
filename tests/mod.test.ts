@@ -1,11 +1,10 @@
 import { expect, test } from 'bun:test'
-import { hashSync } from '../node_modules/bcrypt-ts/dist/browser.js'
 import type { HttpResponse } from 'claude-code'
 import { BelowPrompt } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { calendarOf } from '../src/components/weekly-resets.js'
 import { oneclaude, REFRESH_MS } from '../src/mod.js'
-import { bar, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, fits, glide, modelName, momentOf, paceState, PROXY, secretKeyOf, troublesOf, until, type Cell, type Status } from '../src/status.js'
+import { bar, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, glide, LOCAL_POOL, modelName, momentOf, paceState, troublesOf, until, type Cell, type Status } from '../src/status.js'
 import { dailyChart, GUTTER, money, tokenCount, usageLayout, type TableLine, type Tokens, type UsageRow, type UsageTable } from '../src/usage.js'
 
 const now = '2026-10-15T16:00:00Z'
@@ -28,19 +27,17 @@ const status: Status = {
   ],
 }
 
-// proxyFiles is a proxy config whose management key is key, where oneclaude
-// install names it.
-function proxyFiles(key: string): Record<string, string> {
-  return {
-    '/test/home/.local/share/cmod/data/oneclaude/proxy-config': '/test/proxy.yaml\n',
-    '/test/proxy.yaml': `server:\n  port: 8317\nmanagement:\n  secret-key: "${hashSync(key, 4)}" # hashed by the proxy\n`,
-  }
+const KEY_FILE = '/test/home/.local/share/cmod/data/oneclaude/management-key'
+
+// stored is the management key oneclaude install or the key step stored.
+function stored(key: string): Record<string, string> {
+  return { [KEY_FILE]: key }
 }
 
 // answering serves every request the mod makes: the status, and the proxy's
 // credentials with cooldowns when given.
 function answering(response: Partial<HttpResponse> | Error, cooldowns: Readonly<Record<string, readonly object[]>> = {}) {
-  const tested = testMod(oneclaude, { files: proxyFiles('oneclaude') })
+  const tested = testMod(oneclaude, { files: stored('oneclaude') })
   tested.fakes.http.fetch = async (url) => {
     if (response instanceof Error) throw response
     if (url.endsWith('/auth-files')) {
@@ -157,7 +154,7 @@ test('/accounts puts each account\'s trouble on its row, with what fixes it', as
 })
 
 test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'s key, and the row clears', async () => {
-  const tested = testMod(oneclaude, { files: proxyFiles('oneclaude') })
+  const tested = testMod(oneclaude, { files: stored('oneclaude') })
   const asked: { url: string; method?: string; key?: string; body?: string }[] = []
   tested.fakes.http.fetch = async (url, init) => {
     if (url.endsWith('/unblock')) {
@@ -172,40 +169,40 @@ test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'
   }
   await tested.type('/accounts')
   await tested.shown.page.press('unblock-turing')
-  expect(asked).toEqual([{ url: `${PROXY}/v0/management/plugins/oneclaude/unblock`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
+  expect(asked).toEqual([{ url: `${LOCAL_POOL}/v0/management/plugins/oneclaude/unblock`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
   expect((await tested.shown.page.lines()).join('\n')).not.toContain('[Unblock]')
 })
 
-// sentKeys starts the mod against a proxy whose management key is proxyKey,
-// holding the key the person entered, and answers the keys the mod sent.
-async function sentKeys(proxyKey: string, entered: string | null): Promise<readonly (string | undefined)[]> {
-  const tested = testMod(oneclaude, { files: proxyFiles(proxyKey), state: { global: { managementKey: entered } } })
+// sentKeys starts the mod holding the stored key, if any, against a pool
+// that answers the management API with answer, and answers the keys the mod
+// sent for the blocks, then what the key file holds.
+async function sentKeys(key: string | undefined, answer = 200): Promise<{ readonly sent: readonly (string | undefined)[]; readonly file: string | undefined }> {
+  const tested = testMod(oneclaude, { files: key === undefined ? {} : stored(key) })
   const sent: (string | undefined)[] = []
   tested.fakes.http.fetch = async (url, init) => {
     if (url.endsWith('/auth-files')) {
       sent.push(init?.headers?.['Authorization'])
-      return { status: 200, ok: true, headers: {}, text: '{"files":[]}' }
+      return { status: answer, ok: answer === 200, headers: {}, text: answer === 200 ? '{"files":[]}' : '{"error":"invalid management key"}' }
     }
+    if (url.includes('/v0/management/')) return { status: answer, ok: answer === 200, headers: {}, text: '{}' }
     return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
   }
   await hintLines(tested)
-  return sent
+  const writes = tested.calls.filter(({ call, args }) => call === 'fs.write' && args[0] === KEY_FILE)
+  return { sent, file: writes.at(-1)?.args[1] as string | undefined }
 }
 
-test('the mod sends only a management key that fits the proxy\'s config, so the proxy never refuses it', async () => {
-  expect(await sentKeys('oneclaude', null)).toEqual(['Bearer oneclaude'])
-  expect(await sentKeys('their own key', null)).toEqual([])
-  expect(await sentKeys('their own key', 'their own key')).toEqual(['Bearer their own key'])
-  expect(await sentKeys('a changed key', 'their own key')).toEqual([])
+test('the mod sends only the management key oneclaude stored once the proxy took it', async () => {
+  expect((await sentKeys('oneclaude')).sent).toEqual(['Bearer oneclaude'])
+  expect((await sentKeys('their own key')).sent).toEqual(['Bearer their own key'])
+  expect((await sentKeys(undefined)).sent).toEqual([])
 })
 
-test('the management key is read from the proxy config\'s management block, hashed or not', async () => {
-  expect(secretKeyOf('server:\n  port: 8317\nmanagement:\n  secret-key: "$2a$10$abc" # hashed\n')).toBe('$2a$10$abc')
-  expect(secretKeyOf("remote-management:\n  allow-remote: false\n  secret-key: 'plain'\n")).toBe('plain')
-  expect(secretKeyOf('management:\n  secret-key: ""\nother:\n  secret-key: x\n')).toBeUndefined()
-  expect(await fits('their own key', hashSync('their own key', 4))).toBe(true)
-  expect(await fits('oneclaude', hashSync('their own key', 4))).toBe(false)
-  expect(await fits('plain', 'plain')).toBe(true)
+test('a key the proxy refuses is emptied, so no session sends it again and the key step asks', async () => {
+  const refused = await sentKeys('a changed key', 401)
+  expect(refused.sent).toEqual(['Bearer a changed key'])
+  expect(refused.file).toBe('')
+  expect((await sentKeys('', 401)).sent).toEqual([])
 })
 
 test('each trouble under the prompt opens /accounts at the row of the account it names, or at the accounts', () => {
@@ -279,7 +276,7 @@ test('a Sidebar too narrow for one line puts each row\'s facts under its bar, an
 test('the hint line points Claude Code at the proxy once the proxy answers, and only that setting', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await hintLines(tested)
-  expect(settingsUpdates(tested)).toEqual([{ env: { ANTHROPIC_BASE_URL: PROXY } }])
+  expect(settingsUpdates(tested)).toEqual([{ env: { ANTHROPIC_BASE_URL: LOCAL_POOL } }])
 })
 
 // settingsUpdates is every settings change the mod asked cmod to make.
@@ -290,22 +287,33 @@ function settingsUpdates(tested: ReturnType<typeof testMod>): unknown[] {
   })
 }
 
-test('the hint line leaves a base URL the person pointed elsewhere', async () => {
-  const tested = answering({ text: JSON.stringify(status) })
-  tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9000' } })
-  await hintLines(tested)
+test('everything reads the pool Claude Code uses, on another machine too, and leaves its setting', async () => {
+  const tested = testMod(oneclaude, { files: stored('oneclaude'), permissions: ['network:devbox', 'config:env.ANTHROPIC_BASE_URL', 'prompt'] })
+  tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: 'http://devbox:8317/' } })
+  const asked: string[] = []
+  tested.fakes.http.fetch = async (url) => {
+    asked.push(url)
+    return { status: 200, ok: true, headers: {}, text: url.endsWith('/auth-files') ? '{"files":[]}' : JSON.stringify(status) }
+  }
+  expect(await hintLines(tested)).toContain('58% · 9% under')
+  await tested.type('/accounts')
+  const pane = (await tested.shown.page.lines()).join('\n')
+  expect(pane).toContain('[Open dashboard]')
+  expect(asked.length).toBeGreaterThan(2)
+  expect(asked.filter((url) => !url.startsWith('http://devbox:8317/'))).toEqual([])
+  expect(asked).toContain('http://devbox:8317/v0/management/auth-files')
   expect(settingsUpdates(tested)).toEqual([])
 })
 
 test('the hint line leaves Claude Code\'s settings file unwritten when it already points at the proxy', async () => {
   const tested = answering({ text: JSON.stringify(status) })
-  tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: PROXY } })
+  tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: LOCAL_POOL } })
   await hintLines(tested)
   expect(settingsUpdates(tested)).toEqual([])
 })
 
 test('the hint line shows the pool while the proxy\'s blocks are still on their way', async () => {
-  const tested = testMod(oneclaude, { files: proxyFiles('oneclaude') })
+  const tested = testMod(oneclaude, { files: stored('oneclaude') })
   tested.fakes.http.fetch = async (url) => {
     if (url.endsWith('/auth-files')) return new Promise<HttpResponse>(() => {})
     return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
@@ -317,7 +325,7 @@ test('the hint line shows the pool while the proxy\'s blocks are still on their 
 // ago ms before, and counts the mod's requests for the proxy's blocks.
 async function blocksRequests(ago: number): Promise<{ readonly requests: number; readonly line: string }> {
   const shared = { at: Date.now() - ago, blocks: { t1: [{ model: 'claude-opus-5-5', until: '2026-10-15T20:50:00Z', reason: 'not_found' }] } }
-  const tested = testMod(oneclaude, { files: { ...proxyFiles('oneclaude'), '/test/home/.local/share/cmod/data/oneclaude/blocks.json': JSON.stringify(shared) } })
+  const tested = testMod(oneclaude, { files: { ...stored('oneclaude'), '/test/home/.local/share/cmod/data/oneclaude/blocks.json': JSON.stringify(shared) } })
   let requests = 0
   tested.fakes.http.fetch = async (url) => {
     if (url.endsWith('/auth-files')) {
@@ -332,19 +340,6 @@ async function blocksRequests(ago: number): Promise<{ readonly requests: number;
 test('open sessions share one reading of the proxy\'s blocks, so the proxy checks the management key once per refresh', async () => {
   expect(await blocksRequests(1_000)).toEqual({ requests: 0, line: expect.stringContaining('1 account blocked') })
   expect(await blocksRequests(60_000)).toEqual({ requests: 1, line: expect.not.stringContaining('blocked') })
-})
-
-test('a later session trusts the saved management key check instead of running bcrypt again', async () => {
-  const files = proxyFiles('their own key')
-  const secret = secretKeyOf(files['/test/proxy.yaml']!)!
-  const tested = testMod(oneclaude, { files, state: { global: { managementKey: null, checkedKey: { key: 'oneclaude', secret, fits: true } } } })
-  const sent: (string | undefined)[] = []
-  tested.fakes.http.fetch = async (url, init) => {
-    if (url.endsWith('/auth-files')) sent.push(init?.headers?.['Authorization'])
-    return { status: 200, ok: true, headers: {}, text: url.endsWith('/auth-files') ? '{"files":[]}' : JSON.stringify(status) }
-  }
-  await hintLines(tested)
-  expect(sent).toEqual(['Bearer oneclaude'])
 })
 
 test('the hint line leaves Claude Code alone while the proxy is down', async () => {
@@ -651,43 +646,81 @@ test('pace is on within 5 points, and far over past 25', () => {
   expect(paceState(0.8, 0.5)).toBe('far-over')
 })
 
-// SESSION_FILTERS is the test session's filters, which the plugin reads for
-// its requests.
-const SESSION_FILTERS = '/test/home/.local/share/cmod/data/oneclaude/filters/test-session.json'
+type SentRecord = { readonly session: string; readonly project: string; readonly agents: Readonly<Record<string, string>>; readonly filters: readonly object[] }
 
-async function savedFilters(tested: ReturnType<typeof testMod>): Promise<unknown> {
-  const { read } = tested.fakes.fs
-  if (read === undefined) throw new Error('the test kit fakes no fs.read')
-  return JSON.parse(await read(SESSION_FILTERS))
+// recording starts the mod against a pool that answers each session record
+// with answer, and keeps every record the mod sent, with the key it sent.
+function recording(answer: (record: SentRecord) => HttpResponse | Error = () => ({ status: 200, ok: true, headers: {}, text: '{"status":"ok"}' })) {
+  const tested = testMod(oneclaude, { files: stored('oneclaude'), projectRoot: '/Users/turing/dotfiles' })
+  const records: { record: SentRecord; key?: string }[] = []
+  tested.fakes.http.fetch = async (url, init) => {
+    if (url === `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) {
+      const record = JSON.parse(init?.body ?? '{}') as SentRecord
+      records.push({ record, key: init?.headers?.['Authorization'] })
+      const response = answer(record)
+      if (response instanceof Error) throw response
+      return response
+    }
+    return { status: 200, ok: true, headers: {}, text: url.endsWith('/auth-files') ? '{"files":[]}' : JSON.stringify(status) }
+  }
+  return { tested, records }
 }
 
 async function addFilter(tested: ReturnType<typeof testMod>, input: object): Promise<unknown> {
   return tested.fire('cmod.call', { to: 'oneclaude', method: 'addFilter', input })
 }
 
+test('a session tells the pool its project as it starts, with no filters, so a mod that is gone leaves none behind', async () => {
+  const { tested, records } = recording()
+  await tested.type('/accounts')
+  expect(records[0]).toEqual({ record: { session: 'test-session', project: '/Users/turing/dotfiles', agents: {}, filters: [] }, key: 'Bearer oneclaude' })
+  expect((await tested.shown.page.lines()).join('\n')).not.toContain('memory')
+})
+
 test('a mod adds its filter to this session, and adding it again replaces it in its place', async () => {
-  const tested = answering({ text: JSON.stringify(status) })
+  const { tested, records } = recording()
   expect(await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4100/', responses: true, timeoutSeconds: 120 })).toEqual({ value: undefined })
   await addFilter(tested, { name: 'inspect', url: 'unix:/tmp/inspect.sock', observabilityMode: true })
   await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4200/', responses: true, timeoutSeconds: 120, failOpen: true })
-  expect(await savedFilters(tested)).toEqual([
+  expect(records.at(-1)?.record.filters).toEqual([
     { name: 'memory', url: 'http://127.0.0.1:4200/', responses: true, timeoutSeconds: 120, failOpen: true },
     { name: 'inspect', url: 'unix:/tmp/inspect.sock', observabilityMode: true },
   ])
+  const sent = records.length
+  await addFilter(tested, { name: 'inspect', url: 'unix:/tmp/inspect.sock', observabilityMode: true })
+  expect(records.length).toBe(sent)
   await tested.fire('cmod.call', { to: 'oneclaude', method: 'removeFilter', input: { name: 'memory' } })
-  expect(await savedFilters(tested)).toEqual([{ name: 'inspect', url: 'unix:/tmp/inspect.sock', observabilityMode: true }])
+  expect(records.at(-1)?.record.filters).toEqual([{ name: 'inspect', url: 'unix:/tmp/inspect.sock', observabilityMode: true }])
 })
 
-test('a filter must stay on this computer and wait at most 120 seconds', async () => {
-  const tested = answering({ text: JSON.stringify(status) })
-  expect(await addFilter(tested, { name: 'memory', url: 'https://example.com/filter' })).toEqual({ deny: expect.stringContaining("the memory filter's url must be on this computer") })
+test('the pool\'s refusal of a filter reaches the mod that added it, and the record keeps the filters before it', async () => {
+  const refusal = { status: 400, ok: false, headers: {}, text: '{"error":"the url of the memory filter must be an address on the machine the pool runs on, as http://127.0.0.1:4100/ or unix:/path/to/socket"}' }
+  const { tested, records } = recording((record) => (JSON.stringify(record.filters).includes('example.com') ? refusal : { status: 200, ok: true, headers: {}, text: '{}' }))
+  expect(await addFilter(tested, { name: 'memory', url: 'https://example.com/filter' })).toEqual({ deny: expect.stringContaining('the url of the memory filter must be an address on the machine the pool runs on') })
   expect(await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4100/', timeoutSeconds: 300 })).toEqual({ deny: expect.stringContaining('from 1 to 120') })
+  await addFilter(tested, { name: 'inspect', url: 'unix:/tmp/inspect.sock' })
+  expect(records.at(-1)?.record.filters).toEqual([{ name: 'inspect', url: 'unix:/tmp/inspect.sock' }])
 })
 
-test('oneclaude takes back the filters a session held as it starts there again, and the Accounts page never lists them', async () => {
-  const tested = testMod(oneclaude, { files: { ...proxyFiles('oneclaude'), [SESSION_FILTERS]: '[{"name":"memory","url":"http://127.0.0.1:4100/"}]' } })
-  tested.fakes.http.fetch = async () => ({ status: 200, ok: true, headers: {}, text: JSON.stringify(status) })
-  await tested.type('/accounts')
-  expect(await savedFilters(tested)).toEqual([])
-  expect((await tested.shown.page.lines()).join('\n')).not.toContain('memory')
+test('a filter added while the pool is down reaches it once it answers', async () => {
+  let isUp = false
+  const { tested, records } = recording(() => (isUp ? { status: 200, ok: true, headers: {}, text: '{}' } : new Error('connection refused')))
+  const timers: (() => unknown)[] = []
+  tested.fakes.clock.after = (_ms, fn) => {
+    timers.push(fn)
+    return { cancel() {} }
+  }
+  expect(await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4100/' })).toEqual({ value: undefined })
+  isUp = true
+  await timers.shift()?.()
+  await tested.settle()
+  expect(records.at(-1)?.record.filters).toEqual([{ name: 'memory', url: 'http://127.0.0.1:4100/' }])
+})
+
+test('each subagent the session starts reaches the pool with its type, so Usage names custom agents', async () => {
+  const { tested, records } = recording()
+  await tested.start()
+  const id = await tested.startTask({ title: 'Review the diff', agentType: 'code-reviewer' })
+  await tested.settle()
+  expect(records.at(-1)?.record.agents).toEqual({ [id]: 'code-reviewer' })
 })

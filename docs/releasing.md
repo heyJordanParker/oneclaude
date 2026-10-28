@@ -15,13 +15,13 @@ CI then:
 2. skips the release when the tag `v<version>` exists, so a push that keeps the version releases nothing;
 3. runs `cmod publish .`, which:
    - builds the mod's release from the committed files `package.json` `files` lists, bundles its hooks, and validates it with `claude plugin validate --strict`;
-   - runs `make dist` in `cli/`, which builds `oneclaude-darwin-arm64` with the routing plugin inside it;
+   - runs `make dist` in `cli/` for every machine `package.json`'s `os` and `cpu` allow, which builds `oneclaude-darwin-arm64`, `oneclaude-darwin-x64`, `oneclaude-linux-arm64`, and `oneclaude-linux-x64`, each with its machine's routing plugin inside it;
    - writes `SHA256SUMS` for the release archive and the program;
    - commits `.claude-plugin/marketplace.json`, tags `v<version>`, pushes the tag and the `release` branch, and creates the GitHub release with every file attached and the version's changelog section as its notes.
 
 ## Release from your Mac
 
-With Go, Bun, Claude Code, cmod, and `gh` logged in with push access:
+With Go, zig, Bun, Claude Code, cmod, and `gh` logged in with push access:
 
 ```bash
 cmod publish --dry-run .

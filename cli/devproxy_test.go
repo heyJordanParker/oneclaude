@@ -46,6 +46,32 @@ func devSend(t *testing.T, session, agent, model, prompt string) *http.Response 
 	return resp
 }
 
+// devRecord sends the dev proxy a session's record as the mod does, with the
+// management key the dev proxy starts with, MANAGEMENT_PASSWORD=dev.
+func devRecord(t *testing.T, session string, filters ...map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"session": session, "project": "/Users/turing/dev", "filters": filters})
+	req, _ := http.NewRequest(http.MethodPost, devProxy+"/v0/management/plugins/oneclaude/session", strings.NewReader(string(raw)))
+	req.Header.Set("Authorization", "Bearer dev")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("record = %d %s", resp.StatusCode, body)
+	}
+	t.Cleanup(func() {
+		raw, _ := json.Marshal(map[string]any{"session": session, "filters": []any{}})
+		req, _ := http.NewRequest(http.MethodPost, devProxy+"/v0/management/plugins/oneclaude/session", strings.NewReader(string(raw)))
+		req.Header.Set("Authorization", "Bearer dev")
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_ = resp.Body.Close()
+		}
+	})
+}
+
 func devStatus(t *testing.T, session, agent, model, prompt string) int {
 	t.Helper()
 	resp := devSend(t, session, agent, model, prompt)
@@ -199,15 +225,7 @@ func TestDevProxyAFilterRewritesAWholeResponseAndAnswersARequestItself(t *testin
 	}))
 	defer filter.Close()
 	session := fmt.Sprintf("whole-%d", rand.Int())
-	filters := "../.target/dev/data/filters/" + session + ".json"
-	raw, _ := json.Marshal([]map[string]any{{"name": "dev", "url": filter.URL, "responses": true}})
-	if err := os.MkdirAll("../.target/dev/data/filters", 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filters, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(filters)
+	devRecord(t, session, map[string]any{"name": "dev", "url": filter.URL, "responses": true})
 
 	send := func(prompt string) (int, string) {
 		body := fmt.Sprintf(`{"model":"claude-opus-5-5","max_tokens":20,"messages":[{"role":"user","content":%q}]}`, prompt)
@@ -277,15 +295,7 @@ func TestDevProxyAFilterRewritesTheRequestAndEachEventOfItsResponse(t *testing.T
 	defer filter.Close()
 
 	session := fmt.Sprintf("filter-%d", rand.Int())
-	filters := "../.target/dev/data/filters/" + session + ".json"
-	raw, _ := json.Marshal([]map[string]any{{"name": "dev", "url": filter.URL, "responses": true, "timeoutSeconds": 5}})
-	if err := os.MkdirAll("../.target/dev/data/filters", 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filters, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(filters)
+	devRecord(t, session, map[string]any{"name": "dev", "url": filter.URL, "responses": true, "timeoutSeconds": 5})
 
 	started := time.Now()
 	resp := devSend(t, session, "", "claude-opus-5-5", "hi")

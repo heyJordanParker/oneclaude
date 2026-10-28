@@ -7,24 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 )
 
-// A Filter is a program another mod runs on this computer, which oneclaude
-// sends each request of the session that added it, and with Responses each
-// successful response, as Envoy's external processing filter does. The mod
-// keeps a session's filters in filters/<session id>.json in the data folder,
-// in the order it added them.
+// A Filter is a program another mod runs on the pool's machine, which
+// oneclaude sends each request of the session that added it, and with
+// Responses each successful response, as Envoy's external processing filter
+// does. A session's record lists its filters in the order its mods added them.
 type Filter struct {
 	Name              string `json:"name"`
 	URL               string `json:"url"`
@@ -34,16 +29,9 @@ type Filter struct {
 	ObservabilityMode bool   `json:"observabilityMode,omitempty"`
 }
 
-const (
-	filtersFolder = "filters"
-	// headerCacheKey keeps the requests a filter gives one value on one
-	// account, so they share its prompt cache.
-	headerCacheKey = "X-Oneclaude-Cache-Key"
-	// filtersKept is how long a session's filters file outlives its last write.
-	filtersKept = 30 * 24 * time.Hour
-)
-
-var sessionName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+// headerCacheKey keeps the requests a filter gives one value on one account,
+// so they share its prompt cache.
+const headerCacheKey = "X-Oneclaude-Cache-Key"
 
 func (f Filter) timeout() time.Duration {
 	if f.TimeoutSeconds <= 0 {
@@ -52,7 +40,7 @@ func (f Filter) timeout() time.Duration {
 	return min(time.Duration(f.TimeoutSeconds)*time.Second, 120*time.Second)
 }
 
-// isLocal keeps every request on this computer: a filter is a loopback
+// isLocal keeps every request on the pool's machine: a filter is a loopback
 // address or a unix socket.
 func (f Filter) isLocal() bool {
 	if strings.HasPrefix(f.URL, "unix:/") {
@@ -67,81 +55,6 @@ func (f Filter) isLocal() bool {
 		return true
 	}
 	return false
-}
-
-// filterSet reads a session's filters at most once a second, so a request
-// sees a filter within a second of its mod adding it. A file that doesn't
-// parse keeps the filters read before it, and its error reports once.
-type filterSet struct {
-	mu       sync.Mutex
-	dir      string
-	sessions map[string]*sessionFilters
-}
-
-type sessionFilters struct {
-	at     time.Time
-	list   []Filter
-	failed string
-}
-
-func (s *filterSet) of(dir, sessionID string, now time.Time) ([]Filter, error) {
-	if dir == "" || !sessionName.MatchString(sessionID) {
-		return nil, nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if dir != s.dir || s.sessions == nil {
-		s.dir, s.sessions = dir, map[string]*sessionFilters{}
-	}
-	read := s.sessions[sessionID]
-	if read == nil {
-		if len(s.sessions) >= 10000 {
-			clear(s.sessions)
-		}
-		read = &sessionFilters{}
-		s.sessions[sessionID] = read
-	} else if now.Sub(read.at) < time.Second {
-		return read.list, nil
-	}
-	read.at = now
-	var saved []Filter
-	if err := readIfThere(filepath.Join(dir, filtersFolder, sessionID+".json"), &saved); err != nil {
-		if err.Error() == read.failed {
-			return read.list, nil
-		}
-		read.failed = err.Error()
-		return read.list, err
-	}
-	read.failed = ""
-	read.list = slices.DeleteFunc(saved, func(f Filter) bool { return f.Name == "" || !f.isLocal() })
-	return read.list, nil
-}
-
-func readIfThere(path string, into any) error {
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(raw, into); err != nil {
-		return fmt.Errorf("%s: %w", filepath.Base(path), err)
-	}
-	return nil
-}
-
-// pruneFilters deletes the filters files of sessions that ended long ago.
-func pruneFilters(dir string, now time.Time) {
-	entries, err := os.ReadDir(filepath.Join(dir, filtersFolder))
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if info, err := entry.Info(); err == nil && now.Sub(info.ModTime()) > filtersKept {
-			_ = os.Remove(filepath.Join(dir, filtersFolder, entry.Name()))
-		}
-	}
 }
 
 // filterMessage is what oneclaude sends a filter: one phase of one request,

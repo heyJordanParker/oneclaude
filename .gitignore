@@ -1,7 +1,7 @@
 .target/
 node_modules/
 .claude-plugin/types/
-cli/cmd/oneclaude/oneclaude.dylib
+cli/cmd/oneclaude/plugin.lib
 dev/static/
 /docs/agents/
 /docs/plan.md

@@ -15,15 +15,19 @@ import (
 	"time"
 )
 
+// sendRecord posts a session's record to the plugin as the mod does, and
+// answers the route's response.
+func sendRecord(t *testing.T, p *Plugin, record sessionRecord) ManagementResponse {
+	t.Helper()
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	raw, _ := json.Marshal(record)
+	return call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/session", Body: raw})
+}
+
 func addFilters(t *testing.T, p *Plugin, sessionID string, filters ...Filter) {
 	t.Helper()
-	raw, _ := json.Marshal(filters)
-	dir := filepath.Join(p.settings().DataDir, filtersFolder)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, sessionID+".json"), raw, 0o600); err != nil {
-		t.Fatal(err)
+	if resp := sendRecord(t, p, sessionRecord{Session: sessionID, Project: "/Users/turing/dotfiles", Filters: filters}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("the record was refused: %d %s", resp.StatusCode, resp.Body)
 	}
 }
 
@@ -186,14 +190,6 @@ func TestAFailingFilterRefusesUnlessItFailsOpen(t *testing.T) {
 	}
 	if log := closed.events; len(log) != 1 || log[0].Text != "The memory filter didn't answer in 1 seconds, so oneclaude held the request back for Claude Code to retry." {
 		t.Fatalf("log = %+v", log)
-	}
-}
-
-func TestOnlyLocalFiltersRun(t *testing.T) {
-	p := newTestPlugin(t, enabled)
-	addFilters(t, p, "s1", Filter{Name: "remote", URL: "http://example.com/filter"})
-	if in := intercept(t, p, `{"a":1}`); in.Body != nil || in.Terminate {
-		t.Fatalf("a remote filter ran: %+v", in)
 	}
 }
 
@@ -423,26 +419,26 @@ func TestARequestWithoutResponseFiltersSkipsTheStream(t *testing.T) {
 	}
 }
 
-func TestAFiltersFileThatDoesNotParseKeepsTheFiltersBeforeIt(t *testing.T) {
+func TestASessionRecordRefusesAFilterOffThePoolsMachine(t *testing.T) {
 	p := newTestPlugin(t, enabled)
-	server, _ := filterServer(t, func(filterMessage) any { return nil })
-	addFilters(t, p, "s1", Filter{Name: "memory", URL: server.URL})
-	dir := p.settings().DataDir
-	if list, err := p.filters.of(dir, "s1", testNow); len(list) != 1 || err != nil {
-		t.Fatalf("filters = %v, %v", list, err)
+	resp := sendRecord(t, p, sessionRecord{Session: "s1", Filters: []Filter{{Name: "memory", URL: "http://100.65.43.12:7777/"}}})
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(resp.Body), "the url of the memory filter must be an address on the machine the pool runs on") {
+		t.Fatalf("a filter on another machine = %d %s, want it refused by name", resp.StatusCode, resp.Body)
 	}
-	if err := os.WriteFile(filepath.Join(dir, filtersFolder, "s1.json"), []byte(`[{"name":"memory",`), 0o600); err != nil {
-		t.Fatal(err)
+	if got := p.sessions.of("s1").Filters; got != nil {
+		t.Fatalf("the refused record was kept: %v", got)
 	}
-	list, err := p.filters.of(dir, "s1", testNow.Add(2*time.Second))
-	if len(list) != 1 || err == nil {
-		t.Fatalf("a broken file gave filters %v and error %v, want the filter before it and the error", list, err)
+	if resp := sendRecord(t, p, sessionRecord{Session: "../s1"}); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a session id outside the records folder = %d, want it refused", resp.StatusCode)
 	}
-	if _, again := p.filters.of(dir, "s1", testNow.Add(4*time.Second)); again != nil {
-		t.Fatalf("the same error reported twice: %v", again)
-	}
-	if list, _ := p.filters.of(dir, "../s1", testNow); list != nil {
-		t.Fatal("a session id read a file outside the filters folder")
+}
+
+func TestASessionRecordKeepsTheAgentsOfItsEarlierOnes(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	sendRecord(t, p, sessionRecord{Session: "s1", Project: "/Users/turing/dotfiles", Agents: map[string]string{"a7": "code-reviewer"}})
+	sendRecord(t, p, sessionRecord{Session: "s1", Project: "/Users/turing/dotfiles", Agents: map[string]string{"b2": "tester"}})
+	if got := p.sessions.of("s1").Agents; got["a7"] != "code-reviewer" || got["b2"] != "tester" {
+		t.Fatalf("agents = %v, want both, as a reloaded mod sends only the ones it started since", got)
 	}
 }
 
@@ -459,20 +455,21 @@ func TestAFilterThatRedirectsIsNeverFollowed(t *testing.T) {
 	}
 }
 
-func TestFiltersFilesOfLongEndedSessionsGo(t *testing.T) {
+func TestRecordsSurviveAReloadAndThoseOfLongEndedSessionsGo(t *testing.T) {
 	p := newTestPlugin(t, enabled)
 	addFilters(t, p, "old", Filter{Name: "memory", URL: "http://127.0.0.1:1/"})
 	addFilters(t, p, "new", Filter{Name: "memory", URL: "http://127.0.0.1:1/"})
 	dir := p.settings().DataDir
-	long := time.Now().Add(-filtersKept - time.Hour)
-	if err := os.Chtimes(filepath.Join(dir, filtersFolder, "old.json"), long, long); err != nil {
+	long := time.Now().Add(-recordsKept - time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, recordsFolder, "old.json"), long, long); err != nil {
 		t.Fatal(err)
 	}
-	pruneFilters(dir, time.Now())
-	if _, err := os.Stat(filepath.Join(dir, filtersFolder, "old.json")); !os.IsNotExist(err) {
-		t.Fatal("a long-ended session's filters stayed")
+	var again recordSet
+	again.load(dir, time.Now())
+	if _, err := os.Stat(filepath.Join(dir, recordsFolder, "old.json")); !os.IsNotExist(err) || again.of("old").Session != "" {
+		t.Fatal("a long-ended session's record stayed")
 	}
-	if _, err := os.Stat(filepath.Join(dir, filtersFolder, "new.json")); err != nil {
-		t.Fatal("a recent session's filters went")
+	if got := again.of("new"); len(got.Filters) != 1 || got.Project != "/Users/turing/dotfiles" {
+		t.Fatalf("a recent session's record after a reload = %+v", got)
 	}
 }

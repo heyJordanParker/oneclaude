@@ -29,11 +29,11 @@ The line names what needs you, and only while it is true:
 
 The first two open the Accounts tab at the account they name, and `agent limit reached` at the Claude accounts.
 
-The mod reads the proxy's blocks with the proxy's management key: `oneclaude`, which the install sets on a proxy with none, or the key you set for CLIProxyAPI, which the install asks for ([Installation](installation.md#4-adding-oneclaude)).
+The mod reads the proxy's blocks with the proxy's management key: `oneclaude`, which the install sets on a proxy with none, or the key you set for CLIProxyAPI, which the install asks for ([Installation](installation.md#3-adding-oneclaude)).
 
-When oneclaude can't read the pool, the line says why instead:
+The line shows the pool Claude Code sends its requests to, its `ANTHROPIC_BASE_URL`, on this machine or another ([A pool on another machine](installation.md#a-pool-on-another-machine)). When oneclaude can't read that pool, the line says why instead:
 
-- `oneclaude: proxy down` means nothing answers on `127.0.0.1:8317`, or the proxy answered with an error. Start the proxy with `brew services start cliproxyapi`, or read its log.
+- `oneclaude: proxy down` means nothing answers at `ANTHROPIC_BASE_URL`, `127.0.0.1:8317` by default, or the proxy answered with an error. Start the proxy with `brew services start cliproxyapi` on macOS or `systemctl --user start cliproxyapi` on Linux, or read its log.
 - `oneclaude: plugin off` means the proxy runs without oneclaude's plugin. Run `oneclaude install`, the install step, to add it again.
 - `oneclaude: status unreadable` means the proxy answered something oneclaude doesn't understand.
 
@@ -151,7 +151,7 @@ The rounded ends of each bar are [Nerd Font](https://www.nerdfonts.com) glyphs. 
 
 ## The dashboard
 
-`[Open dashboard]` opens the dashboard inside the proxy's control panel, already signed in. The panel lists it under oneclaude in its plugin menu. It shows:
+`[Open dashboard]` opens the dashboard inside the proxy's control panel. The panel lists it under oneclaude in its plugin menu. It shows:
 
 - the pool and every account's usage, pace, refill, and agents;
 - the Usage table, with the same choices as the Accounts tab, and every day of the last 30 stacked by the breakdown's largest rows;
@@ -160,6 +160,6 @@ The rounded ends of each bar are [Nerd Font](https://www.nerdfonts.com) glyphs. 
 - the proxy's traffic, its credential files, and its settings;
 - buttons to add an account, turn one off, or sign in to one again.
 
-`[Add account]` opens the panel at its OAuth login page, already signed in. Log in to a Claude or Codex account there, and it joins the pool.
+`[Add account]` opens the panel at its OAuth login page. Log in to a Claude or Codex account there, and it joins the pool.
 
-The panel's password is `oneclaude`, which the install set. Both links sign in with it, so you never type it.
+The panel's password is the proxy's management key, `oneclaude` unless you set your own. The panel asks for it the first time either link opens it in a browser. Tick Remember password, and it opens signed in from then on.

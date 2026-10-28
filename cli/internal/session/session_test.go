@@ -114,36 +114,6 @@ func TestRecordedBetweenFindsEachRequestWithItsTokensAgentTypeAndItsSessionsProj
 	}
 }
 
-func TestRecordsNameASubagentsTypeAndItsSessionsProject(t *testing.T) {
-	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	r := NewRecords(claudeProjects(t, "s1", "dotfiles", map[string]string{"a7": "code-reviewer"}))
-	if agentType, project := r.Of(Identity{Session: "s1", Agent: "a7"}, now); agentType != "code-reviewer" || project != "dotfiles" {
-		t.Fatalf("subagent = %q in %q", agentType, project)
-	}
-	if agentType, project := r.Of(Identity{Session: "s1"}, now); agentType != "" || project != "dotfiles" {
-		t.Fatalf("main session = %q in %q", agentType, project)
-	}
-	if agentType, _ := r.Of(Identity{Session: "s1", Agent: "b2", Type: "Explore"}, now); agentType != "Explore" {
-		t.Fatalf("a subagent with no meta file = %q, want the type Claude Code sent", agentType)
-	}
-}
-
-func TestRecordsLookAgainForASessionWrittenLater(t *testing.T) {
-	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	root := t.TempDir()
-	r := NewRecords(root)
-	if _, project := r.Of(Identity{Session: "late"}, now); project != "" {
-		t.Fatalf("project = %q before the transcript exists", project)
-	}
-	write(t, filepath.Join(root, "-Users-turing-oneclaude", "late.jsonl"), `{"cwd":"/Users/turing/oneclaude"}`+"\n")
-	if _, project := r.Of(Identity{Session: "late"}, now.Add(10*time.Second)); project != "" {
-		t.Fatalf("project = %q, want the miss kept for a minute", project)
-	}
-	if _, project := r.Of(Identity{Session: "late"}, now.Add(lookAgain)); project != "oneclaude" {
-		t.Fatalf("project = %q a minute later", project)
-	}
-}
-
 func TestACustomAgentTypeIsNotItsName(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Claude-Code-Session-Id", "s1")

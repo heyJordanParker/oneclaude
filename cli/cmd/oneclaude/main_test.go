@@ -4,6 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -41,6 +44,7 @@ func setUp(t *testing.T) (config, plugins, data string) {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("ANTHROPIC_BASE_URL", "")
 	plugins = filepath.Join(root, "plugins")
 	config = filepath.Join(root, "config.yaml")
 	if err := os.WriteFile(config, []byte(strings.Replace(proxyConfig, "PLUGINS", plugins, 1)), 0o600); err != nil {
@@ -51,11 +55,12 @@ func setUp(t *testing.T) (config, plugins, data string) {
 
 func TestInstallPlacesTheLibraryAndSwitchesTheProxyToIt(t *testing.T) {
 	config, plugins, data := setUp(t)
+	on(t, "darwin")
 	before, _ := os.ReadFile(config)
 	if err := run(built, config, data, false); err != nil {
 		t.Fatal(err)
 	}
-	placed := filepath.Join(plugins, runtime.GOOS, runtime.GOARCH, "oneclaude-v0.2.0.dylib")
+	placed := filepath.Join(plugins, "darwin", runtime.GOARCH, "oneclaude-v0.2.0.dylib")
 	if got, _ := os.ReadFile(placed); string(got) != "built plugin" {
 		t.Fatalf("placed library = %q", got)
 	}
@@ -78,8 +83,137 @@ func TestInstallPlacesTheLibraryAndSwitchesTheProxyToIt(t *testing.T) {
 	if key := secretKeyOf(t, config); key != "$2y$10$not.a.real.hash" {
 		t.Fatalf("the proxy's own management key changed to %q", key)
 	}
-	if named, _ := os.ReadFile(filepath.Join(data, "proxy-config")); string(named) != config {
-		t.Fatalf("proxy-config = %q, want the config's path, where the mod checks a management key", named)
+	if exists(filepath.Join(data, "management-key")) {
+		t.Fatal("install stored the key oneclaude, which the proxy's own key refuses")
+	}
+	if strings.Contains(text, "allow-remote") {
+		t.Fatalf("install opened the management API to other machines for a proxy only this one uses:\n%s", text)
+	}
+}
+
+func TestInstallStoresTheKeyItGivesAProxyWithNone(t *testing.T) {
+	config, _, data := setUp(t)
+	raw, _ := os.ReadFile(config)
+	if err := os.WriteFile(config, []byte(strings.Replace(string(raw), "management:\n    secret-key: \"$2y$10$not.a.real.hash\"\n", "", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(data, "filters"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "proxy-config"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	if key, _ := os.ReadFile(filepath.Join(data, "management-key")); string(key) != "oneclaude" {
+		t.Fatalf("management-key = %q, want oneclaude, the key install set", key)
+	}
+	if exists(filepath.Join(data, "proxy-config")) || exists(filepath.Join(data, "filters")) {
+		t.Fatal("install kept proxy-config or filters/, which no version reads now")
+	}
+}
+
+func TestInstallLeavesAStoredKey(t *testing.T) {
+	config, _, data := setUp(t)
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "management-key"), []byte("their own key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(config)
+	if err := os.WriteFile(config, []byte(strings.Replace(string(raw), "$2y$10$not.a.real.hash", "oneclaude", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	if key, _ := os.ReadFile(filepath.Join(data, "management-key")); string(key) != "their own key" {
+		t.Fatalf("management-key = %q, want the key the person entered", key)
+	}
+}
+
+func TestInstallOpensTheManagementAPIOfAPoolOtherMachinesUse(t *testing.T) {
+	config, _, data := setUp(t)
+	t.Setenv("ANTHROPIC_BASE_URL", "http://devbox:8317")
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	text, _ := os.ReadFile(config)
+	if !strings.Contains(string(text), "management:\n    secret-key: \"$2y$10$not.a.real.hash\"\n    allow-remote: true\n") {
+		t.Fatalf("config does not let the other machines read blocks:\n%s", text)
+	}
+}
+
+func TestInstallWithThePoolOnAnotherMachineSetsUpNothingHere(t *testing.T) {
+	_, _, data := setUp(t)
+	t.Setenv("ANTHROPIC_BASE_URL", "http://devbox.invalid:9")
+	t.Setenv("PATH", t.TempDir())
+	if err := run(built, "", data, false); err != nil {
+		t.Fatalf("install = %v, want it to finish with nothing to set up", err)
+	}
+	if entries, _ := os.ReadDir(os.Getenv("HOME")); len(entries) != 0 {
+		t.Fatalf("install set something up in the home folder: %v", entries)
+	}
+	if exists(filepath.Join(data, "management-key")) {
+		t.Fatal("install stored a key the pool never took")
+	}
+	if err := run(plugin{}, "", data, true); err != nil {
+		t.Fatalf("remove = %v, want nothing to take out", err)
+	}
+}
+
+func TestThePoolIsHereWhenItsHostNamesThisMachineWhetherOrNotItRuns(t *testing.T) {
+	if got := remotePool("http://127.0.0.1:8317"); got != "" {
+		t.Fatalf("remotePool(loopback) = %q, want the pool here", got)
+	}
+	if got := remotePool("http://devbox.invalid:8317/"); got != "http://devbox.invalid:8317" {
+		t.Fatalf("remotePool(another machine) = %q", got)
+	}
+	if got := listenHost(""); got != "127.0.0.1" {
+		t.Fatalf("listenHost(unset) = %q, want this machine only", got)
+	}
+	if got := hereAt("192.0.2.1"); got != "" {
+		t.Fatalf("hereAt(an address of no machine here) = %q", got)
+	}
+	addresses, _ := net.InterfaceAddrs()
+	for _, address := range addresses {
+		network, ok := address.(*net.IPNet)
+		if !ok || network.IP.IsLoopback() || network.IP.To4() == nil {
+			continue
+		}
+		own := network.IP.String()
+		if got := remotePool("http://" + own + ":9"); got != "" {
+			t.Fatalf("remotePool(this machine's %s, with nothing listening) = %q, want the pool here", own, got)
+		}
+		if got := listenHost("http://" + own + ":8317"); got != own {
+			t.Fatalf("listenHost(this machine's %s) = %q, want the proxy to listen there for the other machines", own, got)
+		}
+		return
+	}
+	t.Skip("this machine has no address but loopback")
+}
+
+func TestKeepKeyStoresTheKeyOnlyOnceThePoolTakesIt(t *testing.T) {
+	pool := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v0/management/plugins/oneclaude/status" || r.Header.Get("Authorization") != "Bearer oneclaude" {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	t.Cleanup(pool.Close)
+	if !takesKey(pool.URL, "oneclaude") || takesKey(pool.URL, "wrong") || takesKey("http://devbox.invalid:9", "oneclaude") {
+		t.Fatal("takesKey does not answer what the pool says")
+	}
+	data := t.TempDir()
+	if err := keepKey(data, func(string) bool { return false }); err != nil || exists(filepath.Join(data, "management-key")) {
+		t.Fatalf("keepKey stored a refused key: %v", err)
+	}
+	if err := keepKey(data, func(key string) bool { return takesKey(pool.URL, key) }); err != nil {
+		t.Fatal(err)
+	}
+	if key, _ := os.ReadFile(filepath.Join(data, "management-key")); string(key) != "oneclaude" {
+		t.Fatalf("management-key = %q, want oneclaude", key)
 	}
 }
 
@@ -159,10 +293,19 @@ const claudeState = `{"oauthAccount":{"emailAddress":"ada@example.com","accountU
 
 const keychainItem = `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-access","refreshToken":"sk-ant-ort01-refresh","expiresAt":1792000000000,"scopes":["user:inference"],"subscriptionType":"max"}}`
 
+// on runs the rest of the test as if on system, the GOOS it names.
+func on(t *testing.T, system string) {
+	t.Helper()
+	was := goos
+	goos = system
+	t.Cleanup(func() { goos = was })
+}
+
 // loggedIn gives the test's home a Claude Code logged in to ada@example.com,
 // with a security program that answers the keychain item as macOS does.
 func loggedIn(t *testing.T) {
 	t.Helper()
+	on(t, "darwin")
 	home := os.Getenv("HOME")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
@@ -209,6 +352,68 @@ func TestInstallBringsClaudeCodesLoginIntoTheProxy(t *testing.T) {
 	}
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Fatalf("credential mode = %v", info.Mode().Perm())
+	}
+}
+
+func TestInstallOnLinuxBringsTheLoginClaudeCodeKeepsInItsCredentialsFile(t *testing.T) {
+	config, _, data := setUp(t)
+	on(t, "linux")
+	home := os.Getenv("HOME")
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(claudeState), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(keychainItem), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".cli-proxy-api", "claude-"+hashOf("organization-a")+"-ada@example.com.json"))
+	if err != nil {
+		t.Fatalf("no credential file: %v", err)
+	}
+	var credential map[string]string
+	if err := json.Unmarshal(raw, &credential); err != nil {
+		t.Fatal(err)
+	}
+	if credential["refresh_token"] != "sk-ant-ort01-refresh" || credential["email"] != "ada@example.com" {
+		t.Fatalf("credential = %v", credential)
+	}
+}
+
+func TestInstallWithClaudeCodeSignedOutBringsNothingAndFinishes(t *testing.T) {
+	config, _, data := setUp(t)
+	on(t, "linux")
+	home := os.Getenv("HOME")
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(claudeState), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	signedOut := `{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"scopes":[]}}`
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(signedOut), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(built, config, data, false); err != nil {
+		t.Fatalf("install with Claude Code signed out = %v, want it to finish", err)
+	}
+	if files, _ := filepath.Glob(filepath.Join(home, ".cli-proxy-api", "*.json")); len(files) != 0 {
+		t.Fatalf("credential files = %v, want none", files)
+	}
+}
+
+func TestInstallOnLinuxPlacesTheLibraryAsASharedObject(t *testing.T) {
+	config, plugins, data := setUp(t)
+	on(t, "linux")
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(plugins, "linux", runtime.GOARCH, "oneclaude-v0.2.0.so")); string(got) != "built plugin" {
+		t.Fatalf("placed library = %q, want the plugin as the .so the proxy loads on Linux", got)
 	}
 }
 
@@ -277,9 +482,14 @@ access:
 
 routing:
   strategy: round-robin
+
+plugins:
+  enabled: false
+  dir: "plugins"
 `
 
 func TestInstallingTheProxyKeepsItOnThisMachineWithNoPlaceholderKeys(t *testing.T) {
+	on(t, "darwin")
 	prefix := t.TempDir()
 	bin := t.TempDir()
 	config := filepath.Join(prefix, "etc", "cliproxyapi.conf")
@@ -288,7 +498,7 @@ func TestInstallingTheProxyKeepsItOnThisMachineWithNoPlaceholderKeys(t *testing.
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	found, err := installProxy()
+	found, err := installProxy(listenHost(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +506,7 @@ func TestInstallingTheProxyKeepsItOnThisMachineWithNoPlaceholderKeys(t *testing.
 		t.Fatalf("installProxy = %s, want %s", found, config)
 	}
 	text, _ := os.ReadFile(config)
-	for _, want := range []string{"  host: \"127.0.0.1\"\n", "  api-keys: []\n", "\nrouting:\n  strategy: round-robin\n", "config-version: 8\n\n# Listener"} {
+	for _, want := range []string{"  host: \"127.0.0.1\"\n", "  api-keys: []\n", "\nrouting:\n  strategy: round-robin\n", "config-version: 8\n\n# Listener", "  dir: \"~/.cli-proxy-api/plugins\"\n"} {
 		if !strings.Contains(string(text), want) {
 			t.Fatalf("config lacks %q:\n%s", want, text)
 		}
@@ -382,8 +592,9 @@ func TestInstallMovesThePluginsFilesOutOfTheProxysCredentialFolder(t *testing.T)
 }
 
 func TestInstallingTheProxyWithoutHomebrewSaysWhatToDo(t *testing.T) {
+	on(t, "darwin")
 	t.Setenv("PATH", t.TempDir())
-	if _, err := installProxy(); err == nil || !strings.Contains(err.Error(), "https://brew.sh") {
+	if _, err := installProxy("127.0.0.1"); err == nil || !strings.Contains(err.Error(), "https://brew.sh") {
 		t.Fatalf("installProxy without brew = %v", err)
 	}
 }
