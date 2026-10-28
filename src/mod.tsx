@@ -1,11 +1,12 @@
-import { defineMod, PromptHint, settings, type Disposable, type Mod } from '../node_modules/@cmodjs/core/mod.js'
-import { defineStep } from '../node_modules/@cmodjs/core/installer.js'
+import { BelowPrompt, Dashboard, defineMod, settings, type Mod, type Step, type Timer } from '../node_modules/@cmodjs/core/mod.js'
 import { slashCommand } from '../node_modules/@cmodjs/core/jobs/slash-command.js'
 import { Box, Input, Text } from '../node_modules/@cmodjs/core/ui/elements.js'
+import type { OneclaudeFilter } from '../types/index.js'
 import { PoolLine } from './components/pool-line.js'
-import { accountsPane, showUsage } from './panes/accounts.js'
+import { addFilter, clearFilters, removeFilter } from './filters.js'
+import { accountsPage, showUsage } from './pages/accounts.js'
 import { initialState, type OneclaudeState } from './state.js'
-import { barsOf, fits, FRAME_MS, glide, keyOf, LINE, PROXY, proxySecret, read, readBlocks, type Shown } from './status.js'
+import { barsOf, fits, FRAME_MS, glide, keyOf, LINE, PROXY, proxySecret, read, sharedBlocks, type Shown } from './status.js'
 
 export const REFRESH_MS = 15_000
 
@@ -20,7 +21,7 @@ async function saveKey(mod: Mod<OneclaudeState>, key: string): Promise<void> {
 // askKey asks for the proxy's management key when the one oneclaude holds
 // doesn't fit the proxy's config: CLIProxyAPI was installed with a key of its
 // own, or the key changed since.
-export const askKey = defineStep<OneclaudeState>({
+export const askKey: Step<OneclaudeState> = {
   id: 'management-key',
   title: "CLIProxyAPI's management key",
   render: (mod) => (
@@ -33,7 +34,7 @@ export const askKey = defineStep<OneclaudeState>({
     </Box>
   ),
   isDone: async (mod) => (await proxySecret(mod.dataFolder)) === undefined || (await keyOf(mod)) !== undefined,
-})
+}
 
 // baseUrlOf is the proxy Claude Code's user settings send it to, if any.
 async function baseUrlOf(): Promise<unknown> {
@@ -46,11 +47,11 @@ export const oneclaude = defineMod({
   state: initialState,
   installer: [askKey],
 
-  setup(mod) {
-    const pane = mod.ui.pane(accountsPane)
-    let frames: Disposable | undefined
+  async setup(mod) {
+    const page = mod.sidebar.add(accountsPage)
+    let frames: Timer | undefined
     const settle = (): void => {
-      frames?.dispose()
+      frames?.stop()
       frames = undefined
     }
     const frame = (): void => {
@@ -70,58 +71,69 @@ export const oneclaude = defineMod({
       frames ??= mod.every(FRAME_MS, frame)
     }
     // useProxy points Claude Code at the proxy once it answers with
-    // oneclaude's status, once a session, so cmod records the value and takes
-    // only it back when oneclaude is removed. A base URL the person set to
-    // another address stays theirs.
+    // oneclaude's status, once a session and only while it points nowhere, so
+    // cmod records the value and takes only it back when oneclaude is removed.
+    // A base URL the person set to another address stays theirs.
     let isUsingProxy = false
     const useProxy = async (): Promise<void> => {
       if (isUsingProxy) return
       isUsingProxy = true
       const current = await baseUrlOf()
-      if (current !== undefined && current !== PROXY) {
+      if (current === PROXY) return
+      if (current !== undefined) {
         mod.log(`Claude Code's ANTHROPIC_BASE_URL is ${String(current)}, so oneclaude leaves it, and Claude Code does not use the pool.`)
         return
       }
       await settings.user.update({ env: { ANTHROPIC_BASE_URL: PROXY } })
     }
-    // refresh reads the status with the proxy's blocks, and the Usage table
-    // while the pane shows it.
+    // refresh draws the status as soon as it arrives, then the proxy's blocks,
+    // and the Usage table while the Accounts page is open.
     const refresh = async (): Promise<void> => {
       const reading = await read()
       if ('problem' in reading) {
         mod.state.memory.reading = reading
         return
       }
-      const key = await keyOf(mod)
-      mod.state.memory.reading = { ...reading, blocks: key === undefined ? {} : await readBlocks(key) }
-      if (pane.isOpen) await showUsage(mod)
-      await useProxy()
+      const earlier = mod.state.memory.reading
+      mod.state.memory.reading = { ...reading, blocks: earlier !== null && 'blocks' in earlier ? earlier.blocks : {} }
       animate()
+      const key = await keyOf(mod)
+      const blocks = key === undefined ? {} : await sharedBlocks(mod, key)
+      const latest = mod.state.memory.reading
+      if (latest !== null && 'status' in latest) mod.state.memory.reading = { ...latest, blocks }
+      mod.state.memory.isOpen = page.isOpen
+      if (page.isOpen) await showUsage(mod)
+      await useProxy()
     }
+    // toggle opens or closes the page. cmod shows a page only once the
+    // command or press that asked for it ends, so the toggle line follows
+    // what was asked, and each refresh what the Sidebar shows, as after its ×.
     const toggle = async (): Promise<void> => {
-      if (!pane.isOpen) {
+      const isOpening = !page.isOpen
+      if (isOpening) {
+        mod.state.memory.isConfirming = false
         await refresh()
         await showUsage(mod)
         mod.state.memory.shown = Object.fromEntries(Object.entries(mod.state.memory.shown).map(([key, shown]) => [key, key === LINE ? shown : { used: 0, pace: 0 }]))
         animate()
       }
-      await pane.toggle({ focus: true })
-      mod.state.memory.isOpen = pane.isOpen
+      await page.toggle({ focus: true })
+      mod.state.memory.isOpen = isOpening
     }
     const showTrouble = async (key: string): Promise<void> => {
-      if (!pane.isOpen) await toggle()
-      await mod.ui.scroll({ to: { key }, in: accountsPane.id, block: 'start' })
+      if (!page.isOpen) await toggle()
+      await page.scrollTo({ key }, { block: 'start' })
     }
 
-    mod.ui.render(PromptHint, ({ Default }) => {
-      const reading = mod.state.memory.reading
-      if (reading === null) return <Default />
-      return (
-        <Box gap={3}>
-          <Default />
-          <PoolLine reading={reading} shown={mod.state.memory.shown[LINE]} isOpen={mod.state.memory.isOpen} onToggle={toggle} onTrouble={showTrouble} />
-        </Box>
-      )
+    mod.widgets.add({
+      id: 'pool',
+      title: 'Pool usage',
+      areas: [BelowPrompt, Dashboard],
+      render: (current) => {
+        const reading = current.state.memory.reading
+        if (reading === null) return undefined
+        return <PoolLine reading={reading} shown={current.state.memory.shown[LINE]} isOpen={current.state.memory.isOpen} onToggle={toggle} onTrouble={showTrouble} />
+      },
     })
     mod.use(slashCommand({
       name: 'accounts',
@@ -130,5 +142,10 @@ export const oneclaude = defineMod({
     }))
     mod.every(REFRESH_MS, refresh)
     void refresh()
+    await clearFilters(mod).catch((error: unknown) => mod.log(`oneclaude could not take back this session's filters: ${String(error)}`))
+    return {
+      addFilter: (input: OneclaudeFilter) => addFilter(mod, input),
+      removeFilter: (input: { name: string }) => removeFilter(mod, input),
+    }
   },
 })

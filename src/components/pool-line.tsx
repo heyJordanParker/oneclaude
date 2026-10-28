@@ -17,13 +17,22 @@ export function factText(facts: readonly Fact[]): string {
   return facts.map((fact) => (typeof fact === 'string' ? fact : pace(fact.used, fact.even))).join(' · ')
 }
 
+// Facts draws the facts on one line, cut at the end, or wrapped between facts,
+// so a fact such as "18 agents" never splits across lines.
 export function Facts({ facts, color, wrap = 'wrap' }: { readonly facts: readonly Fact[]; readonly color?: string; readonly wrap?: 'wrap' | 'truncate-end' }): RenderElement {
-  const parts = facts.flatMap((fact, index) => {
-    const separator = index === 0 ? [] : [' · ']
-    if (typeof fact === 'string') return [...separator, fact]
+  const draw = (fact: Fact): RenderElement | string => {
+    if (typeof fact === 'string') return fact
     const paceColor = PACE_COLORS[paceState(fact.used, fact.even)]
-    return [...separator, paceColor === undefined ? pace(fact.used, fact.even) : <Text color={paceColor} dimColor={false}>{pace(fact.used, fact.even)}</Text>]
-  })
+    return paceColor === undefined ? pace(fact.used, fact.even) : <Text color={paceColor} dimColor={false}>{pace(fact.used, fact.even)}</Text>
+  }
+  if (wrap === 'wrap') {
+    return (
+      <Box flexWrap="wrap" columnGap={1}>
+        {facts.map((fact, index) => <Box flexShrink={0}><Text color={color} dimColor={color === undefined}>{index === 0 ? [draw(fact)] : ['· ', draw(fact)]}</Text></Box>)}
+      </Box>
+    )
+  }
+  const parts = facts.flatMap((fact, index) => (index === 0 ? [draw(fact)] : [' · ', draw(fact)]))
   return <Text color={color} dimColor={color === undefined} wrap={wrap}>{parts}</Text>
 }
 

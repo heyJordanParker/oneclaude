@@ -1,27 +1,17 @@
 import type { RenderElement } from 'claude-code'
-import { Prompt, sessions, type Mod } from '../../node_modules/@cmodjs/core/mod.js'
-import { definePane } from '../../node_modules/@cmodjs/core/ui/define-pane.js'
+import { Prompt, sessions, type Mod, type PageInit } from '../../node_modules/@cmodjs/core/mod.js'
 import { Box, Button, Link, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
-import { ACCOUNTS, ADD_ACCOUNT_URL, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, DASHBOARD_URL, evenOf, FAMILIES, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
+import { ACCOUNTS, ADD_ACCOUNT_URL, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, DASHBOARD_URL, evenOf, FAMILIES, freshBlocks, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
 import { BREAKDOWNS, dailyChart, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
 const GAP = 2
 const INSET = 3
 const CONTROL = 7
-
-// usageColumns is the width the pane asks for when it docks: the Usage table
-// with every column, and its controls.
-function usageColumns(state: OneclaudeState): number | undefined {
-  const { table, usage } = state.memory
-  if (table === null) return undefined
-  const controls = CONTROL + Math.max(...[PERIODS, BREAKDOWNS].map((choices) => choices.reduce((width, [, label]) => width + label.length + 3, 0)))
-  return INSET * 2 + Math.max(usageLayout(table, usage.units, true).width, controls)
-}
 
 // showUsage reads the Usage table for the view, after a change to it, and
 // keeps the answer only while the view is still the one asked for. A table
@@ -35,23 +25,17 @@ export async function showUsage(mod: Mod<OneclaudeState>, change: Partial<UsageV
 }
 
 // A Row is one bar: its name, the bar, then its facts, the first of which is
-// how full it is, then what needs the person on it. A pane too narrow for
+// how full it is, then what needs the person on it. A Sidebar too narrow for
 // every row on one line puts each row's facts but the first on a second line,
 // under the bar.
 type Row = { readonly key?: string; readonly name: string; readonly shown?: Shown; readonly facts: readonly Fact[]; readonly color?: string; readonly trouble?: RenderElement }
 
 const LOG_SHOWN = 10
 
-export const accountsPane = definePane<OneclaudeState>({
+export const accountsPage: PageInit<OneclaudeState> = {
   id: 'accounts',
   title: 'Accounts',
-  columns: usageColumns,
-  closeOnEscape: true,
-  onClose: (mod) => {
-    mod.state.memory.isOpen = false
-    mod.state.memory.isConfirming = false
-  },
-  render: (mod, { bodyColumns }) => {
+  render: (mod, { columns }) => {
     const reading = mod.state.memory.reading
     if (reading === null) return <Text dimColor>Reading your accounts</Text>
     if ('problem' in reading) return <Text color="warning">{PROBLEMS[reading.problem]}</Text>
@@ -62,18 +46,17 @@ export const accountsPane = definePane<OneclaudeState>({
     const codex = status.codex.map((account) => codexRow(account, status.now, shown[codexKey(account)]))
     const rows = [combined, ...claude, ...codex]
     const width = Math.max(...rows.map((row) => row.name.length))
-    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_CELLS + 2 + GAP + factText(row.facts).length > bodyColumns)
+    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_CELLS + 2 + GAP + factText(row.facts).length > columns)
     const draw = (row: Row): RenderElement => <RowView row={row} width={width} isNarrow={isNarrow} />
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
-        <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column" gap={1}>
-          <Text bold><Text color="claude">✻</Text> oneclaude</Text>
+        <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column">
           {draw(combined)}
         </Box>
         <Section key={ACCOUNTS} title="Claude accounts">{claude.map(draw)}</Section>
         {codex.length > 0 ? <Section title="Codex accounts">{codex.map(draw)}</Section> : null}
-        <ResetsSection accounts={status.accounts} now={status.now} width={width} columns={bodyColumns - INSET * 2} />
-        <UsageSection mod={mod} table={mod.state.memory.table} view={mod.state.memory.usage} columns={bodyColumns - INSET * 2} />
+        <ResetsSection accounts={status.accounts} now={status.now} width={width} columns={columns - INSET * 2} />
+        <UsageSection mod={mod} table={mod.state.memory.table} view={mod.state.memory.usage} columns={columns - INSET * 2} />
         {mod.state.memory.table === null ? null : <ChartSection table={mod.state.memory.table} view={mod.state.memory.usage} />}
         {status.log.length === 0 ? null : <LogSection log={status.log} />}
         <Box paddingX={2} gap={2}>
@@ -83,7 +66,7 @@ export const accountsPane = definePane<OneclaudeState>({
       </Box>
     )
   },
-})
+}
 
 // A Section is a bold title, an empty line, then its rows, one empty line
 // apart, because full-height bars on adjoining lines touch.
@@ -205,11 +188,12 @@ function BlockedView({ mod, account, blocked, now }: { readonly mod: Mod<Oneclau
   const clear = async (): Promise<void> => {
     const key = await keyOf(mod)
     if (key === undefined || !(await unblock(account, key))) {
-      mod.ui.toast(`oneclaude could not clear the blocks on ${account.name}`)
+      mod.toast.error(`oneclaude could not clear the blocks on ${account.name}`)
       return
     }
+    const blocks = await freshBlocks(mod, key)
     const reading = mod.state.memory.reading
-    if (reading !== null && 'status' in reading) mod.state.memory.reading = { ...reading, blocks: Object.fromEntries(Object.entries(reading.blocks).filter(([index]) => index !== account.auth_index)) }
+    if (reading !== null && 'status' in reading) mod.state.memory.reading = { ...reading, blocks }
   }
   return (
     <Box gap={2}>
@@ -310,7 +294,7 @@ function Optimize({ mod }: { readonly mod: Mod<OneclaudeState> }): RenderElement
     const [agents, projects, models] = await Promise.all((['agent', 'project', 'model'] as const).map((by) => readUsage('month', by, 'cost')))
     mod.state.memory.isConfirming = false
     if (!agents || !projects || !models) {
-      mod.ui.toast('oneclaude could not read the usage, so nothing was sent')
+      mod.toast.error('oneclaude could not read the usage, so nothing was sent')
       return
     }
     await sessions.current.send({ type: Prompt, text: optimizePrompt(agents, projects, models) })

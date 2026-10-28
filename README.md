@@ -6,7 +6,7 @@
 ████████▊███▋███████  63% · 19% over pace · next refill in 2d · 14 agents [+]
 ```
 
-`/accounts` opens the pool in a pane beside the conversation:
+`/accounts` opens the pool in a tab of cmod's Sidebar, beside the conversation:
 
 ```text
 Combined usage    ████████▊███▋███████  63%
@@ -83,7 +83,7 @@ Run `/accounts` and press `[Add account]`. The proxy's control panel opens, alre
 
 Nothing changes in how you work. Every new conversation goes to the account that most needs spending, and a running conversation stays where it is.
 
-- **The line under the prompt** shows the pool's weekly usage, how far ahead or behind an even pace it is, the next refill, and the agents running now. It names a signed-out or blocked account, or the agent limit, only while it needs you. `[+]` opens the pane.
+- **The line under the prompt** shows the pool's weekly usage, how far ahead or behind an even pace it is, the next refill, and the agents running now. It names a signed-out or blocked account, or the agent limit, only while it needs you. `[+]` opens the Accounts tab.
 - **`/accounts`** shows each account, with `[Sign in]` or `[Unblock]` where one needs it, the Codex accounts, the pool's usage, and the log of the last 24 hours.
 - **Usage** in `/accounts` adds up what the pool used today, yesterday, or over 7, 30 or 90 days, by account, model, agent type, project, or time: input, output, cache writes, and cache reads, at API prices or in tokens. `[Optimize usage]` asks Claude to make it cost less.
 - **`[Open dashboard]`** opens the dashboard in the proxy's control panel: usage, 7 days of requests and of the log, each account's agents, the proxy's traffic, and adding, turning off, or signing in again to an account.
@@ -93,9 +93,10 @@ Nothing changes in how you work. Every new conversation goes to the account that
 ## Documentation
 
 - [Installation](docs/installation.md): what the install changes, updates, and removal
-- [Usage](docs/usage.md): the line under the prompt, the pane, its Usage table, and the dashboard
+- [Usage](docs/usage.md): the line under the prompt, the Accounts tab, its Usage table, and the dashboard
 - [How it works](docs/how-it-works.md): how oneclaude picks an account, holds back subagents, and reads usage
 - [Configuration](docs/configuration.md): every setting of the routing plugin
+- [Filters](docs/filters.md): let your mod rewrite, answer, or watch a session's Claude requests and responses
 - [Contributing](CONTRIBUTING.md): build, test, and run oneclaude from a checkout
 - [Releasing](docs/releasing.md): publish a version
 

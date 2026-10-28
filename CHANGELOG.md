@@ -1,6 +1,17 @@
 # Changelog
 
-What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and the Updated toast and /mods show it.
+What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
+
+## [0.8.1]
+
+### Added
+- Another mod can add a filter to a session: a program on this Mac that rewrites, answers, or watches that session's Claude requests and their successful responses, as Envoy's external processing filter does. A filter lasts until its session restarts, so an uninstalled mod leaves none behind, and a filter can keep requests that share text on one account's cache.
+
+### Changed
+- `/accounts` opens as a tab in cmod's Sidebar, which `meta+0` shows and hides.
+- oneclaude runs on cmod 4.3.2 or newer, and cmod updates itself to it. The line under the prompt is now cmod's widget `Pool usage`, which Settings, under cmod, Widgets, moves to another row or side, onto the Sidebar's Dashboard, or hides.
+- The line under the prompt shows as soon as the proxy answers, without waiting for the proxy's blocks, which follow a moment later.
+- Open sessions share one reading of the proxy's blocks, so the proxy checks the management key once every 14 seconds instead of once per session every 15 seconds. A new session no longer rewrites Claude Code's settings file when it already points at the proxy, so the other open sessions don't reload their settings.
 
 ## [0.7.10]
 

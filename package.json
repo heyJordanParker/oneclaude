@@ -20,10 +20,11 @@
   "files": [
     "hooks",
     "setup",
-    "src"
+    "src",
+    "types"
   ],
   "dependencies": {
-    "@cmodjs/core": "^2.0.1",
+    "@cmodjs/core": "^4.3.2",
     "bcrypt-ts": "^9.0.2"
   }
 }
