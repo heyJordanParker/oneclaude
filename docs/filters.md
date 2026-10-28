@@ -9,7 +9,7 @@ A filter is a program your mod runs, at an address on this Mac. oneclaude runs n
 List oneclaude as a dependency in your mod's `.claude-plugin/plugin.json`:
 
 ```json
-"dependencies": [{ "name": "cmod", "version": ">=4.3.0" }, { "name": "oneclaude", "version": ">=0.8.1" }]
+"dependencies": [{ "name": "cmod", "version": ">=4.3.2" }, { "name": "oneclaude", "version": ">=0.8.1" }]
 ```
 
 Then add your program's address in the session it should filter:
