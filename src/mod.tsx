@@ -1,45 +1,41 @@
-import { BelowPrompt, Dashboard, defineMod, settings, type Mod, type Step, type Timer } from '../node_modules/@cmodjs/core/mod.js'
+import { BelowPrompt, Dashboard, defineMod, http, sessions, settings, type Mod, type Step, type Timer } from '../node_modules/@cmodjs/core/mod.js'
 import { slashCommand } from '../node_modules/@cmodjs/core/jobs/slash-command.js'
 import { Box, Input, Text } from '../node_modules/@cmodjs/core/ui/elements.js'
 import type { OneclaudeFilter } from '../types/index.js'
 import { PoolLine } from './components/pool-line.js'
-import { addFilter, clearFilters, removeFilter } from './filters.js'
 import { accountsPage, showUsage } from './pages/accounts.js'
+import { recordOf } from './record.js'
 import { initialState, type OneclaudeState } from './state.js'
-import { barsOf, fits, FRAME_MS, glide, keyOf, LINE, PROXY, proxySecret, read, sharedBlocks, type Shown } from './status.js'
+import { barsOf, baseUrlOf, FRAME_MS, glide, keyOf, LINE, LOCAL_POOL, poolOf, read, saveKey, sharedBlocks, type Shown } from './status.js'
 
 export const REFRESH_MS = 15_000
 
-// saveKey keeps the key the person entered once it fits the proxy's config.
-async function saveKey(mod: Mod<OneclaudeState>, key: string): Promise<void> {
-  const secret = await proxySecret(mod.dataFolder)
-  const isRight = secret !== undefined && (await fits(key, secret))
-  if (isRight) mod.state.global.managementKey = key
-  mod.state.memory.keyAnswer = isRight ? 'saved' : 'wrong'
+// checkKey asks the pool once whether it takes the key the person entered,
+// and keeps it once it does.
+async function checkKey(mod: Mod<OneclaudeState>, key: string): Promise<void> {
+  mod.state.memory.pool = await poolOf()
+  const response = await http.fetch(`${mod.state.memory.pool}/v0/management/plugins/oneclaude/status`, { headers: { Authorization: `Bearer ${key}` } }).catch(() => undefined)
+  if (response?.ok === true) await saveKey(mod, key)
+  mod.state.memory.keyAnswer = response?.ok === true ? 'saved' : response?.status === 401 ? 'wrong' : 'unanswered'
 }
 
-// askKey asks for the proxy's management key when the one oneclaude holds
-// doesn't fit the proxy's config: CLIProxyAPI was installed with a key of its
-// own, or the key changed since.
+// askKey asks for the proxy's management key when oneclaude holds none the
+// proxy took: CLIProxyAPI was installed with a key of its own, or the key
+// changed since.
 export const askKey: Step<OneclaudeState> = {
   id: 'management-key',
   title: "CLIProxyAPI's management key",
   render: (mod) => (
     <Box flexDirection="column">
-      <Text>oneclaude reads and clears the proxy's blocks with the management key you set for CLIProxyAPI.</Text>
-      <Input key="management-key" label="› " submitLabel="save" onSubmit={(key) => void saveKey(mod, key)} />
+      <Text>oneclaude reads and clears the proxy's blocks, and tells it each session's project, agents and filters, with the management key you set for CLIProxyAPI.</Text>
+      <Input key="management-key" label="› " submitLabel="save" onSubmit={(key) => void checkKey(mod, key)} />
       {mod.state.memory.keyAnswer === 'saved' ? <Text color="success">✔ saved</Text>
-        : mod.state.memory.keyAnswer === 'wrong' ? <Text color="error">That is not the key in the proxy's config.</Text>
+        : mod.state.memory.keyAnswer === 'wrong' ? <Text color="error">The proxy at {mod.state.memory.pool} refused that key.</Text>
+        : mod.state.memory.keyAnswer === 'unanswered' ? <Text color="error">The proxy at {mod.state.memory.pool} didn't answer.</Text>
         : <Text>{''}</Text>}
     </Box>
   ),
-  isDone: async (mod) => (await proxySecret(mod.dataFolder)) === undefined || (await keyOf(mod)) !== undefined,
-}
-
-// baseUrlOf is the proxy Claude Code's user settings send it to, if any.
-async function baseUrlOf(): Promise<unknown> {
-  const env = (await settings.user.read())['env']
-  return typeof env === 'object' && env !== null ? (env as Record<string, unknown>)['ANTHROPIC_BASE_URL'] : undefined
+  isDone: async (mod) => (await keyOf(mod)) !== undefined,
 }
 
 export const oneclaude = defineMod({
@@ -70,26 +66,21 @@ export const oneclaude = defineMod({
     const animate = (): void => {
       frames ??= mod.every(FRAME_MS, frame)
     }
-    // useProxy points Claude Code at the proxy once it answers with
+    // useProxy points Claude Code at the local pool once it answers with
     // oneclaude's status, once a session and only while it points nowhere, so
     // cmod records the value and takes only it back when oneclaude is removed.
-    // A base URL the person set to another address stays theirs.
     let isUsingProxy = false
     const useProxy = async (): Promise<void> => {
       if (isUsingProxy) return
       isUsingProxy = true
-      const current = await baseUrlOf()
-      if (current === PROXY) return
-      if (current !== undefined) {
-        mod.log(`Claude Code's ANTHROPIC_BASE_URL is ${String(current)}, so oneclaude leaves it, and Claude Code does not use the pool.`)
-        return
-      }
-      await settings.user.update({ env: { ANTHROPIC_BASE_URL: PROXY } })
+      if ((await baseUrlOf()) === undefined) await settings.user.update({ env: { ANTHROPIC_BASE_URL: LOCAL_POOL } })
     }
-    // refresh draws the status as soon as it arrives, then the proxy's blocks,
-    // and the Usage table while the Accounts page is open.
+    // refresh draws the status of the pool Claude Code uses as soon as it
+    // arrives, then the proxy's blocks, and the Usage table while the
+    // Accounts page is open.
     const refresh = async (): Promise<void> => {
-      const reading = await read()
+      mod.state.memory.pool = await poolOf()
+      const reading = await read(mod.state.memory.pool)
       if ('problem' in reading) {
         mod.state.memory.reading = reading
         return
@@ -141,11 +132,16 @@ export const oneclaude = defineMod({
       reply: toggle,
     }))
     mod.every(REFRESH_MS, refresh)
+    const record = recordOf(mod)
+    sessions.current.onTaskStart((task) => {
+      if (task.owner.agentType !== undefined) void record.addAgent(task.id, task.owner.agentType)
+    })
+    mod.state.memory.pool = await poolOf()
     void refresh()
-    await clearFilters(mod).catch((error: unknown) => mod.log(`oneclaude could not take back this session's filters: ${String(error)}`))
+    void record.send()
     return {
-      addFilter: (input: OneclaudeFilter) => addFilter(mod, input),
-      removeFilter: (input: { name: string }) => removeFilter(mod, input),
+      addFilter: (input: OneclaudeFilter) => record.addFilter(input),
+      removeFilter: (input: { name: string }) => record.removeFilter(input),
     }
   },
 })

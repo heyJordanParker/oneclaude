@@ -1,35 +1,27 @@
-import type { Reading, Shown } from './status.js'
+import { LOCAL_POOL, type Reading, type Shown } from './status.js'
 import type { Breakdown, Period, Units, UsageTable } from './usage.js'
 
 // UsageView is what the Usage table shows: its period, its breakdown, and
 // whether its cells are dollars or tokens.
 export type UsageView = { readonly period: Period; readonly by: Breakdown; readonly units: Units }
 
-// CheckedKey is whether a management key fits the secret in the proxy's
-// config, kept so bcrypt runs again only when either changes.
-export type CheckedKey = { readonly key: string; readonly secret: string; readonly fits: boolean }
-
+// pool is the address of the pool Claude Code uses, read at each refresh.
 // isConfirming is true while the Usage section asks the person to confirm
-// sending the optimize prompt to their session. keyAnswer is what the
-// management key step says of the key the person entered. managementKey is
-// the proxy's management key the person entered, or null for oneclaude's.
+// sending the optimize prompt to their session. keyAnswer is what the pool
+// said of the management key the person entered.
 export type OneclaudeState = {
   memory: {
+    pool: string
     reading: Reading | null
     isOpen: boolean
     shown: Readonly<Record<string, Shown>>
     usage: UsageView
     table: UsageTable | null
     isConfirming: boolean
-    keyAnswer: 'saved' | 'wrong' | null
-  }
-  global: {
-    managementKey: string | null
-    checkedKey: CheckedKey | null
+    keyAnswer: 'saved' | 'wrong' | 'unanswered' | null
   }
 }
 
 export const initialState: OneclaudeState = {
-  memory: { reading: null, isOpen: false, shown: {}, usage: { period: 'month', by: 'account', units: 'cost' }, table: null, isConfirming: false, keyAnswer: null },
-  global: { managementKey: null, checkedKey: null },
+  memory: { pool: LOCAL_POOL, reading: null, isOpen: false, shown: {}, usage: { period: 'month', by: 'account', units: 'cost' }, table: null, isConfirming: false, keyAnswer: null },
 }
