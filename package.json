@@ -23,7 +23,7 @@
     "src"
   ],
   "dependencies": {
-    "@cmodjs/core": "^4.1.0",
+    "@cmodjs/core": "^4.3.0",
     "bcrypt-ts": "^9.0.2"
   }
 }

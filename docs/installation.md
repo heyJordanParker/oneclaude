@@ -36,7 +36,7 @@ In a terminal it ends with `Set up oneclaude? [y/N]`. In Claude Code the same li
 
 Once you agree, cmod downloads `oneclaude-darwin-arm64` from the GitHub release that matches the plugin's version and checks it against the release's `SHA256SUMS`. It keeps the program in `~/.local/share/cmod/bin/oneclaude/<version>/`, and links it as `~/.local/share/cmod/programs/oneclaude` and `~/.local/bin/oneclaude`. The program carries the routing plugin inside it.
 
-Start a new Claude Code session, or run `/reload-plugins` in a running one.
+A Claude Code session that already runs cmod loads oneclaude by itself once its running turn ends. In any other session, start a new one, or run `/reload-plugins`.
 
 ## What the install step changes
 

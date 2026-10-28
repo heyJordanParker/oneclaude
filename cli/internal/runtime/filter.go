@@ -247,17 +247,23 @@ func isSet(raw json.RawMessage) bool {
 }
 
 // A watcher sends one observability-mode filter its messages in order,
-// without making the request wait.
+// without making the request wait, and stops at its first failure, as a
+// filter that fails open does, so a hung filter holds no queue.
 type watcher struct {
 	p       *Plugin
 	f       Filter
 	mu      sync.Mutex
 	queue   [][]byte
 	sending bool
+	failed  bool
 }
 
 func (w *watcher) send(payload []byte) {
 	w.mu.Lock()
+	if w.failed {
+		w.mu.Unlock()
+		return
+	}
 	w.queue = append(w.queue, payload)
 	start := !w.sending
 	w.sending = true
@@ -280,6 +286,10 @@ func (w *watcher) drain() {
 		w.mu.Unlock()
 		if err := w.f.post(payload, nil); err != nil {
 			w.p.filterFailed(w.f, err, "the traffic")
+			w.mu.Lock()
+			w.failed, w.queue, w.sending = true, nil, false
+			w.mu.Unlock()
+			return
 		}
 	}
 }

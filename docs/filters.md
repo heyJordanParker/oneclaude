@@ -9,7 +9,7 @@ A filter is a program your mod runs, at an address on this Mac. oneclaude runs n
 List oneclaude as a dependency in your mod's `.claude-plugin/plugin.json`:
 
 ```json
-"dependencies": [{ "name": "cmod", "version": ">=4.1.0" }, { "name": "oneclaude", "version": ">=0.8.1" }]
+"dependencies": [{ "name": "cmod", "version": ">=4.3.0" }, { "name": "oneclaude", "version": ">=0.8.1" }]
 ```
 
 Then add your program's address in the session it should filter:
@@ -28,7 +28,7 @@ await mod.dependencies.oneclaude.addFilter({
 - `responses: true` also sends the filter each successful response. It is off by default.
 - `timeoutSeconds` is how long oneclaude waits for each answer: 2 by default, up to 120.
 - `failOpen: true` sends the traffic on unchanged when your program doesn't answer in time, can't be reached, or answers with an error or a redirect, and skips your program for the rest of that response. By default a failure answers Claude Code with a 503 error it retries, and ends a response in progress with an error event.
-- `observabilityMode: true` sends your program each request and response event in order, without waiting for it, and ignores its answers.
+- `observabilityMode: true` sends your program each request and response event in order, without waiting for it, and ignores its answers. When your program fails, oneclaude skips it for the rest of that response.
 
 `removeFilter({ name })` takes the filter out of the session.
 

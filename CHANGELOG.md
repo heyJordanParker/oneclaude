@@ -1,6 +1,6 @@
 # Changelog
 
-What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and the Updated toast and /mods show it.
+What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
 ## [0.8.1]
 
@@ -9,7 +9,7 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ### Changed
 - `/accounts` opens as a tab in cmod's Sidebar, which `meta+0` shows and hides.
-- oneclaude runs on cmod 4.1.0 or newer, and cmod updates itself to it. The line under the prompt is now cmod's widget `Pool usage`, which Settings, under cmod, Widgets, moves to another row or side, onto the Sidebar's Dashboard, or hides.
+- oneclaude runs on cmod 4.3.0 or newer, and cmod updates itself to it. The line under the prompt is now cmod's widget `Pool usage`, which Settings, under cmod, Widgets, moves to another row or side, onto the Sidebar's Dashboard, or hides.
 - The line under the prompt shows as soon as the proxy answers, without waiting for the proxy's blocks, which follow a moment later.
 - Open sessions share one reading of the proxy's blocks, so the proxy checks the management key once every 14 seconds instead of once per session every 15 seconds. A new session no longer rewrites Claude Code's settings file when it already points at the proxy, so the other open sessions don't reload their settings.
 

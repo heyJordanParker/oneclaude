@@ -396,6 +396,26 @@ func TestAnObservingFilterSeesTrafficInOrderWithoutAWait(t *testing.T) {
 	}
 }
 
+func TestAnObservingFilterThatHangsIsSkippedForTheRestOfTheResponse(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	var calls atomic.Int32
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		time.Sleep(1500 * time.Millisecond)
+	}))
+	t.Cleanup(slow.Close)
+	addFilters(t, p, "s1", Filter{Name: "inspect", URL: slow.URL, Responses: true, TimeoutSeconds: 1, ObservabilityMode: true})
+	intercept(t, p, `{"a":1}`)
+	for range 5 {
+		chunk(t, p, "r1", "event: ping\ndata: {\"type\":\"ping\"}\n\n")
+	}
+
+	time.Sleep(2500 * time.Millisecond)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("the hung observer got %d posts, want 1 and the rest skipped", got)
+	}
+}
+
 func TestARequestWithoutResponseFiltersSkipsTheStream(t *testing.T) {
 	p := newTestPlugin(t, enabled)
 	if out := chunk(t, p, "r1", "event: ping\ndata: {\"type\":\"ping\"}\n\n"); out.Body != nil || out.DropChunk {
