@@ -288,7 +288,7 @@ function settingsUpdates(tested: ReturnType<typeof testMod>): unknown[] {
 }
 
 test('everything reads the pool Claude Code uses, on another machine too, and leaves its setting', async () => {
-  const tested = testMod(oneclaude, { files: stored('oneclaude'), permissions: ['network:devbox', 'config:env.ANTHROPIC_BASE_URL', 'prompt'] })
+  const tested = testMod(oneclaude, { files: stored('oneclaude') })
   tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: 'http://devbox:8317/' } })
   const asked: string[] = []
   tested.fakes.http.fetch = async (url) => {
@@ -507,8 +507,8 @@ const tables: Record<string, UsageTable> = {
 
 // withUsage answers the status, and each Usage table the plugin would serve,
 // and keeps every Usage address the mod asked for.
-function withUsage(permissions?: readonly string[]) {
-  const tested = testMod(oneclaude, permissions === undefined ? undefined : { permissions })
+function withUsage() {
+  const tested = testMod(oneclaude)
   const asked: string[] = []
   tested.fakes.http.fetch = async (url) => {
     if (!url.includes('usage.json')) return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
@@ -625,13 +625,6 @@ test('[Optimize usage] asks before it sends this session the last 30 days by age
   expect(prompt).toContain('- Opus 5.5: $39')
   expect(prompt).toContain('Change nothing until I approve.')
   expect(await usagePane(tested)).toContain('[Optimize usage]')
-})
-
-test('[Optimize usage] stays hidden while the person has the prompt permission off', async () => {
-  const { tested } = withUsage(['network:127.0.0.1', 'config:env.ANTHROPIC_BASE_URL'])
-  const pane = await usagePane(tested)
-  expect(pane).toContain('All accounts')
-  expect(pane).not.toContain('Optimize usage')
 })
 
 test('a count reads in 3 figures, and dollars in whole dollars from $1', () => {

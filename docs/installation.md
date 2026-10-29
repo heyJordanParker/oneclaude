@@ -24,17 +24,9 @@ cmod install heyJordanParker/oneclaude
 /plugin install oneclaude@oneclaude
 ```
 
-`cmod install` adds oneclaude's marketplace to Claude Code and installs the oneclaude plugin and the cmod plugin it needs. Then it asks before it changes anything. It lists the commands it runs, `./setup/install.sh` now and `./setup/uninstall.sh` when you remove oneclaude, the `oneclaude` program it installs, and what oneclaude asks to do:
+`cmod install` adds oneclaude's marketplace to Claude Code and installs the oneclaude plugin and the cmod plugin it needs, which runs on cmod 5.0.0 or later. Then it sets oneclaude up without asking: it runs `./setup/install.sh`, and `./setup/uninstall.sh` once you remove oneclaude. In Claude Code, a toast above the prompt shows the setup with a progress bar, and in a terminal `cmod install` prints each step. cmod also turns on automatic updates for oneclaude's marketplace, unless you chose otherwise in `/plugin`, Marketplaces.
 
-- connect to `127.0.0.1`, where the proxy listens;
-- change `env.ANTHROPIC_BASE_URL` in your Claude Code settings;
-- add text Claude reads and start turns, which `[Optimize usage]` uses to send Claude your usage, once you confirm ([Usage](usage.md#usage)).
-
-An update from a version before 0.5.2 asks only for the last one.
-
-In a terminal it ends with `Set up oneclaude? [y/N]`. In Claude Code the same list opens as the `Install oneclaude` tab in cmod's Sidebar, with `Accept` and `Not now`, and adds `Update oneclaude automatically from the oneclaude marketplace` when you haven't chosen an update setting for it yet.
-
-Once you agree, cmod downloads the build for your machine, such as `oneclaude-darwin-arm64`, from the GitHub release that matches the plugin's version and checks it against the release's `SHA256SUMS`. It keeps the program in `~/.local/share/cmod/bin/oneclaude/<version>/`, and links it as `~/.local/share/cmod/programs/oneclaude` and `~/.local/bin/oneclaude`. The program carries the routing plugin inside it.
+cmod downloads the build for your machine, such as `oneclaude-darwin-arm64`, from the GitHub release that matches the plugin's version and checks it against the release's `SHA256SUMS`. It keeps the program in `~/.local/share/cmod/bin/oneclaude/<version>/`, and links it as `~/.local/share/cmod/programs/oneclaude` and `~/.local/bin/oneclaude`. The program carries the routing plugin inside it.
 
 A Claude Code session that already runs cmod loads oneclaude by itself once its running turn ends. In any other session, start a new one, or run `/reload-plugins`.
 
@@ -46,7 +38,7 @@ The install step runs `oneclaude install`. A progress bar in Claude Code, or the
 
 One pool can serve every machine you run Claude Code on. Run CLIProxyAPI and oneclaude on one machine, such as a server on your Tailscale network named `devbox`, and set `ANTHROPIC_BASE_URL` to `http://devbox:8317` on each machine.
 
-On a machine whose `ANTHROPIC_BASE_URL` names another machine, the install step prints `Claude Code uses the pool at http://devbox:8317, so oneclaude sets up no proxy here.` and sets up nothing on it. It checks the management key `oneclaude` with one request to that pool, and keeps it once the pool takes it. The line under the prompt, `/accounts`, every button, Usage, and filters then use the pool there. The mod reaches a pool on another machine once cmod lets a mod connect to the host Claude Code sends its requests to, which a coming cmod release adds and the next oneclaude release asks for. Until then it connects to `127.0.0.1` only.
+On a machine whose `ANTHROPIC_BASE_URL` names another machine, the install step prints `Claude Code uses the pool at http://devbox:8317, so oneclaude sets up no proxy here.` and sets up nothing on it. It checks the management key `oneclaude` with one request to that pool, and keeps it once the pool takes it. The line under the prompt, `/accounts`, every button, Usage, and filters then use the pool there.
 
 On the pool's machine, the install step sets `management.allow-remote` to `true`, so the other machines can read and clear blocks and send each session's record.
 
