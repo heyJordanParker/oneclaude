@@ -2,6 +2,12 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.9.1]
+
+### Changed
+- oneclaude runs on cmod 5.0.0 or later, which sets a mod up without asking for permissions. The mod now reaches a pool on another machine that `ANTHROPIC_BASE_URL` names, such as `http://devbox:8317`.
+- `[Optimize usage]` always shows, since cmod no longer has a permission that turns it off.
+
 ## [0.9.0]
 
 ### Added

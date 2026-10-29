@@ -49,7 +49,7 @@ cmod check .
 ```
 
 - `make -C cli test` builds the routing plugin, copies it into `cli/cmd/oneclaude/` where the program embeds it, and runs every Go test with the race detector. A bare `go test ./...` fails until that copy exists.
-- `cmod check .` checks the mod's layout, steps, permissions, and imports, validates it with Claude Code, type-checks and lints it, and runs `bun test`. It has Claude Code write `.claude-plugin/types/`, which git ignores, when it is missing.
+- `cmod check .` checks the mod's layout, steps, and imports, validates it with Claude Code, type-checks and lints it, and runs `bun test`. It has Claude Code write `.claude-plugin/types/`, which git ignores, when it is missing.
 
 ## Test against a dev proxy
 

@@ -57,7 +57,7 @@ npm install -g @cmodjs/cli
 cmod install heyJordanParker/oneclaude
 ```
 
-cmod lists what oneclaude will change and asks you to agree. Then it downloads the `oneclaude` program from this repository's release and checks it against the release's `SHA256SUMS`, and the install step:
+cmod downloads the `oneclaude` program from this repository's release and checks it against the release's `SHA256SUMS`, and the install step:
 
 1. finds CLIProxyAPI, or installs it, with Homebrew on macOS and from its release on Linux, and keeps it on this machine only, or uses the pool on another machine that Claude Code's `ANTHROPIC_BASE_URL` names;
 2. adds the routing plugin to the proxy;
@@ -77,7 +77,7 @@ You can also install it from inside Claude Code:
 
 ## Add your other accounts
 
-Run `/accounts` and press `[Add account]`. The proxy's control panel opens, already signed in, at its OAuth login page. Log in to each Claude subscription you have. A Codex (ChatGPT) account added there shows its weekly usage too.
+Run `/accounts` and press `[Add account]`. The proxy's control panel opens at its OAuth login page, after its password, the management key, the first time. Log in to each Claude subscription you have. A Codex (ChatGPT) account added there shows its weekly usage too.
 
 ## Use it
 

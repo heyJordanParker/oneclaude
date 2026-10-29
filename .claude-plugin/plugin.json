@@ -1,6 +1,6 @@
 {
   "name": "oneclaude",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Every Claude subscription you have, as one pool: routing, usage, pace and agents under the prompt",
   "author": {
     "name": "Jordan Parker",
@@ -11,7 +11,7 @@
   "dependencies": [
     {
       "name": "cmod",
-      "version": ">=4.3.2"
+      "version": ">=5.0.0"
     }
   ]
 }

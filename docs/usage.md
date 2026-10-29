@@ -135,7 +135,7 @@ We'll send it your last 30 days of usage, by agent, project and model.
 [Ask your agent]  [Cancel]
 ```
 
-The prompt holds the last 30 days by agent type, project, and model, with every column. It asks Claude to read the agent definitions, Skills, and settings behind the most expensive rows, to propose changes ranked by what each saves per day, and to change nothing until you approve. Claude Code holds the prompt until the conversation is idle. The button needs the mod's permission to add text Claude reads, which you can turn off in `/mods oneclaude`, and then it hides.
+The prompt holds the last 30 days by agent type, project, and model, with every column. It asks Claude to read the agent definitions, Skills, and settings behind the most expensive rows, to propose changes ranked by what each saves per day, and to change nothing until you approve. Claude Code holds the prompt until the conversation is idle.
 
 ## The bars
 
