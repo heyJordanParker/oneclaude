@@ -10,12 +10,7 @@
   "cmod": {
     "install": "./setup/install.sh",
     "uninstall": "./setup/uninstall.sh",
-    "program": "oneclaude",
-    "permissions": {
-      "network": ["127.0.0.1"],
-      "config": ["env.ANTHROPIC_BASE_URL"],
-      "prompt": true
-    }
+    "program": "oneclaude"
   },
   "files": [
     "hooks",
@@ -24,6 +19,6 @@
     "types"
   ],
   "dependencies": {
-    "@cmodjs/core": "^4.3.2"
+    "@cmodjs/core": "^5.0.0"
   }
 }
