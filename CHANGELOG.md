@@ -2,6 +2,11 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.9.2]
+
+### Fixed
+- oneclaude installs on a computer with no GitHub SSH key, such as a server. Claude Code looked up the cmod plugin's versions over SSH and refused the install with `Dependency "cmod@oneclaude" has no git tag satisfying >=5.0.0`. oneclaude's marketplace now lists cmod by its HTTPS address.
+
 ## [0.9.1]
 
 ### Changed

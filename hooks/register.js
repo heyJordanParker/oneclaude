@@ -10237,7 +10237,7 @@ function oneLine(error) {
   return messageOf(error).replace(/\s*\n\s*/g, " ");
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/status.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/status.ts
 var LOCAL_POOL = "http://127.0.0.1:8317";
 async function baseUrlOf() {
   const env = (await settings.user.read())["env"];
@@ -10492,7 +10492,7 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/components/pool-bar.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/components/pool-bar.tsx
 function poolBar({ used, pace: pace2 }) {
   return drawCells(bar(used, pace2, BAR_CELLS));
 }
@@ -10504,7 +10504,7 @@ function drawCells(cells) {
   }, cell.text));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/components/pool-line.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/components/pool-line.tsx
 var PACE_COLORS = {
   on: undefined,
   under: "success",
@@ -10581,7 +10581,7 @@ function PoolLine({ reading, shown, isOpen, onToggle, onTrouble }) {
   }, isOpen ? "[-]" : "[+]"))));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/components/weekly-resets.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/components/weekly-resets.tsx
 var DAYS2 = 8;
 var HOUR_MS = 60 * 60 * 1000;
 var DAY_MS = 24 * HOUR_MS;
@@ -10669,7 +10669,7 @@ function WeeklyResets({ calendar, width }) {
   ]));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/usage.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/usage.ts
 var PERIODS = [["quarter", "90 days"], ["month", "30 days"], ["week", "7 days"], ["yesterday", "Yesterday"], ["today", "Today"]];
 var BREAKDOWNS = [["account", "Account"], ["model", "Model"], ["agent", "Agent"], ["project", "Project"], ["time", "Time"]];
 var UNITS = [["cost", "Cost"], ["tokens", "Tokens"]];
@@ -10781,7 +10781,7 @@ function optimizePrompt(pool, agents, projects, models) {
 `);
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/pages/accounts.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/pages/accounts.tsx
 var COMBINED = "Combined usage";
 var GAP2 = 2;
 var INSET = 3;
@@ -11223,7 +11223,7 @@ function LogSection({ log }) {
   ]);
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/record.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/record.ts
 function checked(input) {
   const { name, url, responses, timeoutSeconds, failOpen, observabilityMode } = input;
   if (typeof name !== "string" || name === "")
@@ -11295,12 +11295,12 @@ function recordOf2(mod) {
   };
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/state.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/state.ts
 var initialState = {
   memory: { pool: LOCAL_POOL, reading: null, isOpen: false, shown: {}, usage: { period: "month", by: "account", units: "cost" }, table: null, isConfirming: false, keyAnswer: null }
 };
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/src/mod.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/src/mod.tsx
 var REFRESH_MS = 15000;
 async function checkKey(mod, key) {
   mod.state.memory.pool = await poolOf();
@@ -11442,7 +11442,7 @@ var oneclaude = defineMod({
   }
 });
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-f1QY2u/release/hooks/register.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-miWXnD/release/hooks/register.ts
 function register(addHook, options) {
   registerMod(addHook, oneclaude, options);
 }
