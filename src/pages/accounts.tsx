@@ -5,7 +5,7 @@ import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
-import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, freshBlocks, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
+import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, freshBlocks, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, warningOf, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
 import { BREAKDOWNS, dailyChart, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
@@ -36,9 +36,8 @@ export const accountsPage: PageInit<OneclaudeState> = {
   id: 'accounts',
   title: 'Accounts',
   render: (mod, { columns }) => {
-    const reading = mod.state.memory.reading
-    if (reading === null) return <Text dimColor>Reading your accounts</Text>
-    if ('problem' in reading) return <Text color="warning">{PROBLEMS[reading.problem]}</Text>
+    const { reading, problem } = mod.state.memory
+    if (reading === null) return problem === null ? <Text dimColor>Reading your accounts</Text> : <Text color="warning">{`oneclaude: ${PROBLEMS[problem]}`}</Text>
     const { status, blocks } = reading
     const shown = mod.state.memory.shown
     const combined = combinedRow(status, shown[POOL])
@@ -50,6 +49,7 @@ export const accountsPage: PageInit<OneclaudeState> = {
     const draw = (row: Row): RenderElement => <RowView row={row} width={width} isNarrow={isNarrow} />
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
+        {problem === null ? null : <Box paddingX={2}><Text color="warning">{warningOf(problem, status)}</Text></Box>}
         <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column">
           {draw(combined)}
         </Box>
@@ -193,7 +193,7 @@ function BlockedView({ mod, account, blocked, now }: { readonly mod: Mod<Oneclau
     }
     const blocks = await freshBlocks(mod, key)
     const reading = mod.state.memory.reading
-    if (reading !== null && 'status' in reading) mod.state.memory.reading = { ...reading, blocks }
+    if (reading !== null) mod.state.memory.reading = { ...reading, blocks }
   }
   return (
     <Box gap={2}>
@@ -276,7 +276,7 @@ function UsageSection({ mod, table, view, columns }: { readonly mod: Mod<Oneclau
           {layout.rows.map((line) => <TableRow line={line} />)}
           <TableRow line={layout.total} isTotal />
         </Box>,
-        ...(isUnrecorded ? [<Text dimColor wrap="wrap">Not recorded: requests from before oneclaude recorded agent types and projects.</Text>] : []),
+        ...(isUnrecorded ? [<Text dimColor wrap="wrap">Not recorded: requests from before oneclaude recorded agent types and projects, and from conversations whose record never reached the pool.</Text>] : []),
         <Optimize mod={mod} />,
       ]}
     </Section>

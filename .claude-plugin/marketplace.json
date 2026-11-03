@@ -10,16 +10,16 @@
       "description": "Every Claude subscription you have, as one pool: routing, usage, pace and agents under the prompt",
       "source": {
         "source": "archive",
-        "url": "https://github.com/heyJordanParker/oneclaude/releases/download/v0.9.1/oneclaude-0.9.1.zip",
-        "sha256": "3bce157ac61bbd148920a9288ca6fbe9712bdb6b927dd1904cac90d9a3d013f4"
+        "url": "https://github.com/heyJordanParker/oneclaude/releases/download/v0.9.2/oneclaude-0.9.2.zip",
+        "sha256": "e99dbc15ca78a3f14cc9cc9737a1ae5b0c19543b15c625c24114409b31c29c26"
       }
     },
     {
       "name": "cmod",
       "description": "Claude Mod Manager: runs the uninstall step of each mod Claude Code removes",
       "source": {
-        "source": "github",
-        "repo": "heyJordanParker/cmod",
+        "source": "url",
+        "url": "https://github.com/heyJordanParker/cmod.git",
         "ref": "release"
       }
     }

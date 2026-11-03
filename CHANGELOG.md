@@ -2,6 +2,18 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.9.3]
+
+### Fixed
+- The line under the prompt stays when the pool stops answering. It keeps the last reading with `pool unreachable since <time>`, and the warning goes away by itself once the pool answers again. Before, the line turned into `oneclaude: proxy down`, and one refresh that never ended froze it, or left it blank, for the rest of the session.
+- A session that starts while the pool doesn't answer shows the last reading any session on the machine made.
+- Usage labels a conversation's requests with its project and agent types after `/clear`, `/resume`, a fork and `/cd`. Before, a conversation told the pool its folder only as it started, so every request after one of them added up as Not recorded.
+- A conversation's record reaches the pool even when one request to it never ends, or the management key is missing for a while. Before, one request that never ended kept every later record from the pool until Claude Code restarted, and a record sent without a key never went.
+- After `/clear`, `/resume` or a fork, the line shows the last reading at once. Before, it showed `oneclaude: reading the pool` until the next refresh.
+- One failed read of the proxy's blocks keeps the blocks on screen. Before, it cleared them in every open session for 14 seconds.
+- Usage counts the requests from before oneclaude once each. Claude Code writes a transcript line for each content block of a response, and since Claude Code 2.1.286 the import counted every line, 2 to 4 times each request, under No account recorded. It also counted requests to GPT models, which never ran on the pool. The first load of this version takes both out of the request log, once.
+- The Log shows every error Anthropic returns, such as `Anthropic returned 500 Internal Server Error to work.`, once per account until 10 minutes pass without one. Before, it showed only rate limits, overloads and 404s, and stayed empty while every account failed.
+
 ## [0.9.2]
 
 ### Fixed
