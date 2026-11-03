@@ -61,13 +61,14 @@ The plugin logs each event that changed where requests go, one sentence each, an
 
 - **Rate limits**: `Anthropic rate limited work (429).` once per account until 10 minutes pass without one.
 - **Overloads**: `Anthropic returned 529 Overloaded to work.` once per account the same way.
+- **Other failures**: `Anthropic returned 500 Internal Server Error to work.`, with the status of the first error, once per account the same way.
 - **404s**: `Anthropic returned 404 Not Found for Opus 5.5 on work.`, then `oneclaude cleared the proxy's blocks on work, set after a 404 for Opus 5.5.` when oneclaude cleared the blocks that followed, once per account the same way.
 - **Cleared blocks**: `oneclaude cleared the proxy's blocks on work on request.` after `[Unblock]`, or any call to the unblock route.
 - **Refused subagents**: `oneclaude refused a new Opus subagent: every account reached its limit of 19.` once per refusal spell. The line under the prompt says `agent limit reached` until 3 minutes, `subagents.retry-after`, pass without a refusal.
 - **Lowered limits**: `oneclaude lowered the Opus agent limit from 19 to 17 after Anthropic rate limited accounts below 19 on 3 separate days.`
 - **Logins**: `Anthropic rejected work's login (401).` once, until the account answers again.
 
-Requests Claude Code cancelled, which the proxy answers 499, are left out. So are other one-off failures.
+Requests Claude Code cancelled, which the proxy answers 499, are left out.
 
 ## Claude Seat Pacer
 

@@ -7,6 +7,8 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 ### Fixed
 - The line under the prompt stays when the pool stops answering. It keeps the last reading with `pool unreachable since <time>`, and the warning goes away by itself once the pool answers again. Before, the line turned into `oneclaude: proxy down`, and one refresh that never ended froze it, or left it blank, for the rest of the session.
 - A session that starts while the pool doesn't answer shows the last reading any session on the machine made.
+- Usage counts the requests from before oneclaude once each. Claude Code writes a transcript line for each content block of a response, and since Claude Code 2.1.286 the import counted every line, 2 to 4 times each request, under No account recorded. It also counted requests to GPT models, which never ran on the pool. The first load of this version takes both out of the request log, once.
+- The Log shows every error Anthropic returns, such as `Anthropic returned 500 Internal Server Error to work.`, once per account until 10 minutes pass without one. Before, it showed only rate limits, overloads and 404s, and stayed empty while every account failed.
 
 ## [0.9.2]
 

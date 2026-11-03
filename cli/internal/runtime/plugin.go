@@ -35,10 +35,10 @@ type Options struct {
 }
 
 // accountState is an account as the plugin knows it. served is when it last
-// answered each model. throttled, rejected, overloaded and notFound are when
-// Anthropic last throttled it, turned it away for its spent week, answered
-// overloaded, or answered 404. signedOut is whether its login failed since it
-// last answered.
+// answered each model. throttled, rejected, overloaded, notFound and failed
+// are when Anthropic last throttled it, turned it away for its spent week,
+// answered overloaded, answered 404, or answered any other error. signedOut is
+// whether its login failed since it last answered.
 type accountState struct {
 	model.Account
 	weekly     model.Weekly
@@ -48,6 +48,7 @@ type accountState struct {
 	rejected   time.Time
 	overloaded time.Time
 	notFound   time.Time
+	failed     time.Time
 	signedOut  bool
 }
 
@@ -82,8 +83,8 @@ const (
 	levelInfo = "INFO"
 )
 
-// An account's throttles and overloads log once per episode: again only after
-// this long without one.
+// An account's throttles, overloads, 404s and other failures each log once per
+// episode: again only after this long without one.
 const episode = 10 * time.Minute
 
 // Plugin answers every host method. The host calls pick, the interceptor and
@@ -114,6 +115,7 @@ type Plugin struct {
 	history      requestHistory
 	historyRead  bool
 	imported     bool
+	repaired     bool
 
 	filterFailedAt map[string]time.Time
 	responses      map[string]*response
@@ -267,11 +269,13 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 }
 
 // savedUsage is usage.json. Imported is true once the request log holds the
-// requests Claude Code's transcripts record from before it.
+// requests Claude Code's transcripts record from before it, and Repaired once
+// those count each Claude response once.
 type savedUsage struct {
 	Accounts []savedAccount `json:"accounts"`
 	Log      []LogEntry     `json:"log"`
 	Imported bool           `json:"imported"`
+	Repaired bool           `json:"repaired"`
 }
 
 type savedAccount struct {
@@ -302,7 +306,7 @@ func (p *Plugin) load(dir string) {
 	}
 	old := p.log
 	p.loadedDir, p.loadedAt = dir, p.now()
-	p.history, p.historyRead, p.imported = newRequestHistory(), false, false
+	p.history, p.historyRead, p.imported, p.repaired = newRequestHistory(), false, false, false
 	p.log = usage.NewLog(pathIn(dir, "requests.jsonl"), daysKept*24*time.Hour)
 	p.mu.Unlock()
 	if old != nil {
@@ -322,7 +326,7 @@ func (p *Plugin) load(dir string) {
 			}
 			p.accounts[a.ID] = st
 		}
-		p.events, p.imported = saved.Log, saved.Imported
+		p.events, p.imported, p.repaired = saved.Log, saved.Imported, saved.Repaired
 		p.mu.Unlock()
 	}
 	var book limits.Saved
@@ -357,7 +361,7 @@ func (p *Plugin) save() {
 		return
 	}
 	p.dirty = false
-	saved := savedUsage{Log: append([]LogEntry(nil), p.events...), Imported: p.imported}
+	saved := savedUsage{Log: append([]LogEntry(nil), p.events...), Imported: p.imported, Repaired: p.repaired}
 	for _, a := range p.accounts {
 		sa := savedAccount{Account: a.Account}
 		if a.known {

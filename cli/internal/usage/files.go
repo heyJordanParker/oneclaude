@@ -92,10 +92,11 @@ func NewLog(path string, keep time.Duration) *Log {
 	return l
 }
 
-// Rewrite passes every line of the log through edit and waits until the
-// writer has replaced the file. An edit that returns nil drops its line.
-func (l *Log) Rewrite(edit func(line []byte) []byte) {
-	l.edit(func() bool { return l.rewrite("", edit) })
+// Rewrite passes every line of the log through edit, waits until the writer
+// has replaced the file, and says whether it did. An edit that returns nil
+// drops its line.
+func (l *Log) Rewrite(edit func(line []byte) []byte) bool {
+	return l.edit(func() bool { return l.rewrite("", edit) })
 }
 
 // Prepend puts the lines of the file at head before the log's oldest line,

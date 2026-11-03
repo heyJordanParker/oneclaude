@@ -13,9 +13,11 @@ import (
 	"github.com/heyJordanParker/oneclaude/cli/internal/usage"
 )
 
-// Recorded is one request a Claude Code transcript records: when, under which
-// request id, on which model, its tokens, and the agent type and project it
-// ran for. A main session's Agent is empty.
+// Recorded is one request a Claude Code transcript records: when, the id of
+// the response it got, on which model, its tokens, and the agent type and
+// project it ran for. A main session's Agent is empty. Claude Code writes one
+// line per content block of a response, each with the response's id and its
+// usage so far, so the lines that share a Request are one request.
 type Recorded struct {
 	At       time.Time
 	Request  string
@@ -29,7 +31,7 @@ type Recorded struct {
 var (
 	usageTag     = []byte(`"usage":{"input_tokens":`)
 	timestampTag = []byte(`"timestamp":"`)
-	requestTag   = []byte(`"requestId":"`)
+	responseTag  = []byte(`"id":"`)
 	modelTag     = []byte(`"model":"`)
 )
 
@@ -120,7 +122,7 @@ func recordedIn(path string, since, until time.Time, keep func(model.Tokens) boo
 			return true
 		}
 		recorded := base
-		recorded.At, recorded.Request, recorded.Model, recorded.Tokens = at, lastField(line, requestTag), firstField(line, modelTag), tokens
+		recorded.At, recorded.Request, recorded.Model, recorded.Tokens = at, firstField(line, responseTag), firstField(line, modelTag), tokens
 		found = append(found, recorded)
 		return true
 	})

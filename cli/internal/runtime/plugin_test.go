@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/heyJordanParker/oneclaude/cli/internal/model"
+	"github.com/heyJordanParker/oneclaude/cli/internal/usage"
 )
 
 var testNow = time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
@@ -196,14 +197,31 @@ func TestAThrottleIsLoggedOnceAndAQuotaRefusalIsNot(t *testing.T) {
 	}
 }
 
-func TestTheLogLeavesOutCancelledRequestsAndOneOffFailures(t *testing.T) {
+func TestTheLogRecordsEachAccountsFailuresOncePerEpisodeAndLeavesOutCancelledRequests(t *testing.T) {
 	p := newTestPlugin(t, enabled)
-	for i, status := range []int{statusClientClosed, http.StatusInternalServerError, http.StatusBadRequest} {
-		call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: fmt.Sprintf("r%d", i), Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", Failed: true, Failure: UsageFailure{StatusCode: status}})
+	fail := func(id, account string, status int) {
+		call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: id, Provider: "claude", Model: "claude-opus-5-5", AuthID: account, Failed: true, Failure: UsageFailure{StatusCode: status}})
 	}
-	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "busy", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", Failed: true, Failure: UsageFailure{StatusCode: 529}})
-	if log := p.Status().Log; len(log) != 1 || log[0].Text != "Anthropic returned 529 Overloaded to ada." {
-		t.Fatalf("log = %+v, want only the overload", log)
+	fail("cancelled", "claude-ada@x.json", statusClientClosed)
+	fail("ada-1", "claude-ada@x.json", http.StatusInternalServerError)
+	fail("ada-2", "claude-ada@x.json", http.StatusBadRequest)
+	fail("bob-1", "claude-bob@x.json", http.StatusInternalServerError)
+	fail("busy", "claude-ada@x.json", 529)
+	later := testNow.Add(episode)
+	p.now = func() time.Time { return later }
+	fail("ada-3", "claude-ada@x.json", http.StatusBadGateway)
+	var texts []string
+	for _, e := range p.Status().Log {
+		texts = append(texts, e.Level+" "+e.Text)
+	}
+	want := []string{
+		"WARN Anthropic returned 500 Internal Server Error to ada.",
+		"WARN Anthropic returned 500 Internal Server Error to bob.",
+		"WARN Anthropic returned 529 Overloaded to ada.",
+		"WARN Anthropic returned 502 Bad Gateway to ada.",
+	}
+	if !slices.Equal(texts, want) {
+		t.Fatalf("log = %q, want %q: each account's failures once per 10 minutes, and no cancelled request", texts, want)
 	}
 }
 
@@ -265,36 +283,15 @@ func TestUsageImportsTheRequestsFromBeforeTheLogOnceUnderNoAccountRecorded(t *te
 	root := claudeProjects(t)
 	folder := filepath.Join(root, "-Users-turing-dotfiles")
 	before := model.Tokens{Input: 10, Output: 1_000_000}
-	write := func(path, text string) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer f.Close()
-		_, _ = f.WriteString(text)
-	}
 	tenDaysAgo := testNow.AddDate(0, 0, -10)
-	reply := func(at time.Time, request string, output int64) string {
-		return fmt.Sprintf(`{"type":"assistant","message":{"model":"claude-opus-5-5","usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":%d}},"requestId":"%s","timestamp":"%s"}`+"\n", output, request, at.UTC().Format(time.RFC3339Nano))
+	reply := func(at time.Time, message string, output int64) string {
+		return fmt.Sprintf(`{"type":"assistant","message":{"model":"claude-opus-5-5","id":"%s","usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":%d}},"timestamp":"%s"}`+"\n", message, output, at.UTC().Format(time.RFC3339Nano))
 	}
-	write(filepath.Join(folder, "s1.jsonl"), reply(tenDaysAgo, "req_old", 1)+reply(tenDaysAgo, "req_old", before.Output)+reply(testNow.Add(-time.Minute), "req_logged", 5))
-	write(filepath.Join(folder, "s1", "subagents", "agent-a7.jsonl"), reply(tenDaysAgo.Add(time.Hour), "req_review", before.Output))
+	appendTo(t, filepath.Join(folder, "s1.jsonl"), reply(tenDaysAgo, "msg_old", 1)+reply(tenDaysAgo, "msg_old", before.Output)+reply(testNow.Add(-time.Minute), "msg_logged", 5))
+	appendTo(t, filepath.Join(folder, "s1", "subagents", "agent-a7.jsonl"), reply(tenDaysAgo.Add(time.Hour), "msg_review", before.Output))
 
-	dir := t.TempDir()
-	logged, _ := json.Marshal(requestLine{At: testNow.Add(-time.Minute), Model: "claude-opus-5-5", Family: "opus", Account: "0000beef", Outcome: "ok", Tokens: model.Tokens{Output: 5}})
-	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), append(logged, '\n'), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	load := func() *Plugin {
-		p := New(Options{Name: "oneclaude", NoPoller: true, ClaudeProjects: root, Now: func() time.Time { return testNow }})
-		cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
-		p.Call(MethodPluginRegister, cfg)
-		call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
-		return p
-	}
+	dir := logOneRequest(t)
+	load := func() *Plugin { return loadWithTranscripts(t, root, dir) }
 	p := load()
 	agents := usageOf(t, p, "month", "agent")
 	accounts := usageOf(t, p, "month", "account")
@@ -315,6 +312,156 @@ func TestUsageImportsTheRequestsFromBeforeTheLogOnceUnderNoAccountRecorded(t *te
 	if after := usageOf(t, again, "month", "agent"); after.Total.Tokens != agents.Total.Tokens {
 		t.Fatalf("a second load = %+v, want the import once", after.Total)
 	}
+}
+
+func TestTheImportCountsAResponseClaudeCodeWroteAsOneLinePerContentBlockOnce(t *testing.T) {
+	root := claudeProjects(t)
+	at := testNow.AddDate(0, 0, -10)
+	block := func(index int, output int64) string {
+		return fmt.Sprintf(`{"type":"assistant","message":{"model":"claude-sonnet-5-5","id":"msg_011CgDDCyjiM6tftGKPphP6j","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_%d","name":"Read","input":{}}],"usage":{"input_tokens":3,"cache_creation_input_tokens":1200,"cache_read_input_tokens":26835,"output_tokens":%d}},"apiBlockIndex":%d,"requestRef":"8fdbd989-db6f-488e-bb76-b46cad3f7979","timestamp":"%s"}`+"\n",
+			index, output, index, at.Add(time.Duration(index)*300*time.Millisecond).Format(time.RFC3339Nano))
+	}
+	appendTo(t, filepath.Join(root, "-Users-turing-dotfiles", "s1.jsonl"), block(0, 4)+block(1, 4)+block(2, 280))
+	dir := logOneRequest(t)
+
+	p := loadWithTranscripts(t, root, dir)
+	usageOf(t, p, "month", "model")
+	p.Shutdown()
+	var imported []requestLine
+	for _, line := range linesIn(t, filepath.Join(dir, "requests.jsonl")) {
+		if line.Account == "" {
+			imported = append(imported, line)
+		}
+	}
+	if want := (model.Tokens{Input: 3, Output: 280, CacheRead: 26835, CacheWrite: 1200}); len(imported) != 1 || imported[0].Tokens != want {
+		t.Fatalf("imported = %+v, want the one response with its final tokens %+v", imported, want)
+	}
+}
+
+func TestTheImportLeavesOutRequestsToModelsThatAreNotClaude(t *testing.T) {
+	root := claudeProjects(t)
+	at := testNow.AddDate(0, 0, -10).Format(time.RFC3339Nano)
+	appendTo(t, filepath.Join(root, "-Users-turing-dotfiles", "s1.jsonl"),
+		`{"type":"assistant","message":{"id":"resp_0bce8705e77acffe","type":"message","role":"assistant","model":"gpt-6-astra","usage":{"input_tokens":24405,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":49}},"timestamp":"`+at+`"}`+"\n"+
+			`{"type":"assistant","message":{"model":"claude-opus-5-5","id":"msg_claude","usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":7}},"timestamp":"`+at+`"}`+"\n")
+	p := loadWithTranscripts(t, root, logOneRequest(t))
+	defer p.Shutdown()
+	if models := usageOf(t, p, "month", "model"); len(models.Rows) != 1 || models.Rows[0].Label != "Opus 5.5" || models.Total.Tokens.Input != 10 {
+		t.Fatalf("by model = %+v, want only the Claude request beside the logged one", models)
+	}
+}
+
+func TestALoadRepairsTheLinesAnEarlierImportCountedOncePerContentBlockOnce(t *testing.T) {
+	at := testNow.AddDate(0, 0, -10)
+	imported := func(after time.Duration, modelID, project string, tokens model.Tokens) requestLine {
+		return requestLine{At: at.Add(after), Model: modelID, Family: model.FamilyOf(modelID), Project: project, Outcome: "ok", Tokens: tokens}
+	}
+	block := model.Tokens{Input: 3, Output: 4, CacheRead: 26835, CacheWrite: 1200}
+	final := block
+	final.Output = 280
+	next := model.Tokens{Input: 1, Output: 90, CacheRead: 28035, CacheWrite: 400}
+	dir := t.TempDir()
+	written := []requestLine{
+		imported(0, "claude-sonnet-5-5", "cmod", block),
+		imported(300*time.Millisecond, "claude-sonnet-5-5", "cmod", block),
+		imported(400*time.Millisecond, "gpt-6-astra", "cmod", model.Tokens{Input: 24405, Output: 49}),
+		imported(600*time.Millisecond, "claude-sonnet-5-5", "cmod", final),
+		imported(10*time.Second, "claude-sonnet-5-5", "cmod", next),
+		imported(20*time.Second, "claude-sonnet-5-5", "dotfiles", next),
+		{At: testNow.Add(-time.Minute), Model: "claude-opus-5-5", Family: "opus", Account: "0000beef", Outcome: "ok", Tokens: model.Tokens{Output: 5}},
+	}
+	writeLog := func() {
+		var log bytes.Buffer
+		for _, line := range written {
+			raw, _ := json.Marshal(line)
+			log.Write(append(raw, '\n'))
+		}
+		if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), log.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeLog()
+	if err := os.WriteFile(filepath.Join(dir, "usage.json"), []byte(`{"imported":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	load := func() []requestLine {
+		p := loadWithTranscripts(t, "", dir)
+		usageOf(t, p, "month", "model")
+		p.Shutdown()
+		return linesIn(t, filepath.Join(dir, "requests.jsonl"))
+	}
+
+	repaired := load()
+	want := []model.Tokens{final, next, next, {Output: 5}}
+	var got []model.Tokens
+	for _, line := range repaired {
+		got = append(got, line.Tokens)
+	}
+	if !slices.Equal(got, want) || repaired[1].Project != "cmod" || repaired[2].Project != "dotfiles" {
+		t.Fatalf("log = %+v, want the response's last line, the next request, the same tokens in another project, and the logged line", repaired)
+	}
+	var saved savedUsage
+	if err := usage.ReadJSON(filepath.Join(dir, "usage.json"), &saved); err != nil || !saved.Repaired {
+		t.Fatalf("usage.json = %+v, %v, want repaired", saved, err)
+	}
+
+	writeLog()
+	if again := load(); len(again) != len(written) {
+		t.Fatalf("a second load = %d lines, want the %d written after the repair, as the repair runs once", len(again), len(written))
+	}
+}
+
+// logOneRequest is a data folder whose request log holds one request, a
+// minute ago, so the import reads the transcripts from before it.
+func logOneRequest(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	logged, _ := json.Marshal(requestLine{At: testNow.Add(-time.Minute), Model: "claude-opus-5-5", Family: "opus", Account: "0000beef", Outcome: "ok", Tokens: model.Tokens{Output: 5}})
+	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), append(logged, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func loadWithTranscripts(t *testing.T, root, dir string) *Plugin {
+	t.Helper()
+	p := New(Options{Name: "oneclaude", NoPoller: true, ClaudeProjects: root, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+	p.Call(MethodPluginRegister, cfg)
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	return p
+}
+
+func appendTo(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(text); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func linesIn(t *testing.T, path string) []requestLine {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []requestLine
+	for _, text := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
+		var line requestLine
+		if err := json.Unmarshal(text, &line); err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func TestTimeStepsByTheHourOverADayAndByTheWeekOver90Days(t *testing.T) {
@@ -547,7 +694,7 @@ func claudeProjects(t *testing.T) string {
 	root := t.TempDir()
 	folder := filepath.Join(root, "-Users-turing-dotfiles")
 	files := map[string]string{
-		filepath.Join(folder, "s1.jsonl"):                                `{"type":"user","cwd":"/Users/turing/dotfiles"}`,
+		filepath.Join(folder, "s1.jsonl"):                              `{"type":"user","cwd":"/Users/turing/dotfiles"}`,
 		filepath.Join(folder, "s1", "subagents", "agent-a7.meta.json"): `{"agentType":"code-reviewer"}`,
 	}
 	for path, text := range files {
@@ -650,23 +797,13 @@ func TestALoadFillsInTheAgentAndProjectOfLinesLoggedBeforeOneclaudeRecordedThem(
 	main := model.Tokens{Input: 2, Output: 5411, CacheRead: 66598, CacheWrite: 19897}
 	review := model.Tokens{Input: 3, Output: 10, CacheRead: 100}
 	unrecorded := model.Tokens{Input: 4301, Output: 71, CacheRead: 190961}
-	assistant := func(at time.Time, request string, tokens model.Tokens) string {
-		return fmt.Sprintf(`{"type":"assistant","message":{"model":"claude-sonnet-5-5-20261001","usage":{"input_tokens":%d,"cache_creation_input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}},"requestId":"%s","timestamp":"%s"}`+"\n",
-			tokens.Input, tokens.CacheWrite, tokens.CacheRead, tokens.Output, request, at.UTC().Format(time.RFC3339Nano))
-	}
-	appendTo := func(path, text string) {
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer f.Close()
-		if _, err := f.WriteString(text); err != nil {
-			t.Fatal(err)
-		}
+	assistant := func(at time.Time, message string, tokens model.Tokens) string {
+		return fmt.Sprintf(`{"type":"assistant","message":{"model":"claude-sonnet-5-5-20261001","id":"%s","usage":{"input_tokens":%d,"cache_creation_input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}},"timestamp":"%s"}`+"\n",
+			message, tokens.Input, tokens.CacheWrite, tokens.CacheRead, tokens.Output, at.UTC().Format(time.RFC3339Nano))
 	}
 	at := testNow.Add(-2 * time.Hour)
-	appendTo(filepath.Join(folder, "s1.jsonl"), assistant(at.Add(-2*time.Second), "req_main", main))
-	appendTo(filepath.Join(folder, "s1", "subagents", "agent-a7.jsonl"), assistant(at.Add(time.Minute), "req_review", review))
+	appendTo(t, filepath.Join(folder, "s1.jsonl"), assistant(at.Add(-2*time.Second), "msg_main", main)+assistant(at.Add(-time.Second), "msg_main", main))
+	appendTo(t, filepath.Join(folder, "s1", "subagents", "agent-a7.jsonl"), assistant(at.Add(time.Minute), "msg_review", review))
 
 	dir := t.TempDir()
 	var log bytes.Buffer
@@ -682,13 +819,7 @@ func TestALoadFillsInTheAgentAndProjectOfLinesLoggedBeforeOneclaudeRecordedThem(
 	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), log.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	load := func() *Plugin {
-		p := New(Options{Name: "oneclaude", NoPoller: true, ClaudeProjects: root, Now: func() time.Time { return testNow }})
-		cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
-		p.Call(MethodPluginRegister, cfg)
-		call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
-		return p
-	}
+	load := func() *Plugin { return loadWithTranscripts(t, root, dir) }
 	p := load()
 	agents := usageOf(t, p, "today", "agent")
 	p.Shutdown()
@@ -700,18 +831,7 @@ func TestALoadFillsInTheAgentAndProjectOfLinesLoggedBeforeOneclaudeRecordedThem(
 		t.Fatalf("by agent = %+v, want the old main and code-reviewer lines filled in, and the line no transcript records still Not recorded", agents.Rows)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(dir, "requests.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var filled []requestLine
-	for _, text := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
-		var line requestLine
-		if err := json.Unmarshal(text, &line); err != nil {
-			t.Fatal(err)
-		}
-		filled = append(filled, line)
-	}
+	filled := linesIn(t, filepath.Join(dir, "requests.jsonl"))
 	if len(filled) != 4 {
 		t.Fatalf("log holds %d lines, want 4", len(filled))
 	}

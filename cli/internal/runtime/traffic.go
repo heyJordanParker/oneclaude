@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/heyJordanParker/oneclaude/cli/internal/limits"
@@ -342,7 +343,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 		a.weekly, a.known = weekly, true
 		p.dirty = true
 	}
-	served, throttled, overloaded, notFound := a.served[modelID], a.throttled, a.overloaded, a.notFound
+	served, throttled, overloaded, notFound, failed := a.served[modelID], a.throttled, a.overloaded, a.notFound, a.failed
 	limited := !a.throttled.Before(served) || !a.rejected.Before(served) || a.signedOut
 	switch outcome {
 	case "ok":
@@ -359,6 +360,8 @@ func (p *Plugin) observe(rec UsageRecord) {
 	case "error":
 		if rec.Failure.StatusCode == http.StatusNotFound {
 			a.notFound = now
+		} else {
+			a.failed = now
 		}
 	}
 	plan, name := a.Plan, a.Name
@@ -388,7 +391,10 @@ func (p *Plugin) observe(rec UsageRecord) {
 			p.note(levelWarn, "Anthropic returned 529 Overloaded to %s.", name)
 		}
 	case "error":
-		if rec.Failure.StatusCode != http.StatusNotFound {
+		if status := rec.Failure.StatusCode; status != http.StatusNotFound {
+			if now.Sub(failed) >= episode {
+				p.note(levelWarn, "Anthropic returned %s to %s.", strings.TrimSpace(fmt.Sprintf("%d %s", status, http.StatusText(status))), name)
+			}
 			break
 		}
 		label := model.Label(modelID)

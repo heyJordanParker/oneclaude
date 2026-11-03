@@ -257,14 +257,15 @@ func (p *Plugin) History() History {
 // readRequestLog adds the lines earlier loads wrote to requests.jsonl, the
 // last 90 days of them, once per load, after filling in the lines logged
 // before oneclaude recorded their agent and project, and, once per data
-// folder, importing the requests from before the log. load starts it in the
+// folder, importing the requests from before the log, or repairing the lines
+// an earlier import wrote. load starts it in the
 // background, so the first History waits for it only while it is still
 // reading.
 func (p *Plugin) readRequestLog() {
 	p.historyMu.Lock()
 	defer p.historyMu.Unlock()
 	p.mu.Lock()
-	read, dir, loadedAt, log, imported := p.historyRead, p.loadedDir, p.loadedAt, p.log, p.imported
+	read, dir, loadedAt, log, imported, repaired := p.historyRead, p.loadedDir, p.loadedAt, p.log, p.imported, p.repaired
 	p.mu.Unlock()
 	if read || dir == "" {
 		return
@@ -276,10 +277,10 @@ func (p *Plugin) readRequestLog() {
 	}
 	path := filepath.Join(dir, "requests.jsonl")
 	p.backfill(path, log, stillLoaded)
-	if !imported && p.importTranscripts(path, log, loadedAt, stillLoaded) {
+	if !imported && p.importTranscripts(path, log, loadedAt, stillLoaded) || imported && !repaired && p.repairImport(path, log, stillLoaded) {
 		p.mu.Lock()
 		if p.loadedDir == dir && p.loadedAt.Equal(loadedAt) {
-			p.imported, p.dirty = true, true
+			p.imported, p.repaired, p.dirty = true, true, true
 		}
 		p.mu.Unlock()
 	}
