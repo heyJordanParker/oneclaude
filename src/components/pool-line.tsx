@@ -1,6 +1,6 @@
 import type { RenderElement } from 'claude-code'
 import { Box, Button, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
-import { pace, paceState, percent, plural, PROBLEMS, troublesOf, until, type PaceState, type Reading, type Shown } from '../status.js'
+import { pace, paceState, percent, plural, PROBLEMS, troublesOf, until, warningOf, type PaceState, type Problem, type Reading, type Shown } from '../status.js'
 import { poolBar } from './pool-bar.js'
 
 const PACE_COLORS: Readonly<Record<PaceState, string | undefined>> = {
@@ -36,8 +36,8 @@ export function Facts({ facts, color, wrap = 'wrap' }: { readonly facts: readonl
   return <Text color={color} dimColor={color === undefined} wrap={wrap}>{parts}</Text>
 }
 
-export function PoolLine({ reading, shown, isOpen, onToggle, onTrouble }: { readonly reading: Reading; readonly shown?: Shown; readonly isOpen: boolean; readonly onToggle: () => unknown; readonly onTrouble: (key: string) => unknown }): RenderElement {
-  if ('problem' in reading) return <Text color="warning">{PROBLEMS[reading.problem]}</Text>
+export function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble }: { readonly reading: Reading | null; readonly problem: Problem | null; readonly shown?: Shown; readonly isOpen: boolean; readonly onToggle: () => unknown; readonly onTrouble: (key: string) => unknown }): RenderElement {
+  if (reading === null) return problem === null ? <Text dimColor>oneclaude: reading the pool</Text> : <Text color="warning">{`oneclaude: ${PROBLEMS[problem]}`}</Text>
   const { pool, now } = reading.status
   const facts: Fact[] = pool.known === 0
     ? ['reading accounts', plural(pool.agents, 'agent')]
@@ -52,6 +52,7 @@ export function PoolLine({ reading, shown, isOpen, onToggle, onTrouble }: { read
       <Box flexShrink={0}>{poolBar(shown ?? { used: pool.used, pace: pool.even })}</Box>
       <Box gap={1}>
         <Facts facts={facts} wrap="truncate-end" />
+        {problem === null ? null : <Box flexShrink={0}><Text color="warning">{`· ${warningOf(problem, reading.status)}`}</Text></Box>}
         {troublesOf(reading.status, reading.blocks).map((trouble) => (
           <Box flexShrink={0}>
             <Button key={`trouble-${trouble.key}`} plain onPress={() => onTrouble(trouble.key)}>

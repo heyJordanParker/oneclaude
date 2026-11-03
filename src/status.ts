@@ -120,12 +120,16 @@ export type Blocks = Readonly<Record<string, readonly Block[]>>
 
 export type Problem = 'proxy-down' | 'plugin-off' | 'unreadable'
 
-export type Reading = { readonly status: Status; readonly blocks: Blocks } | { readonly problem: Problem }
+export type Reading = { readonly status: Status; readonly blocks: Blocks }
 
 export const PROBLEMS: Readonly<Record<Problem, string>> = {
-  'proxy-down': 'oneclaude: proxy down',
-  'plugin-off': 'oneclaude: plugin off',
-  unreadable: 'oneclaude: status unreadable',
+  'proxy-down': 'pool unreachable',
+  'plugin-off': 'plugin off',
+  unreadable: 'status unreadable',
+}
+
+export function warningOf(problem: Problem, status: Status): string {
+  return `${PROBLEMS[problem]} since ${momentOf(status.now, new Date().toISOString())}`
 }
 
 export async function read(pool: string): Promise<{ readonly status: Status } | { readonly problem: Problem }> {
@@ -165,6 +169,18 @@ export async function readBlocks(mod: Mod<OneclaudeState>, key: string): Promise
 
 const BLOCKS = 'blocks.json'
 const SHARED_MS = 14_000
+const STATUS = 'status.json'
+
+export async function shareStatus(mod: Mod<OneclaudeState>, status: Status): Promise<void> {
+  await fs.write(`${mod.dataFolder}/${STATUS}`, JSON.stringify(status)).catch((error: unknown) => mod.log(`oneclaude could not share the pool's status with the other sessions: ${String(error)}`))
+}
+
+export async function sharedReading(mod: Mod<OneclaudeState>): Promise<Reading | null> {
+  const status = await fs.read(`${mod.dataFolder}/${STATUS}`).then((text) => JSON.parse(text) as Status).catch(() => null)
+  if (status === null) return null
+  const blocks = await fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => (JSON.parse(text) as { readonly blocks: Blocks }).blocks).catch(() => ({}))
+  return { status, blocks }
+}
 
 export async function sharedBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
   const shared = await fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => JSON.parse(text) as { readonly at: number; readonly blocks: Blocks }).catch(() => undefined)

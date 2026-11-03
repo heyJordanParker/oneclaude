@@ -90,7 +90,7 @@ test('the toggle after the line shows [-] while the Accounts page is open', asyn
 })
 
 test('the hint line says when the proxy does not answer', async () => {
-  expect(await hintLines(answering(new Error('connection refused')))).toContain('oneclaude: proxy down')
+  expect(await hintLines(answering(new Error('connection refused')))).toContain('oneclaude: pool unreachable')
 })
 
 test('the hint line says when the proxy runs without the plugin', async () => {
@@ -99,6 +99,106 @@ test('the hint line says when the proxy runs without the plugin', async () => {
 
 test('the hint line says when the status cannot be read', async () => {
   expect(await hintLines(answering({ text: '<html>' }))).toContain('oneclaude: status unreadable')
+})
+
+const STATUS_FILE = '/test/home/.local/share/cmod/data/oneclaude/status.json'
+
+const since = `pool unreachable since ${momentOf(now, new Date().toISOString())}`
+
+// flaky starts the mod against a pool whose answer the test changes: a
+// status, an error, an answer still on its way, or 'hung' for a request that
+// never ends. tick runs the refresh timer once, and lapse ends every wait the
+// mod started, or only those of ms.
+function flaky(answer: HttpResponse | Error | Promise<HttpResponse> | 'hung') {
+  const tested = testMod(oneclaude)
+  const pool = { answer, tick: (): unknown => undefined, lapse: (_ms?: number): void => {} }
+  const waits: { readonly ms: number; readonly fn: () => unknown }[] = []
+  tested.fakes.clock.every = (ms, fn) => {
+    if (ms === REFRESH_MS) pool.tick = fn
+    return { cancel() {} }
+  }
+  tested.fakes.clock.after = (ms, fn) => {
+    waits.push({ ms, fn })
+    return { cancel() {} }
+  }
+  pool.lapse = (ms) => {
+    for (const wait of waits.filter((each) => ms === undefined || each.ms === ms)) {
+      waits.splice(waits.indexOf(wait), 1)
+      void wait.fn()
+    }
+  }
+  tested.fakes.http.fetch = async () => {
+    if (pool.answer === 'hung') return new Promise<HttpResponse>(() => {})
+    if (pool.answer instanceof Error) throw pool.answer
+    return pool.answer
+  }
+  return { tested, pool }
+}
+
+const answered = (text: object): HttpResponse => ({ status: 200, ok: true, headers: {}, text: JSON.stringify(text) })
+
+test('the line keeps the last status and warns while the pool doesn\'t answer', async () => {
+  const { tested, pool } = flaky(answered(status))
+  expect(await hintLines(tested)).toContain('58% · 9% under')
+  pool.answer = new Error('connection refused')
+  await pool.tick()
+  const line = await hintLines(tested)
+  expect(line.search(BAR)).toBe(0)
+  expect(line).toContain('58% · 9% under')
+  expect(line).toContain(since)
+  await tested.type('/accounts')
+  const page = (await tested.shown.page.lines()).join('\n')
+  expect(page).toContain(since)
+  expect(page).toContain('9% under pace · next refill in 2d frees 11%')
+})
+
+test('the line clears its warning and reads the pool again by itself, also after a request that never ends', async () => {
+  const { tested, pool } = flaky(answered(status))
+  await hintLines(tested)
+  pool.answer = 'hung'
+  pool.tick()
+  await tested.settle()
+  pool.lapse(10_000)
+  expect(await hintLines(tested)).toContain(since)
+  pool.answer = answered({ ...status, pool: { ...status.pool, used: 0.7 } })
+  pool.tick()
+  const line = await hintLines(tested)
+  expect(line).toContain('70% · 3% over')
+  expect(line).not.toContain('unreachable')
+})
+
+test('a late run\'s status never replaces a newer run\'s, and the refresh that gave up names the call it waited on', async () => {
+  const { tested, pool } = flaky(answered(status))
+  await hintLines(tested)
+  let arrive: (response: HttpResponse) => void = () => {}
+  pool.answer = new Promise<HttpResponse>((resolve) => {
+    arrive = resolve
+  })
+  pool.tick()
+  await tested.settle()
+  pool.lapse(REFRESH_MS)
+  await tested.settle()
+  expect(tested.shown.debug.join('\n')).toContain('a refresh still waited on read after 15000 ms')
+  pool.answer = answered({ ...status, pool: { ...status.pool, used: 0.7 } })
+  pool.tick()
+  expect(await hintLines(tested)).toContain('70% · 3% over')
+  arrive(answered(status))
+  const line = await hintLines(tested)
+  expect(line).toContain('70% · 3% over')
+  expect(line).not.toContain('58%')
+})
+
+test('a session that starts while the pool doesn\'t answer shows the last status any session read, and warns', async () => {
+  const { tested: first } = flaky(answered(status))
+  await hintLines(first)
+  const shared = first.calls.filter(({ call, args }) => call === 'fs.write' && args[0] === STATUS_FILE).at(-1)?.args[1] as string
+  const tested = testMod(oneclaude, { files: { [STATUS_FILE]: shared } })
+  tested.fakes.http.fetch = async () => {
+    throw new Error('connection refused')
+  }
+  const line = await hintLines(tested)
+  expect(line).toContain('58% · 9% under')
+  expect(line).toContain(since)
 })
 
 test('the hint line refreshes on its timer', async () => {
@@ -113,7 +213,7 @@ test('the hint line refreshes on its timer', async () => {
     if (answer instanceof Error) throw answer
     return answer
   }
-  expect(await hintLines(tested)).toContain('oneclaude: proxy down')
+  expect(await hintLines(tested)).toContain('oneclaude: pool unreachable')
   answer = { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
   await tick?.()
   expect(await hintLines(tested)).toContain('58% · 9% under')
@@ -175,16 +275,15 @@ test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'
 
 // sentKeys starts the mod holding the stored key, if any, against a pool
 // that answers the management API with answer, and answers the keys the mod
-// sent for the blocks, then what the key file holds.
+// sent to the management API, then what the key file holds.
 async function sentKeys(key: string | undefined, answer = 200): Promise<{ readonly sent: readonly (string | undefined)[]; readonly file: string | undefined }> {
   const tested = testMod(oneclaude, { files: key === undefined ? {} : stored(key) })
   const sent: (string | undefined)[] = []
   tested.fakes.http.fetch = async (url, init) => {
-    if (url.endsWith('/auth-files')) {
+    if (url.includes('/v0/management/')) {
       sent.push(init?.headers?.['Authorization'])
-      return { status: answer, ok: answer === 200, headers: {}, text: answer === 200 ? '{"files":[]}' : '{"error":"invalid management key"}' }
+      return { status: answer, ok: answer === 200, headers: {}, text: answer !== 200 ? '{"error":"invalid management key"}' : url.endsWith('/auth-files') ? '{"files":[]}' : '{}' }
     }
-    if (url.includes('/v0/management/')) return { status: answer, ok: answer === 200, headers: {}, text: '{}' }
     return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
   }
   await hintLines(tested)
@@ -193,14 +292,18 @@ async function sentKeys(key: string | undefined, answer = 200): Promise<{ readon
 }
 
 test('the mod sends only the management key oneclaude stored once the proxy took it', async () => {
-  expect((await sentKeys('oneclaude')).sent).toEqual(['Bearer oneclaude'])
-  expect((await sentKeys('their own key')).sent).toEqual(['Bearer their own key'])
+  for (const key of ['oneclaude', 'their own key']) {
+    const { sent } = await sentKeys(key)
+    expect(sent.length).toBeGreaterThan(0)
+    expect(sent.filter((each) => each !== `Bearer ${key}`)).toEqual([])
+  }
   expect((await sentKeys(undefined)).sent).toEqual([])
 })
 
 test('a key the proxy refuses is emptied, so no session sends it again and the key step asks', async () => {
   const refused = await sentKeys('a changed key', 401)
-  expect(refused.sent).toEqual(['Bearer a changed key'])
+  expect(refused.sent.length).toBeGreaterThan(0)
+  expect(refused.sent.filter((each) => each !== 'Bearer a changed key')).toEqual([])
   expect(refused.file).toBe('')
   expect((await sentKeys('', 401)).sent).toEqual([])
 })
@@ -699,8 +802,8 @@ test('a filter added while the pool is down reaches it once it answers', async (
   let isUp = false
   const { tested, records } = recording(() => (isUp ? { status: 200, ok: true, headers: {}, text: '{}' } : new Error('connection refused')))
   const timers: (() => unknown)[] = []
-  tested.fakes.clock.after = (_ms, fn) => {
-    timers.push(fn)
+  tested.fakes.clock.after = (ms, fn) => {
+    if (ms === 1000) timers.push(fn)
     return { cancel() {} }
   }
   expect(await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4100/' })).toEqual({ value: undefined })

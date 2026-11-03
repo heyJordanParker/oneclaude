@@ -31,11 +31,17 @@ The first two open the Accounts tab at the account they name, and `agent limit r
 
 The mod reads the proxy's blocks with the proxy's management key: `oneclaude`, which the install sets on a proxy with none, or the key you set for CLIProxyAPI, which the install asks for ([Installation](installation.md#3-adding-oneclaude)).
 
-The line shows the pool Claude Code sends its requests to, its `ANTHROPIC_BASE_URL`, on this machine or another ([A pool on another machine](installation.md#a-pool-on-another-machine)). When oneclaude can't read that pool, the line says why instead:
+The line shows the pool Claude Code sends its requests to, its `ANTHROPIC_BASE_URL`, on this machine or another ([A pool on another machine](installation.md#a-pool-on-another-machine)). When oneclaude can't read that pool, the line keeps the last reading and says why, with the time that reading is from:
 
-- `oneclaude: proxy down` means nothing answers at `ANTHROPIC_BASE_URL`, `127.0.0.1:8317` by default, or the proxy answered with an error. Start the proxy with `brew services start cliproxyapi` on macOS or `systemctl --user start cliproxyapi` on Linux, or read its log.
-- `oneclaude: plugin off` means the proxy runs without oneclaude's plugin. Run `oneclaude install`, the install step, to add it again.
-- `oneclaude: status unreadable` means the proxy answered something oneclaude doesn't understand.
+```text
+████████▊███▋███████  63% · 19% over pace · next refill in 2d · 14 agents · pool unreachable since 14:02 [+]
+```
+
+The warning goes away by itself at the first reading the pool answers, within 15 seconds of it answering again, in every open session. A session that starts while the pool doesn't answer shows the last reading any session on this machine made, with the warning. A machine that never read the pool shows only the warning, as `oneclaude: pool unreachable`.
+
+- `pool unreachable` means nothing answers at `ANTHROPIC_BASE_URL`, `127.0.0.1:8317` by default, no answer came within 10 seconds, or the proxy answered with an error. Start the proxy with `brew services start cliproxyapi` on macOS or `systemctl --user start cliproxyapi` on Linux, or read its log.
+- `plugin off` means the proxy runs without oneclaude's plugin. Run `oneclaude install`, the install step, to add it again.
+- `status unreadable` means the proxy answered something oneclaude doesn't understand.
 
 ## The Accounts tab
 

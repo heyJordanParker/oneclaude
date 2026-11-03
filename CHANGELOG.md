@@ -2,6 +2,12 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [Unreleased]
+
+### Fixed
+- The line under the prompt stays when the pool stops answering. It keeps the last reading with `pool unreachable since <time>`, and the warning goes away by itself once the pool answers again. Before, the line turned into `oneclaude: proxy down`, and one refresh that never ended froze it, or left it blank, for the rest of the session.
+- A session that starts while the pool doesn't answer shows the last reading any session on the machine made.
+
 ## [0.9.2]
 
 ### Fixed
