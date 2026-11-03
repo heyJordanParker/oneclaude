@@ -276,7 +276,7 @@ function UsageSection({ mod, table, view, columns }: { readonly mod: Mod<Oneclau
           {layout.rows.map((line) => <TableRow line={line} />)}
           <TableRow line={layout.total} isTotal />
         </Box>,
-        ...(isUnrecorded ? [<Text dimColor wrap="wrap">Not recorded: requests from before oneclaude recorded agent types and projects.</Text>] : []),
+        ...(isUnrecorded ? [<Text dimColor wrap="wrap">Not recorded: requests from before oneclaude recorded agent types and projects, and from conversations whose record never reached the pool.</Text>] : []),
         <Optimize mod={mod} />,
       ]}
     </Section>

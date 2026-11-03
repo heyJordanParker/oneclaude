@@ -1,5 +1,5 @@
 import type { Color, HttpResponse } from 'claude-code'
-import { fs, http, settings, type Mod } from '../node_modules/@cmodjs/core/mod.js'
+import { fs, http, settings, type Mod, type Timer } from '../node_modules/@cmodjs/core/mod.js'
 import type { OneclaudeState } from './state.js'
 
 // LOCAL_POOL is the pool oneclaude installs on this machine, where it points
@@ -45,10 +45,31 @@ export async function saveKey(mod: Mod<OneclaudeState>, key: string): Promise<vo
   await fs.write(`${mod.dataFolder}/${KEY}`, key)
 }
 
-// manage sends a request to the pool's management API with key.
+// within is work's value, or late once ms pass without one.
+export function within<T>(mod: Mod<OneclaudeState>, ms: number, work: Promise<T>, late: T, onLate: () => void): Promise<T> {
+  let deadline: Timer | undefined
+  return Promise.race([
+    work.finally(() => deadline?.stop()),
+    new Promise<T>((resolve) => {
+      deadline = mod.after(ms, () => {
+        onLate()
+        resolve(late)
+      })
+    }),
+  ])
+}
+
+// The pool answers a management request in under a second: 145 to 297 ms
+// from another machine over Tailscale on 2026-11-04.
+const MANAGE_MS = 10_000
+
+// manage sends a request to the pool's management API with key, and answers
+// nothing when the pool sends no answer within MANAGE_MS.
 export async function manage(mod: Mod<OneclaudeState>, key: string, path: string, init: { readonly method?: string; readonly body?: string } = {}): Promise<HttpResponse | undefined> {
   const headers = { Authorization: `Bearer ${key}`, ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }) }
-  const response = await http.fetch(`${mod.state.memory.pool}/v0/management${path}`, { ...init, headers }).catch(() => undefined)
+  const pool = mod.state.memory.pool
+  const asked = http.fetch(`${pool}/v0/management${path}`, { ...init, headers }).catch(() => undefined)
+  const response = await within(mod, MANAGE_MS, asked, undefined, () => mod.log(`${pool} sent no answer to ${path} within ${MANAGE_MS} ms`))
   if (response?.status === 401) await saveKey(mod, '')
   return response
 }
@@ -146,30 +167,33 @@ export async function read(pool: string): Promise<{ readonly status: Status } | 
 
 type Cooldown = { readonly scope: string; readonly model_key?: string; readonly reason: string; readonly retry_at: string }
 
-// readBlocks reads every block the proxy holds on a Claude account.
+// readBlocks reads every block the proxy holds on a Claude account, and
+// fails when the proxy gives no reading.
 export async function readBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
   const response = await manage(mod, key, '/auth-files')
-  if (response === undefined || !response.ok) return {}
-  try {
-    const { files } = JSON.parse(response.text) as { readonly files?: readonly { readonly auth_index?: string; readonly provider?: string; readonly cooldowns?: readonly Cooldown[] | null }[] }
-    const blocks: Record<string, readonly Block[]> = {}
-    for (const file of files ?? []) {
-      if (file.provider !== 'claude' || file.auth_index === undefined || !file.cooldowns?.length) continue
-      blocks[file.auth_index] = file.cooldowns.map((cooldown) => ({
-        ...(cooldown.scope === 'model' && cooldown.model_key !== undefined ? { model: cooldown.model_key } : {}),
-        until: cooldown.retry_at,
-        reason: cooldown.reason,
-      }))
-    }
-    return blocks
-  } catch {
-    return {}
+  if (response === undefined) throw new Error('the proxy did not answer /auth-files')
+  if (!response.ok) throw new Error(`the proxy answered /auth-files with ${response.status}`)
+  const { files } = JSON.parse(response.text) as { readonly files?: readonly { readonly auth_index?: string; readonly provider?: string; readonly cooldowns?: readonly Cooldown[] | null }[] }
+  const blocks: Record<string, readonly Block[]> = {}
+  for (const file of files ?? []) {
+    if (file.provider !== 'claude' || file.auth_index === undefined || !file.cooldowns?.length) continue
+    blocks[file.auth_index] = file.cooldowns.map((cooldown) => ({
+      ...(cooldown.scope === 'model' && cooldown.model_key !== undefined ? { model: cooldown.model_key } : {}),
+      until: cooldown.retry_at,
+      reason: cooldown.reason,
+    }))
   }
+  return blocks
 }
 
 const BLOCKS = 'blocks.json'
 const SHARED_MS = 14_000
 const STATUS = 'status.json'
+
+// lastBlocks is the last reading of the proxy's blocks any session made.
+async function lastBlocks(mod: Mod<OneclaudeState>): Promise<{ readonly at: number; readonly blocks: Blocks } | undefined> {
+  return fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => JSON.parse(text) as { readonly at: number; readonly blocks: Blocks }).catch(() => undefined)
+}
 
 export async function shareStatus(mod: Mod<OneclaudeState>, status: Status): Promise<void> {
   await fs.write(`${mod.dataFolder}/${STATUS}`, JSON.stringify(status)).catch((error: unknown) => mod.log(`oneclaude could not share the pool's status with the other sessions: ${String(error)}`))
@@ -178,18 +202,23 @@ export async function shareStatus(mod: Mod<OneclaudeState>, status: Status): Pro
 export async function sharedReading(mod: Mod<OneclaudeState>): Promise<Reading | null> {
   const status = await fs.read(`${mod.dataFolder}/${STATUS}`).then((text) => JSON.parse(text) as Status).catch(() => null)
   if (status === null) return null
-  const blocks = await fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => (JSON.parse(text) as { readonly blocks: Blocks }).blocks).catch(() => ({}))
-  return { status, blocks }
+  return { status, blocks: (await lastBlocks(mod))?.blocks ?? {} }
 }
 
 export async function sharedBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
-  const shared = await fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => JSON.parse(text) as { readonly at: number; readonly blocks: Blocks }).catch(() => undefined)
+  const shared = await lastBlocks(mod)
   if (shared !== undefined && Date.now() - shared.at < SHARED_MS) return shared.blocks
   return freshBlocks(mod, key)
 }
 
+// freshBlocks reads the proxy's blocks and shares them with the other
+// sessions. A failed read keeps the last blocks any session read.
 export async function freshBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
-  const blocks = await readBlocks(mod, key)
+  const blocks = await readBlocks(mod, key).catch((error: unknown) => {
+    mod.log(`oneclaude could not read the proxy's blocks, so it keeps the last ones: ${String(error)}`)
+    return undefined
+  })
+  if (blocks === undefined) return (await lastBlocks(mod))?.blocks ?? {}
   await fs.write(`${mod.dataFolder}/${BLOCKS}`, JSON.stringify({ at: Date.now(), blocks })).catch((error: unknown) => mod.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(error)}`))
   return blocks
 }

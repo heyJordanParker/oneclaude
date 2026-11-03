@@ -6,26 +6,13 @@ import { PoolLine } from './components/pool-line.js'
 import { accountsPage, showUsage } from './pages/accounts.js'
 import { recordOf } from './record.js'
 import { initialState, type OneclaudeState } from './state.js'
-import { barsOf, baseUrlOf, FRAME_MS, glide, keyOf, LINE, LOCAL_POOL, poolOf, read, saveKey, sharedBlocks, sharedReading, shareStatus, type Problem, type Shown } from './status.js'
+import { barsOf, baseUrlOf, FRAME_MS, glide, keyOf, LINE, LOCAL_POOL, poolOf, read, saveKey, sharedBlocks, sharedReading, shareStatus, within, type Problem, type Shown } from './status.js'
 
 export const REFRESH_MS = 15_000
 
 // The pool answers status.json in under a second: 0.58 s and 0.87 s from
 // another machine over Tailscale on 2026-11-03.
 const READ_MS = 10_000
-
-function within<T>(mod: Mod<OneclaudeState>, ms: number, work: Promise<T>, late: T, onLate: () => void): Promise<T> {
-  let deadline: Timer | undefined
-  return Promise.race([
-    work.finally(() => deadline?.stop()),
-    new Promise<T>((resolve) => {
-      deadline = mod.after(ms, () => {
-        onLate()
-        resolve(late)
-      })
-    }),
-  ])
-}
 
 type Call = 'poolOf' | 'read' | 'keyOf' | 'sharedBlocks' | 'showUsage' | 'useProxy'
 
@@ -171,12 +158,19 @@ export const oneclaude = defineMod({
     sessions.current.onTaskStart((task) => {
       if (task.owner.agentType !== undefined) void record.addAgent(task.id, task.owner.agentType)
     })
-    void sharedReading(mod).then((shared) => {
-      mod.state.memory.reading ??= shared
-    })
-    mod.state.memory.pool = await poolOf()
-    void refresh()
-    void record.send()
+    // start begins each session the mod runs in: this one, and each one
+    // /clear, /resume or a fork starts, which empty the memory.
+    const start = async (): Promise<void> => {
+      void sharedReading(mod).then((shared) => {
+        mod.state.memory.reading ??= shared
+      })
+      mod.state.memory.pool = await poolOf()
+      void refresh()
+      void record.send()
+    }
+    sessions.current.onSessionStart({ source: /^(clear|resume|fork)$/ }, start)
+    sessions.current.onCwdChange(() => void record.send())
+    await start()
     return {
       addFilter: (input: OneclaudeFilter) => record.addFilter(input),
       removeFilter: (input: { name: string }) => record.removeFilter(input),

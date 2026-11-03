@@ -1287,7 +1287,7 @@ function usageView() {
         h('tfoot', null, h('tr', null, h('td', null, table.total.label), cells(table.total, true))))),
       facts(
         fact(units === 'cost' ? 'At API list prices, cache writes at the 1-hour rate' : 'Tokens as Anthropic counts them'),
-        unrecorded ? fact('Not recorded: requests from before oneclaude recorded agent types and projects') : null)),
+        unrecorded ? fact('Not recorded: requests from before oneclaude recorded agent types and projects, and from conversations whose record never reached the pool') : null)),
     h('div', { class: 'panel' },
       h('h3', { class: 'subtitle' }, 'Usage per day, last 30 days'),
       usageChart(table, units)),

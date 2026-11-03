@@ -201,6 +201,14 @@ test('a session that starts while the pool doesn\'t answer shows the last status
   expect(line).toContain(since)
 })
 
+test('after /clear the line shows the last status while it reads the pool again', async () => {
+  const { tested, pool } = flaky(answered(status))
+  await hintLines(tested)
+  pool.answer = 'hung'
+  await tested.startSession({ source: 'clear', id: 'cleared-session' })
+  expect(await hintLines(tested)).toContain('58% · 9% under')
+})
+
 test('the hint line refreshes on its timer', async () => {
   const tested = testMod(oneclaude)
   let tick: (() => unknown) | undefined
@@ -424,11 +432,18 @@ test('the hint line shows the pool while the proxy\'s blocks are still on their 
   expect(await hintLines(tested)).toContain('58% · 9% under')
 })
 
+const BLOCKS_FILE = '/test/home/.local/share/cmod/data/oneclaude/blocks.json'
+
+// blocksFile is blocks.json as a session wrote it ago ms before, with one
+// block no rate limit explains.
+function blocksFile(ago: number): string {
+  return JSON.stringify({ at: Date.now() - ago, blocks: { t1: [{ model: 'claude-opus-5-5', until: '2026-10-15T20:50:00Z', reason: 'not_found' }] } })
+}
+
 // blocksRequests starts the mod with blocks.json in its data folder written
 // ago ms before, and counts the mod's requests for the proxy's blocks.
 async function blocksRequests(ago: number): Promise<{ readonly requests: number; readonly line: string }> {
-  const shared = { at: Date.now() - ago, blocks: { t1: [{ model: 'claude-opus-5-5', until: '2026-10-15T20:50:00Z', reason: 'not_found' }] } }
-  const tested = testMod(oneclaude, { files: { ...stored('oneclaude'), '/test/home/.local/share/cmod/data/oneclaude/blocks.json': JSON.stringify(shared) } })
+  const tested = testMod(oneclaude, { files: { ...stored('oneclaude'), [BLOCKS_FILE]: blocksFile(ago) } })
   let requests = 0
   tested.fakes.http.fetch = async (url) => {
     if (url.endsWith('/auth-files')) {
@@ -443,6 +458,21 @@ async function blocksRequests(ago: number): Promise<{ readonly requests: number;
 test('open sessions share one reading of the proxy\'s blocks, so the proxy checks the management key once per refresh', async () => {
   expect(await blocksRequests(1_000)).toEqual({ requests: 0, line: expect.stringContaining('1 account blocked') })
   expect(await blocksRequests(60_000)).toEqual({ requests: 1, line: expect.not.stringContaining('blocked') })
+})
+
+test('a failed read of the proxy\'s blocks keeps the last blocks, in this session and the others', async () => {
+  const failures: readonly (HttpResponse | Error)[] = [new Error('connection refused'), { status: 503, ok: false, headers: {}, text: 'busy' }, { status: 200, ok: true, headers: {}, text: '<html>' }]
+  for (const failure of failures) {
+    const tested = testMod(oneclaude, { files: { ...stored('oneclaude'), [BLOCKS_FILE]: blocksFile(60_000) } })
+    tested.fakes.http.fetch = async (url) => {
+      if (!url.endsWith('/auth-files')) return answered(status)
+      if (failure instanceof Error) throw failure
+      return failure
+    }
+    expect(await hintLines(tested)).toContain('1 account blocked')
+    expect(tested.calls.filter(({ call, args }) => call === 'fs.write' && args[0] === BLOCKS_FILE)).toEqual([])
+    expect(tested.shown.debug.join('\n')).toContain('oneclaude could not read the proxy\'s blocks, so it keeps the last ones')
+  }
 })
 
 test('the hint line leaves Claude Code alone while the proxy is down', async () => {
@@ -677,7 +707,7 @@ test('Usage says what Not recorded means when a row has no agent type or project
   await tested.shown.page.press('by-agent')
   const pane = await usagePane(tested)
   expect(pane).toMatch(/Not recorded( +\S+){6}/)
-  expect(pane).toContain('Not recorded: requests from before oneclaude recorded agent types and projects.')
+  expect(pane.replace(/\s+/g, ' ')).toContain('Not recorded: requests from before oneclaude recorded agent types and projects, and from conversations whose record never reached the pool.')
 })
 
 test('a wide Usage table puts Cached, Share and Total after the token kinds, each column aligned', () => {
@@ -744,13 +774,16 @@ test('pace is on within 5 points, and far over past 25', () => {
 
 type SentRecord = { readonly session: string; readonly project: string; readonly agents: Readonly<Record<string, string>>; readonly filters: readonly object[] }
 
-// recording starts the mod against a pool that answers each session record
-// with answer, and keeps every record the mod sent, with the key it sent.
-function recording(answer: (record: SentRecord) => HttpResponse | Error = () => ({ status: 200, ok: true, headers: {}, text: '{"status":"ok"}' })) {
+// recording starts the mod against a pool, the local one unless given, that
+// answers each session record with answer, and keeps every record the mod
+// sent, with the key it sent. Nothing answers at any other address.
+function recording(answer: (record: SentRecord) => HttpResponse | Error = () => ({ status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }), pool = LOCAL_POOL) {
   const tested = testMod(oneclaude, { files: stored('oneclaude'), projectRoot: '/Users/turing/dotfiles' })
+  if (pool !== LOCAL_POOL) tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: pool } })
   const records: { record: SentRecord; key?: string }[] = []
   tested.fakes.http.fetch = async (url, init) => {
-    if (url === `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) {
+    if (!url.startsWith(pool)) throw new Error('connection refused')
+    if (url === `${pool}/v0/management/plugins/oneclaude/session`) {
       const record = JSON.parse(init?.body ?? '{}') as SentRecord
       records.push({ record, key: init?.headers?.['Authorization'] })
       const response = answer(record)
@@ -819,4 +852,84 @@ test('each subagent the session starts reaches the pool with its type, so Usage 
   const id = await tested.startTask({ title: 'Review the diff', agentType: 'code-reviewer' })
   await tested.settle()
   expect(records.at(-1)?.record.agents).toEqual({ [id]: 'code-reviewer' })
+})
+
+test('after /clear, /resume or a fork the pool receives the record of the new session, with its filters', async () => {
+  for (const source of ['clear', 'resume', 'fork'] as const) {
+    const { tested, records } = recording(undefined, 'http://devbox:8317')
+    await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4100/' })
+    await tested.startSession({ source, id: `${source}-session` })
+    await tested.settle()
+    expect(records.at(-1)?.record).toEqual({ session: `${source}-session`, project: '/Users/turing/dotfiles', agents: {}, filters: [{ name: 'memory', url: 'http://127.0.0.1:4100/' }] })
+  }
+})
+
+test('a session that moves to another project tells the pool, and a cd inside the project sends nothing', async () => {
+  const { tested, records } = recording()
+  await tested.moveTo('/Users/turing/cmod')
+  await tested.settle()
+  expect(records.at(-1)?.record.project).toBe('/Users/turing/cmod')
+  const sent = records.length
+  await tested.moveTo('/Users/turing/cmod', '/Users/turing/cmod/src')
+  await tested.settle()
+  expect(records.length).toBe(sent)
+})
+
+test('a record the pool refuses is logged with the refusal', async () => {
+  const { tested } = recording(() => ({ status: 403, ok: false, headers: {}, text: '{"error":"remote management disabled"}' }))
+  await tested.start()
+  await tested.settle()
+  expect(tested.shown.debug.join('\n')).toContain('the pool refused the record of session test-session with 403: {"error":"remote management disabled"}')
+})
+
+test('a record post that never answers does not stop the next record from being sent', async () => {
+  const tested = testMod(oneclaude, { files: stored('oneclaude'), projectRoot: '/Users/turing/dotfiles' })
+  const waits: (() => unknown)[] = []
+  tested.fakes.clock.after = (_ms, fn) => {
+    waits.push(fn)
+    return { cancel() {} }
+  }
+  const sent: string[] = []
+  tested.fakes.http.fetch = async (url, init) => {
+    if (url !== `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) return { status: 404, ok: false, headers: {}, text: '' }
+    sent.push((JSON.parse(init?.body ?? '{}') as SentRecord).session)
+    if (sent.length === 1) return new Promise<HttpResponse>(() => {})
+    return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
+  }
+  await tested.start()
+  await tested.startSession({ source: 'clear', id: 'cleared-session' })
+  await tested.settle()
+  for (const wait of waits.splice(0)) void wait()
+  await tested.settle()
+  expect(sent).toEqual(['test-session', 'cleared-session'])
+  expect(tested.shown.debug.join('\n')).toContain(`${LOCAL_POOL} sent no answer to /plugins/oneclaude/session within 10000 ms`)
+})
+
+test('a record waits for a missing management key and goes once the key is entered', async () => {
+  let key = ''
+  const tested = testMod(oneclaude, { projectRoot: '/Users/turing/dotfiles' })
+  tested.fakes.fs.read = async (path) => {
+    if (path === KEY_FILE) return key
+    throw new Error(`ENOENT: ${path}`)
+  }
+  const retries: (() => unknown)[] = []
+  tested.fakes.clock.after = (ms, fn) => {
+    if (ms === 1000) retries.push(fn)
+    return { cancel() {} }
+  }
+  const sent: SentRecord[] = []
+  tested.fakes.http.fetch = async (url, init) => {
+    if (url === `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) sent.push(JSON.parse(init?.body ?? '{}') as SentRecord)
+    return { status: 200, ok: true, headers: {}, text: url.endsWith('/auth-files') ? '{"files":[]}' : JSON.stringify(status) }
+  }
+  await tested.start()
+  await tested.settle()
+  expect(sent).toEqual([])
+  await retries.shift()?.()
+  await tested.settle()
+  expect(sent).toEqual([])
+  key = 'oneclaude'
+  await retries.shift()?.()
+  await tested.settle()
+  expect(sent).toEqual([{ session: 'test-session', project: '/Users/turing/dotfiles', agents: {}, filters: [] }])
 })

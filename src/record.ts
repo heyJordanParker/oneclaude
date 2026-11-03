@@ -32,26 +32,41 @@ function checked(input: OneclaudeFilter): OneclaudeFilter {
 
 // recordOf starts the session with no filters, as cmod takes back what a mod
 // adds when it stops, so a mod that is gone leaves no filter behind. Each
-// change sends the whole record, after the sends before it, so the pool keeps
-// the newest. A pool that doesn't answer gets it again every second until it
-// does, and the plugin keeps the agents of the records before.
+// send posts the whole record, after the sends before it, so the pool keeps
+// the newest, and posts nothing when the pool already took that record. A
+// pool that doesn't answer, or a key the mod lacks or the pool refused, gets
+// it again every second until it goes, the plugin keeps the agents of the
+// records before, and a refusal is logged.
 export function recordOf(mod: Mod<OneclaudeState>): SessionRecord {
   let filters: readonly OneclaudeFilter[] = []
   let agents: Readonly<Record<string, string>> = {}
   let queue: Promise<string | undefined> = Promise.resolve(undefined)
   let retry: Timer | undefined
+  let taken: string | undefined
 
-  const post = async (): Promise<string | undefined> => {
-    const key = await keyOf(mod)
-    if (key === undefined) return undefined
-    const body = JSON.stringify({ session: sessions.current.id, project: sessions.current.project, agents, filters })
-    const response = await manage(mod, key, '/plugins/oneclaude/session', { method: 'POST', body })
-    if (response?.status === 400) return (JSON.parse(response.text) as { readonly error?: string }).error ?? response.text
-    if (response === undefined || response.status >= 500) retry ??= mod.after(1000, () => {
+  const later = (): undefined => {
+    retry ??= mod.after(1000, () => {
       retry = undefined
       void send()
     })
     return undefined
+  }
+  const post = async (): Promise<string | undefined> => {
+    const key = await keyOf(mod)
+    if (key === undefined) return later()
+    const session = sessions.current.id
+    const body = JSON.stringify({ session, project: sessions.current.project, agents, filters })
+    const sent = `${mod.state.memory.pool} ${body}`
+    if (sent === taken) return undefined
+    const response = await manage(mod, key, '/plugins/oneclaude/session', { method: 'POST', body })
+    if (response?.ok === true) {
+      taken = sent
+      return undefined
+    }
+    if (response === undefined || response.status >= 500) return later()
+    mod.log(`the pool refused the record of session ${session} with ${response.status}: ${response.text}`)
+    if (response.status === 401) return later()
+    return response.status === 400 ? (JSON.parse(response.text) as { readonly error?: string }).error ?? response.text : undefined
   }
   // send answers the pool's refusal of the record, or undefined.
   const send = (): Promise<string | undefined> => {
