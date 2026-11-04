@@ -46,7 +46,7 @@ On the pool's machine, the install step sets `management.allow-remote` to `true`
 
 oneclaude looks for the config of the proxy Claude Code talks to, in this order:
 
-1. the `-config` file of the process listening on the port in Claude Code's `ANTHROPIC_BASE_URL`, or on 8317;
+1. the `-config` file of the process listening on the port in Claude Code's `ANTHROPIC_BASE_URL`, or on 8317. A relative `-config`, and the relative folders in it, count from the folder that process runs in, as the proxy reads them;
 2. `/opt/homebrew/etc/cliproxyapi.conf`, `/usr/local/etc/cliproxyapi.conf`, and `/home/linuxbrew/.linuxbrew/etc/cliproxyapi.conf`, where Homebrew keeps it;
 3. `~/.cli-proxy-api/config.yaml`.
 

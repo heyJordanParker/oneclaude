@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -403,6 +404,67 @@ func TestInstallWithClaudeCodeSignedOutBringsNothingAndFinishes(t *testing.T) {
 	}
 	if files, _ := filepath.Glob(filepath.Join(home, ".cli-proxy-api", "*.json")); len(files) != 0 {
 		t.Fatalf("credential files = %v, want none", files)
+	}
+}
+
+func TestARunningProxysRelativeConfigResolvesAgainstTheFolderItRunsIn(t *testing.T) {
+	on(t, "darwin")
+	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	checkout, elsewhere := filepath.Join(root, "checkout"), filepath.Join(root, "elsewhere")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := strings.TrimPrefix(listener.Addr().String(), "127.0.0.1:")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:"+port)
+	loggedIn(t)
+	devConfig := "server:\n  port: " + port + "\noauth:\n  auth-dir: \".target/dev/auth\"\nplugins:\n  enabled: true\n  dir: \".target/dev/plugins\"\n  configs:\n    oneclaude:\n      enabled: true\n"
+	for _, folder := range []string{checkout, elsewhere} {
+		if err := os.MkdirAll(filepath.Join(folder, "dev"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, "dev", "config.yaml"), []byte(devConfig), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	socket, err := listener.(*net.TCPListener).File()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := exec.Command("sh", "-c", "read line", "-config", "dev/config.yaml")
+	proxy.Dir = checkout
+	proxy.ExtraFiles = []*os.File{socket}
+	stop, err := proxy.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proxy.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		stop.Close()
+		_ = proxy.Wait()
+	})
+	socket.Close()
+	listener.Close()
+	t.Chdir(elsewhere)
+
+	checkout, _ = filepath.EvalSymlinks(checkout)
+	if config, folder := runningConfig(port); config != filepath.Join(checkout, "dev", "config.yaml") || folder != checkout {
+		t.Fatalf("runningConfig = %s in %s, want the config of the proxy in %s", config, folder, checkout)
+	}
+	if err := run(built, "", filepath.Join(root, "data"), false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(checkout, ".target", "dev", "plugins", "darwin", runtime.GOARCH, "oneclaude-v0.2.0.dylib")); string(got) != "built plugin" {
+		t.Fatalf("library in the running proxy's plugin folder = %q", got)
+	}
+	if !exists(filepath.Join(checkout, ".target", "dev", "auth", "claude-"+hashOf("organization-a")+"-ada@example.com.json")) {
+		t.Fatal("the login is not in the running proxy's auth dir")
+	}
+	if untouched, _ := os.ReadFile(filepath.Join(elsewhere, "dev", "config.yaml")); string(untouched) != devConfig || exists(filepath.Join(elsewhere, ".target")) {
+		t.Fatal("install edited the config in its own working folder, which no running proxy uses")
 	}
 }
 

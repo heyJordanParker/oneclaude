@@ -2,6 +2,12 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [Unreleased]
+
+### Fixed
+- The install edits the config of the proxy Claude Code talks to when that proxy runs with a relative `-config`, such as `dev/config.yaml`. It read the path from the folder the install ran in, so it could edit another folder's config, copy your login into a folder another proxy reads, and put the routing plugin where no proxy loads it. Relative folders in the config now count from the proxy's own folder too.
+- The install finds a running proxy's config on Linux without `lsof`, which a minimal Ubuntu lacks.
+
 ## [0.9.4]
 
 ### Changed

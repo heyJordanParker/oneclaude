@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -105,6 +106,7 @@ func run(built plugin, configPath, data string, remove bool) error {
 		forgetOldFiles(data)
 	}
 	base := baseURL(home())
+	folder := ""
 	if !isGiven {
 		if pool := remotePool(base); pool != "" {
 			if remove {
@@ -117,7 +119,7 @@ func run(built plugin, configPath, data string, remove bool) error {
 			progress(steps, "oneclaude uses the pool at "+pool)
 			return nil
 		}
-		found, err := findConfig()
+		found, at, err := findConfig()
 		if err != nil && remove {
 			return nil
 		}
@@ -127,12 +129,12 @@ func run(built plugin, configPath, data string, remove bool) error {
 				return err
 			}
 		}
-		configPath = found
+		configPath, folder = found, at
 	}
 	if !remove {
 		progress(2, "Adding oneclaude")
 	}
-	authDir, err := apply(built, configPath, data, isShared(base), remove)
+	authDir, err := apply(built, configPath, folder, data, isShared(base), remove)
 	if err != nil || remove {
 		return err
 	}
@@ -483,8 +485,9 @@ func lastLine(out []byte) string {
 }
 
 // apply adds oneclaude to the proxy config, or takes it out, and answers the
-// folder the proxy keeps its credential files in.
-func apply(built plugin, configPath, data string, shared, remove bool) (string, error) {
+// folder the proxy keeps its credential files in. The config's relative
+// folders resolve against folder, where the proxy runs.
+func apply(built plugin, configPath, folder, data string, shared, remove bool) (string, error) {
 	before, err := os.ReadFile(configPath)
 	if err != nil {
 		return "", err
@@ -499,10 +502,10 @@ func apply(built plugin, configPath, data string, shared, remove bool) (string, 
 	root := doc.Content[0]
 	plugins := child(root, "plugins")
 	configs := child(plugins, "configs")
-	dir := expandHome(scalar(plugins, "dir", "~/.cli-proxy-api/plugins"))
+	dir := resolve(folder, scalar(plugins, "dir", "~/.cli-proxy-api/plugins"))
 	authDir := expandHome("~/.cli-proxy-api")
 	if oauth := lookup(root, "oauth"); oauth != nil {
-		authDir = expandHome(scalar(oauth, "auth-dir", authDir))
+		authDir = resolve(folder, scalar(oauth, "auth-dir", authDir))
 	}
 	pacerMark := filepath.Join(data, "seat-pacer-was-on")
 	keyMark := filepath.Join(data, "management-key-was")
@@ -530,7 +533,7 @@ func apply(built plugin, configPath, data string, shared, remove bool) (string, 
 
 	kept := expandHome("~/.cli-proxy-api/plugins/" + pluginID)
 	if own := lookup(configs, pluginID); own != nil {
-		kept = expandHome(scalar(own, "data-dir", kept))
+		kept = resolve(folder, scalar(own, "data-dir", kept))
 	}
 	if filepath.Clean(kept) != filepath.Clean(data) {
 		if err := moveData(kept, data); err != nil {
@@ -651,24 +654,25 @@ func isManagementKey(hash string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(managementKey)) == nil
 }
 
-// findConfig finds the config of the proxy Claude Code talks to: the
-// -config the process on its port was started with, else the places
-// CLIProxyAPI's installs keep it.
-func findConfig() (string, error) {
+// findConfig finds the config of the proxy Claude Code talks to, and the
+// folder that proxy runs in: the -config the process on its port was started
+// with, else the places CLIProxyAPI's installs keep it.
+func findConfig() (config, folder string, err error) {
 	home, _ := os.UserHomeDir()
-	candidates := []string{
-		runningConfig(portOfURL(baseURL(home))),
+	if config, folder := runningConfig(portOfURL(baseURL(home))); config != "" && exists(config) {
+		return config, folder, nil
+	}
+	for _, path := range []string{
 		"/opt/homebrew/etc/cliproxyapi.conf",
 		"/usr/local/etc/cliproxyapi.conf",
 		"/home/linuxbrew/.linuxbrew/etc/cliproxyapi.conf",
 		filepath.Join(home, ".cli-proxy-api", "config.yaml"),
-	}
-	for _, path := range candidates {
-		if path != "" && exists(path) {
-			return path, nil
+	} {
+		if exists(path) {
+			return path, "", nil
 		}
 	}
-	return "", errors.New("no CLIProxyAPI config found: Claude Code's ANTHROPIC_BASE_URL names no running proxy started with -config, and none of the usual config files exists")
+	return "", "", errors.New("no CLIProxyAPI config found: Claude Code's ANTHROPIC_BASE_URL names no running proxy started with -config, and none of the usual config files exists")
 }
 
 // baseURL is the proxy Claude Code sends its traffic to, or "" for none.
@@ -792,8 +796,17 @@ func forgetOldFiles(data string) {
 	_ = os.RemoveAll(filepath.Join(data, "filters"))
 }
 
-// listeners are the processes listening on port on any address here.
+// listeners are the processes listening on port on any address here, read
+// with ss on Linux, where a minimal install such as Ubuntu's has no lsof.
 func listeners(port string) []string {
+	if runtime.GOOS == "linux" {
+		out, _ := exec.Command("ss", "-Hltnp", "sport = :"+port).Output()
+		var pids []string
+		for _, match := range regexp.MustCompile(`pid=(\d+)`).FindAllStringSubmatch(string(out), -1) {
+			pids = append(pids, match[1])
+		}
+		return pids
+	}
 	pids, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN", "-t").Output()
 	if err != nil {
 		return nil
@@ -801,23 +814,55 @@ func listeners(port string) []string {
 	return strings.Fields(string(pids))
 }
 
-func runningConfig(port string) string {
+// runningConfig answers the -config of the process listening on port, and
+// the folder it runs in, which the proxy resolves a relative path against.
+func runningConfig(port string) (config, folder string) {
 	for _, pid := range listeners(port) {
 		args, err := exec.Command("ps", "-o", "args=", "-p", pid).Output()
 		if err != nil {
 			continue
 		}
-		fields := strings.Fields(string(args))
-		for i, field := range fields {
-			switch {
-			case (field == "-config" || field == "--config") && i+1 < len(fields):
-				return fields[i+1]
-			case strings.HasPrefix(field, "-config="), strings.HasPrefix(field, "--config="):
-				return field[strings.Index(field, "=")+1:]
-			}
+		config := configFlag(strings.Fields(string(args)))
+		folder := workingFolder(pid)
+		if config != "" && folder != "" {
+			return resolve(folder, config), folder
+		}
+	}
+	return "", ""
+}
+
+func configFlag(args []string) string {
+	for i, arg := range args {
+		switch {
+		case (arg == "-config" || arg == "--config") && i+1 < len(args):
+			return args[i+1]
+		case strings.HasPrefix(arg, "-config="), strings.HasPrefix(arg, "--config="):
+			return arg[strings.Index(arg, "=")+1:]
 		}
 	}
 	return ""
+}
+
+func workingFolder(pid string) string {
+	if runtime.GOOS == "linux" {
+		folder, _ := os.Readlink("/proc/" + pid + "/cwd")
+		return folder
+	}
+	out, _ := exec.Command("lsof", "-a", "-p", pid, "-d", "cwd", "-Fn").Output()
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "n") {
+			return line[1:]
+		}
+	}
+	return ""
+}
+
+func resolve(folder, path string) string {
+	path = expandHome(path)
+	if folder == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(folder, path)
 }
 
 // place writes the library beside its final name and renames it in, so the
