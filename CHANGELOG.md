@@ -2,7 +2,7 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
-## [Unreleased]
+## [0.9.5]
 
 ### Changed
 - The dashboard's `Add account` and `Sign in` open the panel's OAuth login page, as `[Add account]` and `[Sign in]` in `/accounts` do. The dashboard's own login, with its field for a callback address, is gone.
