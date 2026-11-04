@@ -6,6 +6,7 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ### Fixed
 - A request that gets no answer at all logs why, such as `oneclaude couldn't reach Anthropic: the DNS lookup of api.anthropic.com timed out.`, once for the whole pool until 10 minutes pass without one. Before, the log blamed Anthropic with `Anthropic returned 0 to work.`, which named no cause, once for every account the proxy tried, so one dropped internet connection filled it with a line per account every 10 seconds.
+- A request the proxy gave up on at its own deadline logs `oneclaude couldn't reach Anthropic: the request timed out.` the same way. Before, the log said `Anthropic returned 504 Gateway Timeout to work.`, though Anthropic never answered. A 504 Anthropic sends still logs as one.
 
 ## [0.9.5]
 

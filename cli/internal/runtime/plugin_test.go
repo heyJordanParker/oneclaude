@@ -281,11 +281,38 @@ func TestEachFailedConnectionReadsAsItsCause(t *testing.T) {
 		`Post "https://api.anthropic.com/v1/messages?beta=true": claude tls: handshake upstream: EOF`:    "the TLS handshake failed",
 		`Post "https://api.anthropic.com/v1/messages?beta=true": remote error: tls: bad record MAC`:      "the TLS connection failed (bad record MAC)",
 		`Post "https://api.anthropic.com/v1/messages?beta=true": proxyconnect tcp: socks connect failed`: "proxyconnect tcp: socks connect failed",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": context deadline exceeded`:              "the request timed out",
+		`tls handshake timeout: context deadline exceeded`:                                               "the TLS handshake timed out",
 		``: "no answer came",
 	} {
 		if got := networkCause(err); got != want {
 			t.Errorf("networkCause(%q) = %q, want %q", err, got, want)
 		}
+	}
+}
+
+func TestA504TheProxyMadeFromItsOwnDeadlineLogsTheNetworkLine(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "deadline", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", Failed: true, Failure: UsageFailure{StatusCode: http.StatusGatewayTimeout, Body: `Post "https://api.anthropic.com/v1/messages?beta=true": context deadline exceeded`}})
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "deadline-bob", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-bob@x.json", Failed: true, Failure: UsageFailure{StatusCode: http.StatusGatewayTimeout, Body: `Post "https://api.anthropic.com/v1/messages?beta=true": context deadline exceeded`}})
+	var texts []string
+	for _, e := range p.Status().Log {
+		texts = append(texts, e.Level+" "+e.Text)
+	}
+	if want := []string{"WARN oneclaude couldn't reach Anthropic: the request timed out."}; !slices.Equal(texts, want) {
+		t.Fatalf("log = %q, want %q: the proxy's own deadline is no answer from Anthropic", texts, want)
+	}
+}
+
+func TestA504FromAnthropicKeepsItsLine(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "gateway", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", Failed: true, Failure: UsageFailure{StatusCode: http.StatusGatewayTimeout, Body: `{"type":"error","error":{"type":"timeout_error","message":"Request timed out"}}`}})
+	var texts []string
+	for _, e := range p.Status().Log {
+		texts = append(texts, e.Level+" "+e.Text)
+	}
+	if want := []string{"WARN Anthropic returned 504 Gateway Timeout to ada."}; !slices.Equal(texts, want) {
+		t.Fatalf("log = %q, want %q", texts, want)
 	}
 }
 

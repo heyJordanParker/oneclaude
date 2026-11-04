@@ -380,6 +380,19 @@ func refusalOf(status int, body []byte) (string, bool) {
 	return cmp.Or(strings.TrimSpace(answer.Error.Message), "permission_error"), true
 }
 
+// unanswered reports whether a failure got no answer from Anthropic: status 0,
+// or the 504 the proxy makes up when its own deadline passes, whose body is
+// the Go error rather than Anthropic's JSON error.
+func unanswered(f UsageFailure) bool {
+	if f.StatusCode != http.StatusGatewayTimeout {
+		return f.StatusCode == 0
+	}
+	var answer struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal([]byte(f.Body), &answer) != nil || answer.Type != "error"
+}
+
 // networkCause is, in plain words, why a request got no answer, from the Go
 // error the proxy reports in its place, as `Post "https://api.anthropic.com/
 // v1/messages": dial tcp: lookup api.anthropic.com on 127.0.0.53:53: read udp
@@ -400,10 +413,14 @@ func networkCause(err string) string {
 		return "the connection was reset"
 	case strings.Contains(err, "network is unreachable"), strings.Contains(err, "no route to host"):
 		return "the network is unreachable"
-	case strings.Contains(err, "timeout"):
-		return "the connection timed out"
+	case strings.Contains(err, "handshake") && strings.Contains(err, "timeout"):
+		return "the TLS handshake timed out"
 	case strings.Contains(err, "handshake"):
 		return "the TLS handshake failed"
+	case strings.Contains(err, "deadline exceeded"):
+		return "the request timed out"
+	case strings.Contains(err, "timeout"):
+		return "the connection timed out"
 	case strings.Contains(err, "remote error: tls: "):
 		_, alert, _ := strings.Cut(err, "remote error: tls: ")
 		return "the TLS connection failed (" + alert + ")"
@@ -462,10 +479,10 @@ func (p *Plugin) observe(rec UsageRecord) {
 	case "overloaded":
 		a.overloaded = now
 	case "error":
-		switch rec.Failure.StatusCode {
-		case 0:
+		switch {
+		case unanswered(rec.Failure):
 			p.unreachable = now
-		case http.StatusNotFound:
+		case rec.Failure.StatusCode == http.StatusNotFound:
 			a.notFound = now
 		default:
 			a.failed = now
@@ -506,7 +523,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 		if login {
 			break
 		}
-		if status == 0 {
+		if unanswered(rec.Failure) {
 			if now.Sub(unreachable) >= episode {
 				p.note(levelWarn, "oneclaude couldn't reach Anthropic: %s.", networkCause(rec.Failure.Body))
 			}
