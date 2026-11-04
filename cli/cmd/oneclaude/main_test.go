@@ -137,7 +137,7 @@ func TestInstallLeavesAStoredKey(t *testing.T) {
 
 func TestInstallOpensTheManagementAPIOfAPoolOtherMachinesUse(t *testing.T) {
 	config, _, data := setUp(t)
-	t.Setenv("ANTHROPIC_BASE_URL", "http://devbox:8317")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://homeserver.invalid:8317")
 	if err := run(built, config, data, false); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestInstallOpensTheManagementAPIOfAPoolOtherMachinesUse(t *testing.T) {
 
 func TestInstallWithThePoolOnAnotherMachineSetsUpNothingHere(t *testing.T) {
 	_, _, data := setUp(t)
-	t.Setenv("ANTHROPIC_BASE_URL", "http://devbox.invalid:9")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://homeserver.invalid:9")
 	t.Setenv("PATH", t.TempDir())
 	if err := run(built, "", data, false); err != nil {
 		t.Fatalf("install = %v, want it to finish with nothing to set up", err)
@@ -169,7 +169,7 @@ func TestThePoolIsHereWhenItsHostNamesThisMachineWhetherOrNotItRuns(t *testing.T
 	if got := remotePool("http://127.0.0.1:8317"); got != "" {
 		t.Fatalf("remotePool(loopback) = %q, want the pool here", got)
 	}
-	if got := remotePool("http://devbox.invalid:8317/"); got != "http://devbox.invalid:8317" {
+	if got := remotePool("http://homeserver.invalid:8317/"); got != "http://homeserver.invalid:8317" {
 		t.Fatalf("remotePool(another machine) = %q", got)
 	}
 	if got := listenHost(""); got != "127.0.0.1" {
@@ -203,7 +203,7 @@ func TestKeepKeyStoresTheKeyOnlyOnceThePoolTakesIt(t *testing.T) {
 		}
 	}))
 	t.Cleanup(pool.Close)
-	if !takesKey(pool.URL, "oneclaude") || takesKey(pool.URL, "wrong") || takesKey("http://devbox.invalid:9", "oneclaude") {
+	if !takesKey(pool.URL, "oneclaude") || takesKey(pool.URL, "wrong") || takesKey("http://homeserver.invalid:9", "oneclaude") {
 		t.Fatal("takesKey does not answer what the pool says")
 	}
 	data := t.TempDir()

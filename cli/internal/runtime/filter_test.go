@@ -421,7 +421,7 @@ func TestARequestWithoutResponseFiltersSkipsTheStream(t *testing.T) {
 
 func TestASessionRecordRefusesAFilterOffThePoolsMachine(t *testing.T) {
 	p := newTestPlugin(t, enabled)
-	resp := sendRecord(t, p, sessionRecord{Session: "s1", Filters: []Filter{{Name: "memory", URL: "http://100.65.43.12:7777/"}}})
+	resp := sendRecord(t, p, sessionRecord{Session: "s1", Filters: []Filter{{Name: "memory", URL: "http://198.51.100.12:7777/"}}})
 	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(resp.Body), "the url of the memory filter must be an address on the machine the pool runs on") {
 		t.Fatalf("a filter on another machine = %d %s, want it refused by name", resp.StatusCode, resp.Body)
 	}

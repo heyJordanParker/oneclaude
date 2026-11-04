@@ -656,7 +656,7 @@ func portOfURL(base string) string {
 }
 
 // isShared says whether Claude Code reaches the proxy by a name other
-// machines can use too, as http://devbox:8317, so they need its management API.
+// machines can use too, as http://homeserver:8317, so they need its management API.
 func isShared(base string) bool {
 	parsed, err := url.Parse(base)
 	if err != nil || base == "" {

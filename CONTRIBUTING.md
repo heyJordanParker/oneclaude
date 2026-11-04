@@ -75,6 +75,8 @@ ONECLAUDE_DEV_PROXY=1 go test -run DevProxy -v .
 
 To watch the mod against the dev proxy, start a Claude Code session with `bun dev/session.ts <name>`, and attach with `tmux -L oneclaude-dev attach -t <name>`. Every such session shares a home of its own in `.target/dev/home`, with no Claude login and a cmod store that holds oneclaude's install record, so cmod runs no install step, which would copy your Claude login into the dev proxy. Never start a test session with your own home or cmod store.
 
+To watch the mod against a pool on another machine, such as a dev proxy in a Linux virtual machine, add `--pool <url>`, as in `bun dev/session.ts lan --pool http://192.168.139.20:8318`. The session then starts with no management key, so the mod's `management-key` step asks for one, as after an install whose key check failed. On macOS, a pool at a local network address answers only while your terminal app has Local Network access, as [Installation](docs/installation.md) explains.
+
 ## Change the mod
 
 `node_modules/@cmodjs/core/docs/` holds the cmod documentation for the installed version. Every change to what the mod shows gets a test in `tests/mod.test.ts`, which draws the mod in cmod's test kit at 80 columns.

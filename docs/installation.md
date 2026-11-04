@@ -36,9 +36,11 @@ The install step runs `oneclaude install`. A progress bar in Claude Code, or the
 
 ### A pool on another machine
 
-One pool can serve every machine you run Claude Code on. Run CLIProxyAPI and oneclaude on one machine, such as a server on your Tailscale network named `devbox`, and set `ANTHROPIC_BASE_URL` to `http://devbox:8317` on each machine.
+One pool can serve every machine you run Claude Code on. Run CLIProxyAPI and oneclaude on one machine, such as a server on your Tailscale network named `homeserver`, and set `ANTHROPIC_BASE_URL` to `http://homeserver:8317` on each machine.
 
-On a machine whose `ANTHROPIC_BASE_URL` names another machine, the install step prints `Claude Code uses the pool at http://devbox:8317, so oneclaude sets up no proxy here.` and sets up nothing on it. It checks the management key `oneclaude` with one request to that pool, and keeps it once the pool takes it. The line under the prompt, `/accounts`, every button, Usage, and filters then use the pool there.
+On a machine whose `ANTHROPIC_BASE_URL` names another machine, the install step prints `Claude Code uses the pool at http://homeserver:8317, so oneclaude sets up no proxy here.` and sets up nothing on it. It checks the management key `oneclaude` with one request to that pool, and keeps it once the pool takes it. The line under the prompt, `/accounts`, every button, Usage, and filters then use the pool there.
+
+On macOS, a pool at an address on your local network, such as `http://192.168.1.20:8317`, needs Local Network access for the terminal app Claude Code runs in, in System Settings, Privacy & Security, Local Network. Claude Code and the install step both run in that app, so both reach the pool once it has access, and neither does before. Terminal has access without asking. A pool on Tailscale needs none.
 
 On the pool's machine, the install step sets `management.allow-remote` to `true`, so the other machines can read and clear blocks and send each session's record.
 
@@ -62,7 +64,7 @@ On Linux, oneclaude downloads the newest CLIProxyAPI release for the machine, `C
 
 Then oneclaude edits the example config so the proxy is safe to run:
 
-- `server.host` becomes `127.0.0.1`, so only this machine reaches the proxy. When `ANTHROPIC_BASE_URL` names this machine by an address the other machines use too, such as `http://devbox:8317`, `server.host` becomes that address, so they reach the proxy there;
+- `server.host` becomes `127.0.0.1`, so only this machine reaches the proxy. When `ANTHROPIC_BASE_URL` names this machine by an address the other machines use too, such as `http://homeserver:8317`, `server.host` becomes that address, so they reach the proxy there;
 - the example's placeholder client keys, `your-api-key-1` and its siblings, are removed. Claude Code sends no client key of its own;
 - `plugins.dir` becomes `~/.cli-proxy-api/plugins`. The example's `plugins` resolves against whichever folder a program runs in, so the proxy and oneclaude would each look in a different folder.
 

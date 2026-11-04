@@ -612,7 +612,7 @@ func TestTheDashboardIsThePanelsFirstPageAndTheStatusKeepsItsJSON(t *testing.T) 
 	if st.Pool.Used != 0.58 || st.Pool.Agents != 1 || st.Accounts[0].Name != "turing" {
 		t.Fatalf("status = %+v", st)
 	}
-	if strings.Contains(string(resp.Body), "parkerlabs") {
+	if strings.Contains(string(resp.Body), "example.com") {
 		t.Fatal("the status leaks an account address")
 	}
 }
@@ -683,7 +683,7 @@ func TestHistoryCountsEachAccountsRequestsByTheHour(t *testing.T) {
 	if !hour.At.Equal(testNow) || hour.Requests != 2 || hour.Outcomes["ok"] != 1 || hour.Outcomes["throttled"] != 1 {
 		t.Fatalf("hour = %+v", hour)
 	}
-	if strings.Contains(body, "parkerlabs") {
+	if strings.Contains(body, "example.com") {
 		t.Fatal("the history leaks an account address")
 	}
 }
@@ -1150,7 +1150,7 @@ func TestOneAnswerPerMachineReadsEachBlocksChange(t *testing.T) {
 		}
 		return st.ReadsBlocks
 	}
-	if got := []bool{reads("mac"), reads("mac"), reads("devbox"), reads(""), reads("")}; !slices.Equal(got, []bool{true, false, true, true, true}) {
+	if got := []bool{reads("mac"), reads("mac"), reads("homeserver"), reads(""), reads("")}; !slices.Equal(got, []bool{true, false, true, true, true}) {
 		t.Fatalf("reads_blocks = %v, want the first answer of each machine, and every answer that names none", got)
 	}
 	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, nil, http.StatusTooManyRequests)
@@ -1569,7 +1569,9 @@ func TestACopySignedOutByA401TakesClaudeCodesTokenAtOnce(t *testing.T) {
 	writeJSON(t, filepath.Join(dir, "claude-ada@x.json"), map[string]string{"type": "claude", "email": "ada@x", "access_token": "expired", "account_uuid": "account-a", "organization_uuid": "organization-a"})
 	p, _ := newFollowingPlugin(t, dir, home)
 	p.refreshOne(testNow)
-	st, took := statusUntil(t, p, func(st Status) bool { return len(st.Accounts) == 1 && !st.Accounts[0].SignedOut && st.Accounts[0].Known })
+	st, took := statusUntil(t, p, func(st Status) bool {
+		return len(st.Accounts) == 1 && !st.Accounts[0].SignedOut && st.Accounts[0].Known
+	})
 	if last := st.Log[len(st.Log)-1]; last.Text != "Anthropic accepted ada's login again." {
 		t.Fatalf("log = %+v, want ada rejected, then accepted with Claude Code's token", st.Log)
 	}

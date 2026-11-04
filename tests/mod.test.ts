@@ -441,7 +441,7 @@ function settingsUpdates(tested: ReturnType<typeof testMod>): unknown[] {
 
 test('everything reads the pool Claude Code uses, on another machine too, and leaves its setting', async () => {
   const tested = testMod(oneclaude, { files: stored('oneclaude') })
-  tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: 'http://devbox:8317/' } })
+  tested.fakes.settings.read = async () => ({ env: { ANTHROPIC_BASE_URL: 'http://homeserver:8317/' } })
   const asked: string[] = []
   tested.fakes.http.fetch = async (url) => {
     asked.push(url)
@@ -452,8 +452,8 @@ test('everything reads the pool Claude Code uses, on another machine too, and le
   const pane = (await tested.shown.page.lines()).join('\n')
   expect(pane).toContain('[Open dashboard]')
   expect(asked.length).toBeGreaterThan(2)
-  expect(asked.filter((url) => !url.startsWith('http://devbox:8317/'))).toEqual([])
-  expect(asked).toContain('http://devbox:8317/v0/management/auth-files')
+  expect(asked.filter((url) => !url.startsWith('http://homeserver:8317/'))).toEqual([])
+  expect(asked).toContain('http://homeserver:8317/v0/management/auth-files')
   expect(settingsUpdates(tested)).toEqual([])
 })
 
@@ -921,7 +921,7 @@ test('each subagent the session starts reaches the pool with its type, so Usage 
 
 test('after /clear, /resume or a fork the pool receives the record of the new session, with its filters', async () => {
   for (const source of ['clear', 'resume', 'fork'] as const) {
-    const { tested, records } = recording(undefined, 'http://devbox:8317')
+    const { tested, records } = recording(undefined, 'http://homeserver:8317')
     await addFilter(tested, { name: 'memory', url: 'http://127.0.0.1:4100/' })
     await tested.startSession({ source, id: `${source}-session` })
     await tested.settle()

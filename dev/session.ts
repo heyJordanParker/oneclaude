@@ -5,26 +5,31 @@
 // oneclaude's install record and a program that refuses to install, so cmod
 // runs no install step. The home holds no Claude login.
 //
-// bun dev/session.ts <name> [mod folder]
+// bun dev/session.ts <name> [mod folder] [--pool <url>]
 //
 // The mod folder is this checkout unless given. The session works in
 // .target/dev/sessions/<name>, and writes its debug log beside it. Attach
 // with tmux -L oneclaude-dev attach -t <name>.
+//
+// The pool is the dev proxy, whose management key dev the session holds,
+// unless --pool names a pool on another machine. Then the session holds no
+// key, as an install whose key check failed leaves it.
 import { chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { parseArgs } from 'node:util'
 import { readSteps, scriptsSha256, writeRecord } from '../node_modules/@cmodjs/core/records.js'
 
 const root = resolve(import.meta.dir, '..')
-const [name, folder] = process.argv.slice(2)
-if (name === undefined || !/^[\w-]+$/.test(name)) throw new Error('Usage: bun dev/session.ts <name> [mod folder], with a name of letters, digits, - and _')
+const { values: { pool: remotePool }, positionals: [name, folder] } = parseArgs({ args: process.argv.slice(2), options: { pool: { type: 'string' } }, allowPositionals: true })
+if (name === undefined || !/^[\w-]+$/.test(name)) throw new Error('Usage: bun dev/session.ts <name> [mod folder] [--pool <url>], with a name of letters, digits, - and _')
 const mod = resolve(folder ?? root)
 const home = join(root, '.target/dev/home')
 const project = join(root, '.target/dev/sessions', name)
 const store = join(home, '.local/share/cmod')
 
 const config = Bun.YAML.parse(await readFile(join(root, 'dev/config.yaml'), 'utf8')) as { server: { port: number } }
-const pool = `http://127.0.0.1:${config.server.port}`
+const pool = remotePool ?? `http://127.0.0.1:${config.server.port}`
 const { version } = JSON.parse(await readFile(join(mod, '.claude-plugin/plugin.json'), 'utf8')) as { version: string }
 const steps = readSteps(JSON.parse(await readFile(join(mod, 'package.json'), 'utf8')))
 if (steps === undefined) throw new Error(`${mod}/package.json has no cmod steps`)
@@ -60,7 +65,9 @@ const program = join(store, 'bin/oneclaude', version, 'oneclaude')
 await write(program, '#!/bin/sh\necho "oneclaude: a dev session never runs oneclaude $*, so it never touches a proxy or a login" >&2\nexit 1\n')
 await chmod(program, 0o755)
 await link(program, join(store, 'programs/oneclaude'))
-await write(join(store, 'data/oneclaude/management-key'), 'dev')
+const key = join(store, 'data/oneclaude/management-key')
+if (remotePool === undefined) await write(key, 'dev')
+else await rm(key, { force: true })
 const installedAt = new Date((await stat(program)).mtimeMs + 1000).toISOString()
 const scripts = await scriptsSha256(steps, {
   read: (path) => readFile(join(mod, path), 'utf8').catch(() => undefined),

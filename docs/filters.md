@@ -2,7 +2,7 @@
 
 Every Claude Code request from every session that uses the pool goes through oneclaude. A filter lets another mod rewrite, answer, or watch the requests of a session it chose, and their successful responses. It works the way Envoy's external processing filter does: oneclaude sends the filter each request, then each event of the response, and applies its answers.
 
-A filter is a program your mod runs, at an address on the machine the pool runs on. oneclaude runs nothing itself. A session on another machine that uses the pool, such as a Mac whose `ANTHROPIC_BASE_URL` is `http://devbox:8317`, adds the address of its program on the pool's machine.
+A filter is a program your mod runs, at an address on the machine the pool runs on. oneclaude runs nothing itself. A session on another machine that uses the pool, such as a Mac whose `ANTHROPIC_BASE_URL` is `http://homeserver:8317`, adds the address of its program on the pool's machine.
 
 ## Add a filter
 
