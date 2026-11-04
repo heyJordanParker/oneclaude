@@ -27,7 +27,7 @@ With Go, zig, Bun, Claude Code, cmod, and `gh` logged in with push access:
 cmod publish --dry-run .
 ```
 
-The dry run builds the release into a temporary folder and prints what it would release. It changes no tracked file and pushes nothing. Then:
+The dry run builds the release into a temporary folder and prints what it would release. It changes no tracked file and pushes nothing. It reads only committed files, so run it after the release commit: before it, it refuses with `The committed CHANGELOG.md has no "## [<version>]" section`. Then:
 
 ```bash
 cmod publish .
