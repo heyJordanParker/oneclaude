@@ -10335,6 +10335,9 @@ var fs = {
 var http = {
   fetch: (url, init) => bound().http.fetch(url, init)
 };
+var device = {
+  read: () => bound().device.read()
+};
 function defineMod(definition) {
   if (definition.name.trim() === "")
     throw new Error("defineMod: the mod needs a name, such as the name in .claude-plugin/plugin.json.");
@@ -10410,7 +10413,7 @@ function oneLine(error) {
   return messageOf(error).replace(/\s*\n\s*/g, " ");
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/status.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/status.ts
 var LOCAL_POOL = "http://127.0.0.1:8317";
 async function baseUrlOf() {
   const env = (await settings.user.read())["env"];
@@ -10433,26 +10436,13 @@ async function keyOf(mod) {
 async function saveKey(mod, key) {
   await fs.write(`${mod.dataFolder}/${KEY}`, key);
 }
-function within(mod, ms, work, late, onLate) {
-  let deadline;
-  return Promise.race([
-    work.finally(() => deadline?.stop()),
-    new Promise((resolve) => {
-      deadline = mod.after(ms, () => {
-        onLate();
-        resolve(late);
-      });
-    })
-  ]);
-}
-var MANAGE_MS = 1e4;
 async function manage(mod, key, path, init = {}) {
   const headers = { Authorization: `Bearer ${key}`, ...init.body === undefined ? {} : { "Content-Type": "application/json" } };
   const pool = mod.state.memory.pool;
-  const asked = http.fetch(`${pool}/v0/management${path}`, { ...init, headers }).catch(() => {
+  const response = await http.fetch(`${pool}/v0/management${path}`, { ...init, headers }).catch((error) => {
+    mod.log(`${pool} gave no answer to ${path}: ${String(error)}`);
     return;
   });
-  const response = await within(mod, MANAGE_MS, asked, undefined, () => mod.log(`${pool} sent no answer to ${path} within ${MANAGE_MS} ms`));
   if (response?.status === 401)
     await saveKey(mod, "");
   return response;
@@ -10465,20 +10455,19 @@ var PROBLEMS = {
 function warningOf(problem, status) {
   return `${PROBLEMS[problem]} since ${momentOf(status.now, new Date().toISOString())}`;
 }
-async function read(pool) {
-  const response = await http.fetch(statusUrl(pool)).catch(() => {
-    return;
-  });
-  if (response === undefined)
-    return { problem: "proxy-down" };
+async function read(pool, after, device) {
+  const query = new URLSearchParams({ ...after === undefined ? {} : { after: String(after) }, ...device === undefined ? {} : { device } }).toString();
+  const response = await http.fetch(query === "" ? statusUrl(pool) : `${statusUrl(pool)}?${query}`).catch((error) => String(error));
+  if (typeof response === "string")
+    return { problem: "proxy-down", cause: response };
   if (response.status === 404)
-    return { problem: "plugin-off" };
+    return { problem: "plugin-off", cause: "the proxy answered 404" };
   if (!response.ok)
-    return { problem: "proxy-down" };
+    return { problem: "proxy-down", cause: `the proxy answered ${response.status}` };
   try {
     return { status: JSON.parse(response.text) };
-  } catch {
-    return { problem: "unreadable" };
+  } catch (error) {
+    return { problem: "unreadable", cause: String(error) };
   }
 }
 async function readBlocks(mod, key) {
@@ -10501,7 +10490,6 @@ async function readBlocks(mod, key) {
   return blocks;
 }
 var BLOCKS = "blocks.json";
-var SHARED_MS = 14000;
 var STATUS = "status.json";
 async function lastBlocks(mod) {
   return fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => JSON.parse(text)).catch(() => {
@@ -10517,20 +10505,22 @@ async function sharedReading(mod) {
     return null;
   return { status, blocks: (await lastBlocks(mod))?.blocks ?? {} };
 }
-async function sharedBlocks(mod, key) {
+async function sharedBlocks(mod, change, isReader) {
   const shared = await lastBlocks(mod);
-  if (shared !== undefined && Date.now() - shared.at < SHARED_MS)
+  if (change !== undefined && shared?.change === change)
     return shared.blocks;
-  return freshBlocks(mod, key);
-}
-async function freshBlocks(mod, key) {
+  if (!isReader)
+    return;
+  const key = await keyOf(mod);
+  if (key === undefined)
+    return;
   const blocks = await readBlocks(mod, key).catch((error) => {
-    mod.log(`oneclaude could not read the proxy's blocks, so it keeps the last ones: ${String(error)}`);
+    mod.log(`oneclaude could not read the proxy's blocks: ${String(error)}`);
     return;
   });
   if (blocks === undefined)
-    return (await lastBlocks(mod))?.blocks ?? {};
-  await fs.write(`${mod.dataFolder}/${BLOCKS}`, JSON.stringify({ at: Date.now(), blocks })).catch((error) => mod.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(error)}`));
+    return;
+  await fs.write(`${mod.dataFolder}/${BLOCKS}`, JSON.stringify({ change, blocks })).catch((error) => mod.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(error)}`));
   return blocks;
 }
 async function unblock(mod, account, key) {
@@ -10539,20 +10529,21 @@ async function unblock(mod, account, key) {
 }
 var RATE_LIMITS = ["quota", "credential_quota"];
 var LOGINS = ["unauthorized", "invalid_grant"];
-function heldOn(account, blocks) {
-  return account.auth_index === undefined ? [] : blocks[account.auth_index] ?? [];
+function heldOn(account, blocks, now) {
+  const held = account.auth_index === undefined ? [] : blocks[account.auth_index] ?? [];
+  return held.filter((block) => Date.parse(block.until) > Date.parse(now));
 }
-function isSignedOut(account, blocks) {
-  return account.signed_out || heldOn(account, blocks).some((block) => LOGINS.includes(block.reason));
+function isSignedOut(account, blocks, now) {
+  return account.signed_out || heldOn(account, blocks, now).some((block) => LOGINS.includes(block.reason));
 }
-function blocksOf(account, blocks) {
-  return heldOn(account, blocks).filter((block) => !RATE_LIMITS.includes(block.reason) && !LOGINS.includes(block.reason));
+function blocksOf(account, blocks, now) {
+  return heldOn(account, blocks, now).filter((block) => !RATE_LIMITS.includes(block.reason) && !LOGINS.includes(block.reason));
 }
 var ACCOUNTS = "accounts";
 var rowKey = (account) => `account-${account.name}`;
 function troublesOf(status, blocks) {
-  const signedOut = status.accounts.filter((account) => isSignedOut(account, blocks));
-  const blocked = status.accounts.filter((account) => !isSignedOut(account, blocks) && blocksOf(account, blocks).length > 0);
+  const signedOut = status.accounts.filter((account) => isSignedOut(account, blocks, status.now));
+  const blocked = status.accounts.filter((account) => !isSignedOut(account, blocks, status.now) && blocksOf(account, blocks, status.now).length > 0);
   return [
     ...signedOut.length > 0 ? [{ text: `${plural(signedOut.length, "account")} signed out`, key: rowKey(signedOut[0]) }] : [],
     ...blocked.length > 0 ? [{ text: `${plural(blocked.length, "account")} blocked`, key: rowKey(blocked[0]) }] : [],
@@ -10699,7 +10690,7 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/components/pool-bar.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/components/pool-bar.tsx
 function poolBar({ used, pace }) {
   return drawCells(bar(used, pace, BAR_CELLS));
 }
@@ -10711,7 +10702,7 @@ function drawCells(cells) {
   }, cell.text));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/components/pool-line.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/components/pool-line.tsx
 var PACE_COLORS = {
   on: undefined,
   under: "success",
@@ -10794,7 +10785,7 @@ function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble }) {
   }, isOpen ? "[-]" : "[+]"))));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/components/weekly-resets.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/components/weekly-resets.tsx
 var DAYS2 = 8;
 var HOUR_MS = 60 * 60 * 1000;
 var DAY_MS = 24 * HOUR_MS;
@@ -10882,7 +10873,7 @@ function WeeklyResets({ calendar, width }) {
   ]));
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/usage.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/usage.ts
 var PERIODS = [["quarter", "90 days"], ["month", "30 days"], ["week", "7 days"], ["yesterday", "Yesterday"], ["today", "Today"]];
 var BREAKDOWNS = [["account", "Account"], ["model", "Model"], ["agent", "Agent"], ["project", "Project"], ["time", "Time"]];
 var UNITS = [["cost", "Cost"], ["tokens", "Tokens"]];
@@ -10994,7 +10985,7 @@ function optimizePrompt(pool, agents, projects, models) {
 `);
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/pages/accounts.tsx
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/pages/accounts.tsx
 var COMBINED = "Combined usage";
 var GAP2 = 2;
 var INSET = 3;
@@ -11166,7 +11157,7 @@ function combinedRow(status, shown) {
 }
 function claudeRow(mod, account, blocks, now, shown) {
   const key = rowKey(account);
-  if (isSignedOut(account, blocks)) {
+  if (isSignedOut(account, blocks, now)) {
     return {
       key,
       name: account.name,
@@ -11182,7 +11173,7 @@ function claudeRow(mod, account, blocks, now, shown) {
       }, "Sign in"), "]"))
     };
   }
-  const blocked = blocksOf(account, blocks);
+  const blocked = blocksOf(account, blocks, now);
   const trouble = blocked.length === 0 ? undefined : /* @__PURE__ */ h(BlockedView, {
     mod,
     account,
@@ -11212,14 +11203,8 @@ function BlockedView({ mod, account, blocked, now }) {
   const what = models.length === 0 || blocked.some((block) => block.model === undefined) ? "blocked" : `blocked for ${models.join(", ")}`;
   const clear = async () => {
     const key = await keyOf(mod);
-    if (key === undefined || !await unblock(mod, account, key)) {
+    if (key === undefined || !await unblock(mod, account, key))
       mod.toast.error(`oneclaude could not clear the blocks on ${account.name}`);
-      return;
-    }
-    const blocks = await freshBlocks(mod, key);
-    const reading = mod.state.memory.reading;
-    if (reading !== null)
-      mod.state.memory.reading = { ...reading, blocks };
   };
   return /* @__PURE__ */ h(Box, {
     gap: 2
@@ -11438,7 +11423,7 @@ function LogSection({ log }) {
   ]);
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/record.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/record.ts
 function checked(input) {
   const { name, url, responses, timeoutSeconds, failOpen, observabilityMode } = input;
   if (typeof name !== "string" || name === "")
@@ -11459,40 +11444,37 @@ function checked(input) {
 function recordOf2(mod) {
   let filters = [];
   let agents = {};
-  let queue = Promise.resolve(undefined);
-  let retry;
   let taken;
-  const later = () => {
-    retry ??= mod.after(1000, () => {
-      retry = undefined;
-      send();
-    });
-    return;
-  };
-  const post = async () => {
+  let line = { session: "", last: Promise.resolve(undefined) };
+  const post = async (session) => {
     const key = await keyOf(mod);
     if (key === undefined)
-      return later();
-    const session = sessions.current.id;
+      return;
     const body = JSON.stringify({ session, project: sessions.current.project, agents, filters });
     const sent = `${mod.state.memory.pool} ${body}`;
     if (sent === taken)
       return;
     const response = await manage(mod, key, "/plugins/oneclaude/session", { method: "POST", body });
-    if (response?.ok === true) {
-      taken = sent;
+    if (response === undefined || response.ok) {
+      if (response?.ok === true)
+        taken = sent;
       return;
     }
-    if (response === undefined || response.status >= 500)
-      return later();
     mod.log(`the pool refused the record of session ${session} with ${response.status}: ${response.text}`);
-    if (response.status === 401)
-      return later();
     return response.status === 400 ? JSON.parse(response.text).error ?? response.text : undefined;
   };
   const send = () => {
-    queue = queue.then(post, post);
-    return queue;
+    const session = sessions.current.id;
+    if (line.session !== session)
+      line = { session, last: Promise.resolve(undefined) };
+    const current = line;
+    const start = () => {
+      current.next = undefined;
+      return post(session);
+    };
+    current.next ??= current.last.then(start, start);
+    current.last = current.next;
+    return current.next;
   };
   const change = async (next) => {
     if (JSON.stringify(next) === JSON.stringify(filters))
@@ -11524,21 +11506,13 @@ function recordOf2(mod) {
   };
 }
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/state.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/state.ts
 var initialState = {
   memory: { pool: LOCAL_POOL, reading: null, problem: null, isOpen: false, shown: {}, usage: { period: "month", by: "account", units: "cost" }, table: null, isConfirming: false, keyAnswer: null }
 };
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/src/mod.tsx
-var REFRESH_MS = 15000;
-var READ_MS = 1e4;
-async function waitOn(run, call, work) {
-  run.call = call;
-  const value = await work;
-  if (run.isLate)
-    throw new Error(`a refresh past its deadline finished ${call}, so it writes nothing`);
-  return value;
-}
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/src/mod.tsx
+var RETRY_MS = [1000, 2000, 4000, 8000, 16000];
 async function checkKey(mod, key) {
   mod.state.memory.pool = await poolOf();
   const response = await http.fetch(`${mod.state.memory.pool}/v0/management/plugins/oneclaude/status`, { headers: { Authorization: `Bearer ${key}` } }).catch(() => {
@@ -11604,42 +11578,91 @@ var oneclaude = defineMod({
       if (await baseUrlOf() === undefined)
         await settings.user.update({ env: { ANTHROPIC_BASE_URL: LOCAL_POOL } });
     };
-    const readPool = async (run) => {
-      const pool = await waitOn(run, "poolOf", poolOf());
-      mod.state.memory.pool = pool;
-      const unanswered = { problem: "proxy-down" };
-      const answer = await waitOn(run, "read", within(mod, READ_MS, read(pool), unanswered, () => mod.log(`${pool} sent no status within ${READ_MS} ms`)));
-      if ("problem" in answer) {
-        mod.state.memory.problem = answer.problem;
+    const record = recordOf2(mod);
+    let blocksShown;
+    let blocksWanted = { change: undefined, isReader: false };
+    let isReadingBlocks = false;
+    const showBlocks = async (status) => {
+      const isReader = status.reads_blocks === true || status.blocks_change === undefined;
+      blocksWanted = { change: status.blocks_change, isReader: isReader || blocksWanted.change === status.blocks_change && blocksWanted.isReader };
+      if (isReadingBlocks)
         return;
+      isReadingBlocks = true;
+      try {
+        while (blocksShown === undefined || blocksShown.change !== blocksWanted.change) {
+          const wanted = blocksWanted;
+          const blocks = await sharedBlocks(mod, wanted.change, wanted.isReader);
+          if (blocks === undefined)
+            return;
+          const reading = mod.state.memory.reading;
+          if (reading !== null)
+            mod.state.memory.reading = { ...reading, blocks };
+          blocksShown = { change: wanted.change, blocks };
+        }
+      } finally {
+        isReadingBlocks = false;
       }
+    };
+    let usageReading;
+    const draw = (status) => {
       mod.state.memory.problem = null;
-      mod.state.memory.reading = { status: answer.status, blocks: mod.state.memory.reading?.blocks ?? {} };
+      mod.state.memory.reading = { status, blocks: blocksShown?.blocks ?? mod.state.memory.reading?.blocks ?? {} };
       animate();
-      shareStatus(mod, answer.status);
-      const key = await waitOn(run, "keyOf", keyOf(mod));
-      const blocks = key === undefined ? {} : await waitOn(run, "sharedBlocks", sharedBlocks(mod, key));
-      const latest = mod.state.memory.reading;
-      if (latest !== null)
-        mod.state.memory.reading = { ...latest, blocks };
+      shareStatus(mod, status);
+      showBlocks(status);
+      record.send();
+      useProxy();
       mod.state.memory.isOpen = page.isOpen;
       if (page.isOpen)
-        await waitOn(run, "showUsage", showUsage(mod));
-      await waitOn(run, "useProxy", useProxy());
+        usageReading ??= showUsage(mod).finally(() => {
+          usageReading = undefined;
+        });
     };
-    const refresh = () => {
-      const run = { call: "poolOf", isLate: false };
-      return within(mod, REFRESH_MS, readPool(run), undefined, () => {
-        run.isLate = true;
-        mod.log(`a refresh still waited on ${run.call} after ${REFRESH_MS} ms, so it ends and writes nothing more`);
+    const machine = device.read().then(({ id }) => id, (error) => {
+      mod.log(`oneclaude names no machine to the pool, so this session reads every blocks change itself: ${String(error)}`);
+      return;
+    });
+    const ask = async (after) => {
+      const pool = await poolOf();
+      mod.state.memory.pool = pool;
+      const within = mod.state.memory.reading?.status.answers_within_ms;
+      const silence = within === undefined ? undefined : mod.after(within, () => {
+        mod.log(`${pool} sent no status within ${within} ms`);
+        mod.state.memory.problem = "proxy-down";
       });
+      const answer = await read(pool, after, await machine).finally(() => silence?.stop());
+      if (!("problem" in answer))
+        return answer.status;
+      mod.log(`${pool} brought no status: ${answer.cause}`);
+      mod.state.memory.problem = answer.problem;
+      return;
+    };
+    const pause = (ms) => new Promise((resolve) => void mod.after(ms, resolve));
+    const follow = async () => {
+      let after;
+      let failures = 0;
+      for (;; ) {
+        const status = await ask(after).catch((error) => {
+          mod.log(`oneclaude could not ask the pool for its status: ${String(error)}`);
+          return;
+        });
+        if (status === undefined) {
+          after = undefined;
+          await pause(RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]);
+          continue;
+        }
+        failures = 0;
+        after = status.change;
+        draw(status);
+        if (after === undefined)
+          await pause(RETRY_MS[0]);
+      }
     };
     const toggle = async () => {
       const isOpening = !page.isOpen;
       if (isOpening) {
         mod.state.memory.isConfirming = false;
-        await refresh();
-        await showUsage(mod);
+        showUsage(mod);
         mod.state.memory.shown = Object.fromEntries(Object.entries(mod.state.memory.shown).map(([key, shown]) => [key, key === LINE ? shown : { used: 0, pace: 0 }]));
         animate();
       }
@@ -11669,23 +11692,20 @@ var oneclaude = defineMod({
       description: "Show every Claude account: combined usage, pace, agents and the log",
       reply: toggle
     }));
-    mod.every(REFRESH_MS, refresh);
-    const record = recordOf2(mod);
     sessions.current.onTaskStart((task) => {
       if (task.owner.agentType !== undefined)
         record.addAgent(task.id, task.owner.agentType);
     });
     const start = async () => {
-      sharedReading(mod).then((shared) => {
-        mod.state.memory.reading ??= shared;
-      });
+      const shared = await sharedReading(mod);
+      mod.state.memory.reading ??= shared;
       mod.state.memory.pool = await poolOf();
-      refresh();
       record.send();
     };
     sessions.current.onSessionStart({ source: /^(clear|resume|fork)$/ }, start);
     sessions.current.onCwdChange(() => void record.send());
     await start();
+    follow();
     return {
       addFilter: (input) => record.addFilter(input),
       removeFilter: (input) => record.removeFilter(input)
@@ -11693,7 +11713,7 @@ var oneclaude = defineMod({
   }
 });
 
-// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-O8KmQq/release/hooks/register.ts
+// ../../../../../private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/cmod-publish-oneclaude-62PI8w/release/hooks/register.ts
 function register(addHook, options) {
   registerMod(addHook, oneclaude, options);
 }

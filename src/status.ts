@@ -1,5 +1,5 @@
 import type { Color, HttpResponse } from 'claude-code'
-import { fs, http, settings, type Mod, type Timer } from '../node_modules/@cmodjs/core/mod.js'
+import { fs, http, settings, type Mod } from '../node_modules/@cmodjs/core/mod.js'
 import type { OneclaudeState } from './state.js'
 
 // LOCAL_POOL is the pool oneclaude installs on this machine, where it points
@@ -45,31 +45,16 @@ export async function saveKey(mod: Mod<OneclaudeState>, key: string): Promise<vo
   await fs.write(`${mod.dataFolder}/${KEY}`, key)
 }
 
-// within is work's value, or late once ms pass without one.
-export function within<T>(mod: Mod<OneclaudeState>, ms: number, work: Promise<T>, late: T, onLate: () => void): Promise<T> {
-  let deadline: Timer | undefined
-  return Promise.race([
-    work.finally(() => deadline?.stop()),
-    new Promise<T>((resolve) => {
-      deadline = mod.after(ms, () => {
-        onLate()
-        resolve(late)
-      })
-    }),
-  ])
-}
-
-// The pool answers a management request in under a second: 145 to 297 ms
-// from another machine over Tailscale on 2026-11-04.
-const MANAGE_MS = 10_000
-
 // manage sends a request to the pool's management API with key, and answers
-// nothing when the pool sends no answer within MANAGE_MS.
+// nothing when the pool gives no answer. Claude Code ends every request a mod
+// fetches within 30 seconds.
 export async function manage(mod: Mod<OneclaudeState>, key: string, path: string, init: { readonly method?: string; readonly body?: string } = {}): Promise<HttpResponse | undefined> {
   const headers = { Authorization: `Bearer ${key}`, ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }) }
   const pool = mod.state.memory.pool
-  const asked = http.fetch(`${pool}/v0/management${path}`, { ...init, headers }).catch(() => undefined)
-  const response = await within(mod, MANAGE_MS, asked, undefined, () => mod.log(`${pool} sent no answer to ${path} within ${MANAGE_MS} ms`))
+  const response = await http.fetch(`${pool}/v0/management${path}`, { ...init, headers }).catch((error: unknown) => {
+    mod.log(`${pool} gave no answer to ${path}: ${String(error)}`)
+    return undefined
+  })
   if (response?.status === 401) await saveKey(mod, '')
   return response
 }
@@ -123,9 +108,19 @@ export type Codex = {
   readonly empty: boolean
 }
 
+// change counts the changes to the status, and blocks_change the events that
+// may have changed the proxy's blocks. answers_within_ms is when the answer
+// to status.json?after=<change> comes at the latest. reads_blocks marks the
+// one answer per machine whose session reads the blocks of its blocks change.
+// The plugin of oneclaude 0.9.3 and earlier sends none of them, and answers
+// at once.
 export type Status = {
   readonly version: string
   readonly now: string
+  readonly change?: number
+  readonly blocks_change?: number
+  readonly answers_within_ms?: number
+  readonly reads_blocks?: boolean
   readonly pool: Pool
   readonly accounts: readonly Account[]
   readonly codex: readonly Codex[]
@@ -153,15 +148,19 @@ export function warningOf(problem: Problem, status: Status): string {
   return `${PROBLEMS[problem]} since ${momentOf(status.now, new Date().toISOString())}`
 }
 
-export async function read(pool: string): Promise<{ readonly status: Status } | { readonly problem: Problem }> {
-  const response = await http.fetch(statusUrl(pool)).catch(() => undefined)
-  if (response === undefined) return { problem: 'proxy-down' }
-  if (response.status === 404) return { problem: 'plugin-off' }
-  if (!response.ok) return { problem: 'proxy-down' }
+// read asks the pool for its status, at once, or after the change after at
+// its next change, from the machine device names. A status it brings none of
+// names the problem and its cause.
+export async function read(pool: string, after: number | undefined, device: string | undefined): Promise<{ readonly status: Status } | { readonly problem: Problem; readonly cause: string }> {
+  const query = new URLSearchParams({ ...(after === undefined ? {} : { after: String(after) }), ...(device === undefined ? {} : { device }) }).toString()
+  const response = await http.fetch(query === '' ? statusUrl(pool) : `${statusUrl(pool)}?${query}`).catch((error: unknown) => String(error))
+  if (typeof response === 'string') return { problem: 'proxy-down', cause: response }
+  if (response.status === 404) return { problem: 'plugin-off', cause: 'the proxy answered 404' }
+  if (!response.ok) return { problem: 'proxy-down', cause: `the proxy answered ${response.status}` }
   try {
     return { status: JSON.parse(response.text) as Status }
-  } catch {
-    return { problem: 'unreadable' }
+  } catch (error) {
+    return { problem: 'unreadable', cause: String(error) }
   }
 }
 
@@ -187,12 +186,12 @@ export async function readBlocks(mod: Mod<OneclaudeState>, key: string): Promise
 }
 
 const BLOCKS = 'blocks.json'
-const SHARED_MS = 14_000
 const STATUS = 'status.json'
 
-// lastBlocks is the last reading of the proxy's blocks any session made.
-async function lastBlocks(mod: Mod<OneclaudeState>): Promise<{ readonly at: number; readonly blocks: Blocks } | undefined> {
-  return fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => JSON.parse(text) as { readonly at: number; readonly blocks: Blocks }).catch(() => undefined)
+// lastBlocks is the last reading of the proxy's blocks any session made, with
+// the pool's blocks change it was taken at.
+async function lastBlocks(mod: Mod<OneclaudeState>): Promise<{ readonly change?: number; readonly blocks: Blocks } | undefined> {
+  return fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => JSON.parse(text) as { readonly change?: number; readonly blocks: Blocks }).catch(() => undefined)
 }
 
 export async function shareStatus(mod: Mod<OneclaudeState>, status: Status): Promise<void> {
@@ -205,21 +204,22 @@ export async function sharedReading(mod: Mod<OneclaudeState>): Promise<Reading |
   return { status, blocks: (await lastBlocks(mod))?.blocks ?? {} }
 }
 
-export async function sharedBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
+// sharedBlocks is the proxy's blocks as of the pool's blocks change: the
+// reading another session took of that change, or, when this session reads
+// it, a fresh one with the management key, which it shares with the other
+// sessions. It is undefined while no reading of that change is there.
+export async function sharedBlocks(mod: Mod<OneclaudeState>, change: number | undefined, isReader: boolean): Promise<Blocks | undefined> {
   const shared = await lastBlocks(mod)
-  if (shared !== undefined && Date.now() - shared.at < SHARED_MS) return shared.blocks
-  return freshBlocks(mod, key)
-}
-
-// freshBlocks reads the proxy's blocks and shares them with the other
-// sessions. A failed read keeps the last blocks any session read.
-export async function freshBlocks(mod: Mod<OneclaudeState>, key: string): Promise<Blocks> {
+  if (change !== undefined && shared?.change === change) return shared.blocks
+  if (!isReader) return undefined
+  const key = await keyOf(mod)
+  if (key === undefined) return undefined
   const blocks = await readBlocks(mod, key).catch((error: unknown) => {
-    mod.log(`oneclaude could not read the proxy's blocks, so it keeps the last ones: ${String(error)}`)
+    mod.log(`oneclaude could not read the proxy's blocks: ${String(error)}`)
     return undefined
   })
-  if (blocks === undefined) return (await lastBlocks(mod))?.blocks ?? {}
-  await fs.write(`${mod.dataFolder}/${BLOCKS}`, JSON.stringify({ at: Date.now(), blocks })).catch((error: unknown) => mod.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(error)}`))
+  if (blocks === undefined) return undefined
+  await fs.write(`${mod.dataFolder}/${BLOCKS}`, JSON.stringify({ change, blocks })).catch((error: unknown) => mod.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(error)}`))
   return blocks
 }
 
@@ -235,18 +235,20 @@ export async function unblock(mod: Mod<OneclaudeState>, account: Account, key: s
 const RATE_LIMITS = ['quota', 'credential_quota']
 const LOGINS = ['unauthorized', 'invalid_grant']
 
-// heldOn is every block the proxy holds on the account.
-function heldOn(account: Account, blocks: Blocks): readonly Block[] {
-  return account.auth_index === undefined ? [] : blocks[account.auth_index] ?? []
+// heldOn is every block the proxy holds on the account at now. The blocks are
+// read only when they may have changed, so one whose time is up is gone.
+function heldOn(account: Account, blocks: Blocks, now: string): readonly Block[] {
+  const held = account.auth_index === undefined ? [] : blocks[account.auth_index] ?? []
+  return held.filter((block) => Date.parse(block.until) > Date.parse(now))
 }
 
-export function isSignedOut(account: Account, blocks: Blocks): boolean {
-  return account.signed_out || heldOn(account, blocks).some((block) => LOGINS.includes(block.reason))
+export function isSignedOut(account: Account, blocks: Blocks, now: string): boolean {
+  return account.signed_out || heldOn(account, blocks, now).some((block) => LOGINS.includes(block.reason))
 }
 
 // blocksOf is the account's blocks that no rate limit or login explains.
-export function blocksOf(account: Account, blocks: Blocks): readonly Block[] {
-  return heldOn(account, blocks).filter((block) => !RATE_LIMITS.includes(block.reason) && !LOGINS.includes(block.reason))
+export function blocksOf(account: Account, blocks: Blocks, now: string): readonly Block[] {
+  return heldOn(account, blocks, now).filter((block) => !RATE_LIMITS.includes(block.reason) && !LOGINS.includes(block.reason))
 }
 
 // A Trouble is one thing in the pool that needs the person, with the key of
@@ -258,8 +260,8 @@ export const ACCOUNTS = 'accounts'
 export const rowKey = (account: Account): string => `account-${account.name}`
 
 export function troublesOf(status: Status, blocks: Blocks): readonly Trouble[] {
-  const signedOut = status.accounts.filter((account) => isSignedOut(account, blocks))
-  const blocked = status.accounts.filter((account) => !isSignedOut(account, blocks) && blocksOf(account, blocks).length > 0)
+  const signedOut = status.accounts.filter((account) => isSignedOut(account, blocks, status.now))
+  const blocked = status.accounts.filter((account) => !isSignedOut(account, blocks, status.now) && blocksOf(account, blocks, status.now).length > 0)
   return [
     ...(signedOut.length > 0 ? [{ text: `${plural(signedOut.length, 'account')} signed out`, key: rowKey(signedOut[0]!) }] : []),
     ...(blocked.length > 0 ? [{ text: `${plural(blocked.length, 'account')} blocked`, key: rowKey(blocked[0]!) }] : []),

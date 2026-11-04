@@ -5,7 +5,7 @@ import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
-import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, freshBlocks, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, warningOf, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
+import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, warningOf, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
 import { BREAKDOWNS, dailyChart, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
@@ -149,7 +149,7 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
 // the button that clears its blocks.
 function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, now: string, shown: Shown | undefined): Row {
   const key = rowKey(account)
-  if (isSignedOut(account, blocks)) {
+  if (isSignedOut(account, blocks, now)) {
     return {
       key,
       name: account.name,
@@ -162,7 +162,7 @@ function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, n
       ),
     }
   }
-  const blocked = blocksOf(account, blocks)
+  const blocked = blocksOf(account, blocks, now)
   const trouble = blocked.length === 0 ? undefined : <BlockedView mod={mod} account={account} blocked={blocked} now={now} />
   if (!account.known) return { key, name: account.name, facts: ['not read yet'], trouble }
   const agents = FAMILIES.filter((family) => (account.agents[family] ?? 0) > 0).map((family) => `${account.agents[family]} ${family}`)
@@ -187,13 +187,7 @@ function BlockedView({ mod, account, blocked, now }: { readonly mod: Mod<Oneclau
   const what = models.length === 0 || blocked.some((block) => block.model === undefined) ? 'blocked' : `blocked for ${models.join(', ')}`
   const clear = async (): Promise<void> => {
     const key = await keyOf(mod)
-    if (key === undefined || !(await unblock(mod, account, key))) {
-      mod.toast.error(`oneclaude could not clear the blocks on ${account.name}`)
-      return
-    }
-    const blocks = await freshBlocks(mod, key)
-    const reading = mod.state.memory.reading
-    if (reading !== null) mod.state.memory.reading = { ...reading, blocks }
+    if (key === undefined || !(await unblock(mod, account, key))) mod.toast.error(`oneclaude could not clear the blocks on ${account.name}`)
   }
   return (
     <Box gap={2}>

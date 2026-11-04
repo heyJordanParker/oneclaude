@@ -2,6 +2,14 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.9.4]
+
+### Changed
+- The line under the prompt and `/accounts` change within a second of the pool's own change, in every open session. Each session asks the pool for its next change, and the pool answers when it comes, or after 20 seconds with no change. Before, each session read the pool every 15 seconds.
+- A pool that stops answering shows `pool unreachable` once 25 seconds pass without the answer it promised, and the warning goes within 16 seconds of the pool answering again, with no input. A session asks a pool that failed it again after 1, 2, 4, 8, then every 16 seconds.
+- The proxy's blocks are read only after an event that may change them, a failed request, the first answer after one, or an unblock, and by one session per machine, which shares its reading with the others. Before, the open sessions read them every 14 seconds, and the proxy checked the management key with bcrypt for each reading. A block whose time is up leaves the line by itself.
+- A session's record goes again at the next status the pool answers when the pool didn't take it, and a record of the session `/clear` starts never waits on an earlier post.
+
 ## [0.9.3]
 
 ### Fixed
