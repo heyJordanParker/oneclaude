@@ -292,7 +292,16 @@ func TestRemoveTurnsOneclaudeOffAndSeatPacerBackOn(t *testing.T) {
 
 const claudeState = `{"oauthAccount":{"emailAddress":"ada@example.com","accountUuid":"account-a","organizationUuid":"organization-a","organizationName":"Ada's Organization"}}`
 
-const keychainItem = `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-access","refreshToken":"sk-ant-ort01-refresh","expiresAt":1792000000000,"scopes":["user:inference"],"subscriptionType":"max"}}`
+const claudeCredentials = `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-access","refreshToken":"sk-ant-ort01-refresh","expiresAt":1792000000000,"scopes":["user:inference"],"subscriptionType":"max"}}`
+
+// TestMain keeps every test off the Claude Code login of whoever runs them:
+// the login read follows CLAUDE_CONFIG_DIR, and finds the keychain item by
+// the user's name.
+func TestMain(m *testing.M) {
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("USER", "oneclaude-test")
+	os.Exit(m.Run())
+}
 
 // on runs the rest of the test as if on system, the GOOS it names.
 func on(t *testing.T, system string) {
@@ -303,26 +312,23 @@ func on(t *testing.T, system string) {
 }
 
 // loggedIn gives the test's home a Claude Code logged in to ada@example.com,
-// with a security program that answers the keychain item as macOS does.
+// which keeps its tokens in .credentials.json, as on Linux, and as on macOS
+// when the keychain holds none.
 func loggedIn(t *testing.T) {
 	t.Helper()
-	on(t, "darwin")
 	home := os.Getenv("HOME")
-	if err := os.MkdirAll(home, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(claudeState), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bin := t.TempDir()
-	security := "#!/bin/sh\n[ \"$1 $2 $3\" = 'find-generic-password -s Claude Code-credentials' ] || exit 44\necho '" + keychainItem + "'\n"
-	if err := os.WriteFile(filepath.Join(bin, "security"), []byte(security), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(claudeCredentials), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 }
 
-func TestInstallBringsClaudeCodesLoginIntoTheProxy(t *testing.T) {
+func TestInstallCopiesClaudeCodesLoginWithoutItsRefreshToken(t *testing.T) {
 	config, _, data := setUp(t)
 	loggedIn(t)
 	if err := run(built, config, data, false); err != nil {
@@ -341,7 +347,6 @@ func TestInstallBringsClaudeCodesLoginIntoTheProxy(t *testing.T) {
 		"type":              "claude",
 		"email":             "ada@example.com",
 		"access_token":      "sk-ant-oat01-access",
-		"refresh_token":     "sk-ant-ort01-refresh",
 		"expired":           time.UnixMilli(1792000000000).Format(time.RFC3339),
 		"account_uuid":      "account-a",
 		"organization_uuid": "organization-a",
@@ -351,43 +356,16 @@ func TestInstallBringsClaudeCodesLoginIntoTheProxy(t *testing.T) {
 			t.Fatalf("credential %s = %q, want %q", key, credential[key], want)
 		}
 	}
+	if token, held := credential["refresh_token"]; held {
+		t.Fatalf("the copy holds the refresh token %q, which the proxy would spend and sign Claude Code out with", token)
+	}
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Fatalf("credential mode = %v", info.Mode().Perm())
 	}
 }
 
-func TestInstallOnLinuxBringsTheLoginClaudeCodeKeepsInItsCredentialsFile(t *testing.T) {
-	config, _, data := setUp(t)
-	on(t, "linux")
-	home := os.Getenv("HOME")
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(claudeState), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(keychainItem), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := run(built, config, data, false); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(filepath.Join(home, ".cli-proxy-api", "claude-"+hashOf("organization-a")+"-ada@example.com.json"))
-	if err != nil {
-		t.Fatalf("no credential file: %v", err)
-	}
-	var credential map[string]string
-	if err := json.Unmarshal(raw, &credential); err != nil {
-		t.Fatal(err)
-	}
-	if credential["refresh_token"] != "sk-ant-ort01-refresh" || credential["email"] != "ada@example.com" {
-		t.Fatalf("credential = %v", credential)
-	}
-}
-
 func TestInstallWithClaudeCodeSignedOutBringsNothingAndFinishes(t *testing.T) {
 	config, _, data := setUp(t)
-	on(t, "linux")
 	home := os.Getenv("HOME")
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)

@@ -82,7 +82,11 @@ oneclaude notes whether it set the management key, and whether Seat Pacer was on
 
 ### 4. Bringing over your Claude login
 
-When Claude Code is logged in to a Claude account, oneclaude copies that login into the proxy as its first account. It reads the account from `~/.claude.json`, and the login from Claude Code's keychain item, `Claude Code-credentials`, on macOS, and from `~/.claude/.credentials.json` on Linux. It writes the file the proxy's own login writes, `claude-<id>-<email>.json` in the proxy's `oauth.auth-dir`, readable by you only. An account the proxy already holds stays as it is. A Claude Code that is signed out brings nothing.
+When Claude Code is logged in to a Claude account, oneclaude copies that login into the proxy as its first account. It reads the account from `~/.claude.json`, and the login from Claude Code's keychain item, `Claude Code-credentials`, on macOS, and from `~/.claude/.credentials.json` on Linux. It writes the file the proxy's own login writes, `claude-<id>-<email>.json` in the proxy's `oauth.auth-dir`, readable by you only. An account the proxy already holds stays as it is. A Claude Code that is signed out brings nothing. With `CLAUDE_CONFIG_DIR` set, oneclaude reads Claude Code's login there, as Claude Code does.
+
+The copy holds Claude Code's access token, never its refresh token, so copying never logs Claude Code out. Anthropic's refresh tokens work once: if the proxy also refreshed this login, Claude Code's next refresh would be refused, and Claude Code would sign itself out. Claude Code stays the only program that refreshes it. Each time Claude Code refreshes, the proxy's copy follows within a minute, or at once when Anthropic turns the copy's old token away. A copy made by an earlier version, which still holds the refresh token, loses it at the first minute.
+
+The one cost: when no Claude Code runs past the token's expiry, the copy shows signed out on the pool line and in `/accounts` until Claude Code next refreshes, and the minute after, it is back. `[Sign in]` on that account gives the pool a login of its own instead, which the proxy refreshes itself, and the copy then stops following Claude Code.
 
 ### 5. Starting the proxy
 

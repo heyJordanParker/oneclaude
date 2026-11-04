@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heyJordanParker/oneclaude/cli/internal/claudecode"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
@@ -298,85 +299,42 @@ func isListening(port string) bool {
 	return true
 }
 
-// keychainLogin is the item Claude Code keeps its own login in on macOS.
-const keychainLogin = "Claude Code-credentials"
-
-// claudeLogin answers the login Claude Code keeps, and where it keeps it: the
-// keychain on macOS, and ~/.claude/.credentials.json elsewhere, which holds
-// the same JSON.
-func claudeLogin(home string) (login []byte, kept string, err error) {
-	if goos == "darwin" {
-		login, err = exec.Command("security", "find-generic-password", "-s", keychainLogin, "-w").Output()
-		return login, "the keychain's " + keychainLogin + " item", err
-	}
-	kept = filepath.Join(home, ".claude", ".credentials.json")
-	login, err = os.ReadFile(kept)
-	return login, kept, err
-}
-
 // bringLogin copies the account Claude Code is logged in to into the proxy
 // as a credential file, the same file the proxy writes after its own login,
-// unless the proxy already holds that account. A Claude Code with no login,
-// such as one that uses an API key, brings nothing.
+// unless the proxy already holds that account. The copy holds no refresh
+// token, so the proxy never refreshes it: the plugin follows Claude Code's
+// own refreshes. A Claude Code with no login, such as one that uses an API
+// key, brings nothing.
 func bringLogin(authDir, home string) error {
-	var state struct {
-		Account struct {
-			Email        string `json:"emailAddress"`
-			AccountUUID  string `json:"accountUuid"`
-			Organization string `json:"organizationUuid"`
-			OrgName      string `json:"organizationName"`
-		} `json:"oauthAccount"`
-	}
-	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
-	if err != nil || json.Unmarshal(raw, &state) != nil || state.Account.Email == "" {
-		fmt.Println("Claude Code is not logged in to a Claude account, so oneclaude brings no login")
+	login, err := claudecode.StoredLogin(home)
+	if err != nil {
+		fmt.Printf("%s, so oneclaude brings no login\n", err)
 		return nil
 	}
-	email := state.Account.Email
-	if holds, err := holdsAccount(authDir, email); err != nil || holds {
+	if holds, err := holdsAccount(authDir, login.Email); err != nil || holds {
 		if holds {
-			fmt.Printf("the proxy already holds %s\n", email)
+			fmt.Printf("the proxy already holds %s\n", login.Email)
 		}
 		return err
 	}
-	secret, kept, err := claudeLogin(home)
-	if err != nil {
-		fmt.Printf("Claude Code keeps no login in %s, so oneclaude brings no login\n", kept)
-		return nil
-	}
-	var login struct {
-		OAuth struct {
-			AccessToken  string `json:"accessToken"`
-			RefreshToken string `json:"refreshToken"`
-			ExpiresAt    int64  `json:"expiresAt"`
-		} `json:"claudeAiOauth"`
-	}
-	if err := json.Unmarshal(secret, &login); err != nil {
-		return fmt.Errorf("%s holds no Claude login oneclaude can read", kept)
-	}
-	if login.OAuth.RefreshToken == "" {
-		fmt.Printf("Claude Code is signed out in %s, so oneclaude brings no login\n", kept)
-		return nil
-	}
 	credential, err := json.Marshal(map[string]string{
 		"type":              "claude",
-		"email":             email,
-		"access_token":      login.OAuth.AccessToken,
-		"refresh_token":     login.OAuth.RefreshToken,
-		"expired":           time.UnixMilli(login.OAuth.ExpiresAt).Format(time.RFC3339),
+		"email":             login.Email,
+		"access_token":      login.AccessToken,
+		"expired":           login.ExpiresAt.Format(time.RFC3339),
 		"last_refresh":      time.Now().Format(time.RFC3339),
-		"account_uuid":      state.Account.AccountUUID,
-		"organization_uuid": state.Account.Organization,
-		"organization_name": state.Account.OrgName,
+		"account_uuid":      login.Account,
+		"organization_uuid": login.Organization,
+		"organization_name": login.OrganizationName,
 	})
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(authDir, credentialName(email, state.Account.Organization, state.Account.AccountUUID))
+	target := filepath.Join(authDir, credentialName(login.Email, login.Organization, login.Account))
 	if err := writeAtomically(target, credential, 0o600); err != nil {
 		return err
 	}
-	fmt.Printf("the proxy now holds %s, the account Claude Code is logged in to\n", email)
+	fmt.Printf("the proxy now holds %s, the account Claude Code is logged in to\n", login.Email)
 	return nil
 }
 

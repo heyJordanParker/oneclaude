@@ -1171,6 +1171,7 @@ type credentialProxy struct {
 	listed  map[string]bool
 	reads   int
 	cleared []string
+	saved   []string
 }
 
 func (c *credentialProxy) call(method string, payload []byte) ([]byte, error) {
@@ -1198,6 +1199,15 @@ func (c *credentialProxy) call(method string, payload []byte) ([]byte, error) {
 			return nil, err
 		}
 		return okEnvelope(HostAuthGetResponse{AuthIndex: req.AuthIndex, JSON: raw})
+	case MethodHostAuthSave:
+		var req HostAuthSaveRequest
+		_ = json.Unmarshal(payload, &req)
+		if err := os.WriteFile(filepath.Join(c.dir, req.Name), req.JSON, 0o600); err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		c.saved = append(c.saved, req.Name)
+		c.mu.Unlock()
 	case MethodHostRoutingResetCooldown:
 		var req HostRoutingResetCooldownRequest
 		_ = json.Unmarshal(payload, &req)
@@ -1381,5 +1391,135 @@ func TestAnAccountAnthropicRefusesShowsWhyAndThePickSkipsIt(t *testing.T) {
 	}
 	if got, _ := send(t, p, "r5", "s3", "", "claude-opus-5-5", both, weekly(0.5, 24*time.Hour), http.StatusOK); got != "bob.json" {
 		t.Fatalf("a new conversation went to %s, want bob, as Anthropic refuses ada", got)
+	}
+}
+
+// claudeCodeLoggedIn gives home a Claude Code logged in to ada's account,
+// which keeps its tokens in .credentials.json, and keeps the test off the
+// Claude Code login of whoever runs it.
+func claudeCodeLoggedIn(t *testing.T, home, access, refresh string, expires time.Time) {
+	t.Helper()
+	t.Setenv("USER", "oneclaude-test")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	writeJSON(t, filepath.Join(home, ".claude.json"), map[string]any{"oauthAccount": map[string]string{"emailAddress": "ada@x", "accountUuid": "account-a", "organizationUuid": "organization-a"}})
+	writeJSON(t, filepath.Join(home, ".claude", ".credentials.json"), map[string]any{"claudeAiOauth": map[string]any{"accessToken": access, "refreshToken": refresh, "expiresAt": expires.UnixMilli()}})
+}
+
+func writeJSON(t *testing.T, path string, content any) {
+	t.Helper()
+	raw, _ := json.Marshal(content)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readJSON(t *testing.T, path string) map[string]string {
+	t.Helper()
+	raw, _ := os.ReadFile(path)
+	var file map[string]string
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+func expiresAt(file map[string]string, want time.Time) bool {
+	expired, err := time.Parse(time.RFC3339, file["expired"])
+	return err == nil && expired.Equal(want)
+}
+
+// newFollowingPlugin loads the plugin with dir as its auth-dir and home as
+// the home whose Claude Code login the copy follows.
+func newFollowingPlugin(t *testing.T, dir, home string) (*Plugin, *credentialProxy) {
+	t.Helper()
+	proxy := &credentialProxy{dir: dir}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: proxy.call, Now: func() time.Time { return testNow }, Home: home})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir() + "\nauth-dir: " + dir)})
+	p.Call(MethodPluginRegister, cfg)
+	t.Cleanup(p.Shutdown)
+	if err := p.list(); err != nil {
+		t.Fatal(err)
+	}
+	return p, proxy
+}
+
+func (c *credentialProxy) savedNames() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	names := slices.Clone(c.saved)
+	slices.Sort(names)
+	return names
+}
+
+func TestTheCopyOfClaudeCodesLoginTakesItsNewTokenAndLeavesEveryOtherLogin(t *testing.T) {
+	dir, home := t.TempDir(), t.TempDir()
+	claudeCodeLoggedIn(t, home, "signed-in", "refresh-1", testNow.Add(time.Hour))
+	ada := map[string]string{"type": "claude", "email": "ada@x", "access_token": "expired", "account_uuid": "account-a", "organization_uuid": "organization-a"}
+	writeJSON(t, filepath.Join(dir, "claude-copy-ada@x.json"), ada)
+	ada["refresh_token"] = "refresh-1"
+	writeJSON(t, filepath.Join(dir, "claude-earlier-ada@x.json"), ada)
+	ada["refresh_token"] = "the proxy's own"
+	writeJSON(t, filepath.Join(dir, "claude-own-ada@x.json"), ada)
+	writeJSON(t, filepath.Join(dir, "claude-bob@x.json"), map[string]string{"type": "claude", "email": "bob@x", "access_token": "expired", "account_uuid": "account-b", "organization_uuid": "organization-a"})
+	own, _ := os.ReadFile(filepath.Join(dir, "claude-own-ada@x.json"))
+	bob, _ := os.ReadFile(filepath.Join(dir, "claude-bob@x.json"))
+	p, proxy := newFollowingPlugin(t, dir, home)
+
+	p.followClaudeLogin(testNow)
+	if got := proxy.savedNames(); !slices.Equal(got, []string{"claude-copy-ada@x.json", "claude-earlier-ada@x.json"}) {
+		t.Fatalf("saved %v, want the copy and the earlier install's copy", got)
+	}
+	for _, name := range []string{"claude-copy-ada@x.json", "claude-earlier-ada@x.json"} {
+		file := readJSON(t, filepath.Join(dir, name))
+		if token, held := file["refresh_token"]; held || file["access_token"] != "signed-in" || !expiresAt(file, testNow.Add(time.Hour)) || file["email"] != "ada@x" {
+			t.Fatalf("%s = %v, want Claude Code's access token and expiry and no refresh token (holds %q)", name, file, token)
+		}
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "claude-own-ada@x.json")); !bytes.Equal(after, own) {
+		t.Fatalf("the proxy's own login of ada changed: %s", after)
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "claude-bob@x.json")); !bytes.Equal(after, bob) {
+		t.Fatalf("bob's login changed: %s", after)
+	}
+	p.followClaudeLogin(testNow)
+	if got := proxy.savedNames(); len(got) != 2 {
+		t.Fatalf("saved %v, want nothing more while Claude Code's token stays the same", got)
+	}
+}
+
+func TestACopySignedOutByA401TakesClaudeCodesTokenAtOnce(t *testing.T) {
+	dir, home := t.TempDir(), t.TempDir()
+	claudeCodeLoggedIn(t, home, "signed-in", "refresh-1", testNow.Add(time.Hour))
+	writeJSON(t, filepath.Join(dir, "claude-ada@x.json"), map[string]string{"type": "claude", "email": "ada@x", "access_token": "expired", "account_uuid": "account-a", "organization_uuid": "organization-a"})
+	p, _ := newFollowingPlugin(t, dir, home)
+	p.refreshOne(testNow)
+	st, took := statusUntil(t, p, func(st Status) bool { return len(st.Accounts) == 1 && !st.Accounts[0].SignedOut && st.Accounts[0].Known })
+	if last := st.Log[len(st.Log)-1]; last.Text != "Anthropic accepted ada's login again." {
+		t.Fatalf("log = %+v, want ada rejected, then accepted with Claude Code's token", st.Log)
+	}
+	t.Logf("signed in %v after the 401", took)
+}
+
+func TestSigningTheCopyInGivesThePoolALoginOfItsOwnThatNoLongerFollows(t *testing.T) {
+	dir, home := t.TempDir(), t.TempDir()
+	path := filepath.Join(dir, "claude-ada@x.json")
+	claudeCodeLoggedIn(t, home, "expired", "refresh-1", testNow.Add(-time.Minute))
+	writeJSON(t, path, map[string]string{"type": "claude", "email": "ada@x", "access_token": "expired", "account_uuid": "account-a", "organization_uuid": "organization-a"})
+	p, proxy := newFollowingPlugin(t, dir, home)
+	p.refreshOne(testNow)
+	if st := p.Status(); !st.Accounts[0].SignedOut {
+		t.Fatalf("ada = %+v, want the copy signed out while Claude Code's token is expired", st.Accounts[0])
+	}
+
+	writeJSON(t, path, map[string]string{"type": "claude", "email": "ada@x", "access_token": "signed-in", "refresh_token": "the pool's own", "account_uuid": "account-a", "organization_uuid": "organization-a"})
+	statusUntil(t, p, func(st Status) bool { return !st.Accounts[0].SignedOut })
+	signedIn, _ := os.ReadFile(path)
+	claudeCodeLoggedIn(t, home, "refreshed", "refresh-2", testNow.Add(8*time.Hour))
+	p.followClaudeLogin(testNow)
+	if after, _ := os.ReadFile(path); !bytes.Equal(after, signedIn) || len(proxy.savedNames()) != 0 {
+		t.Fatalf("the pool's own login of ada = %s after Claude Code refreshed, saved %v, want it left as [Sign in] wrote it", after, proxy.savedNames())
 	}
 }

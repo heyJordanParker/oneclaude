@@ -61,7 +61,7 @@ make -C cli build
 mkdir -p .target/dev/plugins/darwin/arm64
 cp .target/dist/darwin-arm64/oneclaude-v*.dylib .target/dev/plugins/darwin/arm64/
 go run -C cli ./cmd/fakeanthropic
-MANAGEMENT_PASSWORD=dev "$(brew --prefix)/opt/cliproxyapi/bin/cliproxyapi" -config dev/config.yaml
+MANAGEMENT_PASSWORD=dev CLAUDE_CONFIG_DIR=.target/dev/home/.claude "$(brew --prefix)/opt/cliproxyapi/bin/cliproxyapi" -config dev/config.yaml
 ```
 
 Then run the routing tests against it:
@@ -71,7 +71,7 @@ cd cli
 ONECLAUDE_DEV_PROXY=1 go test -run DevProxy -v .
 ```
 
-`dev/config.yaml` names its folders relative to the repository root, so the proxy runs from there. It keeps its logins in `.target/dev/auth`, and downloads its control panel into `dev/static/`, which git ignores. The subagent test needs 5 minutes after an earlier run, while that run's agents still count as active.
+`dev/config.yaml` names its folders relative to the repository root, so the proxy runs from there. `CLAUDE_CONFIG_DIR` points the plugin at the dev home's Claude Code, so it never reads your transcripts or your Claude login. It keeps its logins in `.target/dev/auth`, and downloads its control panel into `dev/static/`, which git ignores. The subagent test needs 5 minutes after an earlier run, while that run's agents still count as active.
 
 To watch the mod against the dev proxy, start a Claude Code session with `bun dev/session.ts <name>`, and attach with `tmux -L oneclaude-dev attach -t <name>`. Every such session shares a home of its own in `.target/dev/home`, with no Claude login and a cmod store that holds oneclaude's install record, so cmod runs no install step, which would copy your Claude login into the dev proxy. Never start a test session with your own home or cmod store.
 

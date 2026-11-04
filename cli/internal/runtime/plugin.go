@@ -33,6 +33,9 @@ type Options struct {
 	// ClaudeProjects is Claude Code's projects folder, where the plugin reads
 	// each subagent's type and each session's project; empty reads none.
 	ClaudeProjects string
+	// Home is the home folder of the person the proxy runs for, whose Claude
+	// Code login the proxy's copy of it follows; empty follows none.
+	Home string
 }
 
 // accountState is an account as the plugin knows it. served is when it last
@@ -132,6 +135,8 @@ type Plugin struct {
 	changes        *changes
 
 	historyMu sync.Mutex
+
+	followMu sync.Mutex
 
 	lifeMu  sync.Mutex
 	stop    chan struct{}

@@ -153,11 +153,17 @@ func (h host) authList(ctx context.Context) ([]HostAuthFileEntry, error) {
 	return resp.Files, nil
 }
 
-// credential is what a usage reading needs from a credential file: its token,
-// and for Codex the ChatGPT account it belongs to.
+// credential is what the plugin reads of a credential file: its token, for
+// Codex the ChatGPT account it belongs to, and for Claude the account and
+// refresh token a copy of Claude Code's login is matched on. file is the
+// whole file.
 type credential struct {
-	AccessToken string `json:"access_token"`
-	AccountID   string `json:"account_id"`
+	AccessToken      string `json:"access_token"`
+	AccountID        string `json:"account_id"`
+	RefreshToken     string `json:"refresh_token"`
+	AccountUUID      string `json:"account_uuid"`
+	OrganizationUUID string `json:"organization_uuid"`
+	file             json.RawMessage
 }
 
 func (h host) credential(ctx context.Context, authIndex string) (credential, error) {
@@ -169,7 +175,14 @@ func (h host) credential(ctx context.Context, authIndex string) (credential, err
 	if err := json.Unmarshal(resp.JSON, &file); err != nil || file.AccessToken == "" {
 		return credential{}, fmt.Errorf("credential %s has no access token", authIndex)
 	}
+	file.file = resp.JSON
 	return file, nil
+}
+
+// saveCredential writes file as the credential file name in the proxy's
+// credential folder, and the proxy takes it at once.
+func (h host) saveCredential(ctx context.Context, name string, file []byte) error {
+	return h.invokeCtx(ctx, MethodHostAuthSave, HostAuthSaveRequest{Name: name, JSON: file}, nil)
 }
 
 func (h host) get(ctx context.Context, url string, headers http.Header) (int, []byte, error) {

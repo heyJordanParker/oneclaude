@@ -68,6 +68,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"unsafe"
 
 	"github.com/heyJordanParker/oneclaude/cli/internal/runtime"
@@ -90,6 +91,8 @@ var configFields = []runtime.ConfigField{
 	{Name: "quota.poll-interval", Type: "string", Description: "An account with no replies for this long gets one usage read. Default 1h."},
 }
 
+var home, _ = os.UserHomeDir()
+
 var plugin = runtime.New(runtime.Options{
 	Name:           pluginName,
 	Version:        pluginVersion,
@@ -98,6 +101,7 @@ var plugin = runtime.New(runtime.Options{
 	ConfigFields:   configFields,
 	Host:           callHost,
 	ClaudeProjects: session.ClaudeProjects(),
+	Home:           home,
 })
 
 func main() {}

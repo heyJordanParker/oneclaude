@@ -331,8 +331,9 @@ func (p *Plugin) unblock(authIndex string) error {
 
 // loginAnswered keeps what an answer from Anthropic says of an account's
 // login, and logs each change: a 401 signs it out, a 403 permission_error
-// refuses it with Anthropic's reason, and a 200 accepts it again. It reports
-// whether Anthropic turned the login away.
+// refuses it with Anthropic's reason, and a 200 accepts it again. A 401 that
+// signs an account out moves any copy of Claude Code's login to Claude Code's
+// token at once. It reports whether Anthropic turned the login away.
 func (p *Plugin) loginAnswered(id string, status int, body []byte) bool {
 	reason, refused := refusalOf(status, body)
 	signedOut := status == http.StatusUnauthorized
@@ -351,6 +352,7 @@ func (p *Plugin) loginAnswered(id string, status int, body []byte) bool {
 	switch {
 	case signedOut && !wasSignedOut:
 		p.note(levelWarn, "Anthropic rejected %s's login (401).", name)
+		p.host.spawn(func() { p.followClaudeLogin(p.now()) })
 	case refused && reason != wasRefused:
 		p.note(levelWarn, "Anthropic refused %s's login (403): %s", name, reason)
 	case !signedOut && !refused && (wasSignedOut || wasRefused != ""):

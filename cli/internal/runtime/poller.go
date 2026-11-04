@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/heyJordanParker/oneclaude/cli/internal/claudecode"
 	"github.com/heyJordanParker/oneclaude/cli/internal/usage"
 )
 
@@ -68,6 +70,7 @@ func (p *Plugin) pollLoop(stop chan struct{}) {
 		func() {
 			defer func() { _ = recover() }()
 			now := p.now()
+			p.followClaudeLogin(now)
 			if now.Sub(listedAt) >= listEvery {
 				if p.list() == nil {
 					listedAt = now
@@ -310,6 +313,72 @@ func (p *Plugin) credentialsChanged(names map[string]bool) {
 	reads.Wait()
 	p.save()
 	p.changed(false)
+}
+
+// followClaudeLogin keeps each copy of Claude Code's login, the credential
+// oneclaude install writes, on the access token Claude Code keeps. A copy
+// holds no refresh token, so the proxy never refreshes it, and Claude Code
+// stays the one program that refreshes that login: Anthropic's refresh
+// tokens work once, so a second refresher signs Claude Code out. A copy
+// whose token expired while no Claude Code ran stays signed out until Claude
+// Code next refreshes. A copy is a Claude credential of the account and
+// organization Claude Code is logged in to that holds no refresh token, or
+// Claude Code's own, as an earlier install's copy does, which loses it here.
+// A credential with another refresh token is a login of its own.
+func (p *Plugin) followClaudeLogin(now time.Time) {
+	if p.opts.Home == "" {
+		return
+	}
+	p.followMu.Lock()
+	defer p.followMu.Unlock()
+	files, err := p.authFiles()
+	if err != nil {
+		return
+	}
+	var claude []HostAuthFileEntry
+	for _, f := range files {
+		if isProvider(f, claudeProvider) && f.AuthIndex != "" && f.Path != "" {
+			claude = append(claude, f)
+		}
+	}
+	if len(claude) == 0 {
+		return
+	}
+	login, err := claudecode.StoredLogin(p.opts.Home)
+	if err != nil || login.Account == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+	defer cancel()
+	copies := map[string]credential{}
+	for _, f := range claude {
+		c, err := p.host.credential(ctx, f.AuthIndex)
+		if err == nil && c.AccountUUID == login.Account && c.OrganizationUUID == login.Organization && (c.RefreshToken == "" || c.RefreshToken == login.RefreshToken) {
+			copies[filepath.Base(f.Path)] = c
+		}
+	}
+	for name, c := range copies {
+		if c.AccessToken == login.AccessToken && c.RefreshToken == "" {
+			continue
+		}
+		var file map[string]any
+		if err := json.Unmarshal(c.file, &file); err != nil {
+			continue
+		}
+		file["access_token"] = login.AccessToken
+		file["expired"] = login.ExpiresAt.Format(time.RFC3339)
+		file["last_refresh"] = now.Format(time.RFC3339)
+		delete(file, "refresh_token")
+		raw, err := json.Marshal(file)
+		if err != nil {
+			continue
+		}
+		if err := p.host.saveCredential(ctx, name, raw); err != nil {
+			p.host.log("warn", "oneclaude could not move its copy of Claude Code's login to Claude Code's new token", map[string]any{"credential": name, "error": err.Error()})
+			continue
+		}
+		p.host.log("info", "oneclaude moved its copy of Claude Code's login to Claude Code's new token", map[string]any{"credential": name, "expires": login.ExpiresAt.Format(time.RFC3339)})
+	}
 }
 
 func anthropicHeaders(cred credential) http.Header {

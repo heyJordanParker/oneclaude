@@ -36,6 +36,7 @@ const (
 	MethodHostLog                  = "host.log"
 	MethodHostAuthList             = "host.auth.list"
 	MethodHostAuthGet              = "host.auth.get"
+	MethodHostAuthSave             = "host.auth.save"
 	MethodHostRoutingResetCooldown = "host.routing.reset_cooldown"
 )
 
@@ -275,6 +276,11 @@ type HostAuthGetRequest struct {
 type HostAuthGetResponse struct {
 	AuthIndex string          `json:"auth_index"`
 	JSON      json.RawMessage `json:"json"`
+}
+
+type HostAuthSaveRequest struct {
+	Name string          `json:"name"`
+	JSON json.RawMessage `json:"json"`
 }
 
 type HostRoutingResetCooldownRequest struct {
