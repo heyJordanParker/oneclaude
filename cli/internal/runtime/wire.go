@@ -265,6 +265,7 @@ type HostAuthFileEntry struct {
 	Label     string `json:"label,omitempty"`
 	Disabled  bool   `json:"disabled,omitempty"`
 	Email     string `json:"email,omitempty"`
+	Path      string `json:"path,omitempty"`
 }
 
 type HostAuthGetRequest struct {

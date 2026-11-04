@@ -44,7 +44,11 @@ Anthropic can throttle an account below its limit. When throttles below a plan's
 
 ## Where the usage comes from
 
-Every reply from Anthropic carries the account's weekly usage in its rate-limit headers, so oneclaude reads usage from the replies your agents already get, at no extra cost. An account that answered nothing for an hour, `quota.poll-interval`, gets one small usage read. An account whose login expired shows as signed out until it answers again, and `[Sign in]` on its row in `/accounts` logs it in again.
+Every reply from Anthropic carries the account's weekly usage in its rate-limit headers, so oneclaude reads usage from the replies your agents already get, at no extra cost. An account that answered nothing for an hour, `quota.poll-interval`, gets one small usage read.
+
+An account whose login Anthropic rejects (401) shows as signed out, and one whose login Anthropic refuses (403), such as `OAuth authentication is currently not allowed for this organization.`, shows as refused with that reason, each until it answers again. oneclaude places no new agent on either while another account can take it, and moves a conversation off it. `[Sign in]` on its row in `/accounts` opens the proxy's login page.
+
+oneclaude watches the folder that holds the proxy's logins, which the install names in its `auth-dir` setting ([Configuration](configuration.md#auth-dir)). When a login file is written, added or removed, as a sign-in does, it lists the accounts again, drops an account whose file is gone, clears the proxy's blocks on a signed-out or refused account whose login changed, and reads the usage at once of each account that is signed out, refused or not read yet. So an account you sign in again shows signed in under the prompt within a second. A write that comes as several file events counts once.
 
 oneclaude routes no Codex requests. It reads each Codex account's weekly usage from ChatGPT's usage endpoint, `chatgpt.com/backend-api/wham/usage`, so the Accounts tab can show it beside the Claude pool.
 
@@ -55,7 +59,7 @@ The proxy blocks a model on an account, or the whole account, after some failed 
 - After a 404 on an account that answered that model within the last day, with no rate limit, spent week or failed login since, oneclaude clears every block the proxy holds on that account at once. A block like that can't be right.
 - The mod reads every other block from the proxy's management API with the proxy's management key, and shows it on the account's row and under the prompt. `[Unblock]` clears every block the proxy holds on that account, through the plugin, which logs it. The mod sends only the key the install or its install tab checked the proxy takes, because the proxy bans an address for 30 minutes after 5 refused keys.
 
-Only the proxy knows its blocks, and the proxy checks the management key with bcrypt on every request, so the mod reads them only when they may have changed, and once per machine. The plugin counts a blocks change at each event that may change them: a request Anthropic failed, the first answer after one, and an unblock. Of the sessions on one machine, the first the plugin answers with a new blocks change reads the blocks, and keeps the reading in `blocks.json` in the mod's data folder under that change, where every other session there takes it.
+Only the proxy knows its blocks, and the proxy checks the management key with bcrypt on every request, so the mod reads them only when they may have changed, and once per machine. The plugin counts a blocks change at each event that may change them: a request Anthropic failed, the first answer after one, an unblock, and a changed login file, after the plugin cleared the blocks a new login fixes. Of the sessions on one machine, the first the plugin answers with a new blocks change reads the blocks, and keeps the reading in `blocks.json` in the mod's data folder under that change, where every other session there takes it.
 
 ## How the mod follows the pool
 
@@ -74,7 +78,7 @@ The plugin logs each event that changed where requests go, one sentence each, an
 - **Cleared blocks**: `oneclaude cleared the proxy's blocks on work on request.` after `[Unblock]`, or any call to the unblock route.
 - **Refused subagents**: `oneclaude refused a new Opus subagent: every account reached its limit of 19.` once per refusal spell. The line under the prompt says `agent limit reached` until 3 minutes, `subagents.retry-after`, pass without a refusal.
 - **Lowered limits**: `oneclaude lowered the Opus agent limit from 19 to 17 after Anthropic rate limited accounts below 19 on 3 separate days.`
-- **Logins**: `Anthropic rejected work's login (401).` once, until the account answers again.
+- **Logins**: `Anthropic rejected work's login (401).` or `Anthropic refused work's login (403): OAuth authentication is currently not allowed for this organization.` once, then `Anthropic accepted work's login again.` when the account answers again.
 
 Requests Claude Code cancelled, which the proxy answers 499, are left out.
 

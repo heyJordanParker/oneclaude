@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -144,25 +145,27 @@ func (p *Plugin) candidates(ids []string, family model.Family, now time.Time) []
 		}
 	}
 	type snap struct {
-		plan   string
-		weekly model.Weekly
-		known  bool
+		plan       string
+		weekly     model.Weekly
+		known      bool
+		loginFails bool
 	}
 	snaps := make([]snap, len(ids))
 	for i, id := range ids {
 		if a, ok := p.accounts[id]; ok {
-			snaps[i] = snap{plan: a.Plan, weekly: a.weekly, known: a.known}
+			snaps[i] = snap{plan: a.Plan, weekly: a.weekly, known: a.known, loginFails: a.loginFails()}
 		}
 	}
 	p.mu.Unlock()
 	out := make([]route.Candidate, len(ids))
 	for i, id := range ids {
 		out[i] = route.Candidate{
-			ID:     id,
-			Weekly: snaps[i].weekly,
-			Known:  snaps[i].known,
-			Agents: active[id][family],
-			Limit:  p.book.Limit(s, snaps[i].plan, family),
+			ID:         id,
+			Weekly:     snaps[i].weekly,
+			Known:      snaps[i].known,
+			LoginFails: snaps[i].loginFails,
+			Agents:     active[id][family],
+			Limit:      p.book.Limit(s, snaps[i].plan, family),
 		}
 	}
 	return out
@@ -199,7 +202,7 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 	now := p.now()
 	p.remember(ids)
 
-	if account, ok := p.agents.Bound(key, now, s.AffinityTTL); ok && contains(ids, account) {
+	if account, ok := p.agents.Bound(key, now, s.AffinityTTL); ok && contains(ids, account) && !p.loginFailsOn(account) {
 		p.agents.Touch(key, account, family, now)
 		p.host.spawn(func() { p.changed(false) })
 		return SchedulerPickResponse{AuthID: account, Handled: true}
@@ -225,6 +228,13 @@ func governs(req SchedulerPickRequest) bool {
 		}
 	}
 	return false
+}
+
+func (p *Plugin) loginFailsOn(id string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	a := p.accounts[id]
+	return a != nil && a.loginFails()
 }
 
 // remember adds offered accounts the poller has not listed yet.
@@ -319,6 +329,55 @@ func (p *Plugin) unblock(authIndex string) error {
 	return p.host.invokeCtx(ctx, MethodHostRoutingResetCooldown, HostRoutingResetCooldownRequest{AuthIndex: authIndex}, nil)
 }
 
+// loginAnswered keeps what an answer from Anthropic says of an account's
+// login, and logs each change: a 401 signs it out, a 403 permission_error
+// refuses it with Anthropic's reason, and a 200 accepts it again. It reports
+// whether Anthropic turned the login away.
+func (p *Plugin) loginAnswered(id string, status int, body []byte) bool {
+	reason, refused := refusalOf(status, body)
+	signedOut := status == http.StatusUnauthorized
+	if !signedOut && !refused && status != http.StatusOK {
+		return false
+	}
+	p.mu.Lock()
+	a := p.accounts[id]
+	if a == nil {
+		p.mu.Unlock()
+		return signedOut || refused
+	}
+	wasSignedOut, wasRefused, name := a.signedOut, a.refused, a.Name
+	a.signedOut, a.refused = signedOut, reason
+	p.mu.Unlock()
+	switch {
+	case signedOut && !wasSignedOut:
+		p.note(levelWarn, "Anthropic rejected %s's login (401).", name)
+	case refused && reason != wasRefused:
+		p.note(levelWarn, "Anthropic refused %s's login (403): %s", name, reason)
+	case !signedOut && !refused && (wasSignedOut || wasRefused != ""):
+		p.note(levelInfo, "Anthropic accepted %s's login again.", name)
+	}
+	return signedOut || refused
+}
+
+// refusalOf is Anthropic's reason for a 403 that refuses a login, whose
+// error is a permission_error, as "OAuth authentication is currently not
+// allowed for this organization."
+func refusalOf(status int, body []byte) (string, bool) {
+	if status != http.StatusForbidden {
+		return "", false
+	}
+	var answer struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &answer) != nil || answer.Error.Type != "permission_error" {
+		return "", false
+	}
+	return cmp.Or(strings.TrimSpace(answer.Error.Message), "permission_error"), true
+}
+
 func (p *Plugin) observe(rec UsageRecord) {
 	if rec.Provider != claudeProvider || rec.AuthID == "" {
 		return
@@ -346,18 +405,18 @@ func (p *Plugin) observe(rec UsageRecord) {
 		p.dirty = true
 	}
 	served, throttled, overloaded, notFound, failed := a.served[modelID], a.throttled, a.overloaded, a.notFound, a.failed
-	limited := !a.throttled.Before(served) || !a.rejected.Before(served) || a.signedOut
+	limited := !a.throttled.Before(served) || !a.rejected.Before(served) || a.loginFails()
 	// The proxy blocks an account after a request Anthropic failed, never one
 	// Claude Code dropped, and lifts the block at its first answer after one,
 	// so both may change the blocks.
 	failedSince := func(at time.Time) bool { return !at.IsZero() && !at.Before(served) }
-	defer p.changed(outcome != "ok" && outcome != "cancelled" || a.signedOut || failedSince(throttled) || failedSince(a.rejected) || failedSince(overloaded) || failedSince(notFound) || failedSince(failed))
+	defer p.changed(outcome != "ok" && outcome != "cancelled" || a.loginFails() || failedSince(throttled) || failedSince(a.rejected) || failedSince(overloaded) || failedSince(notFound) || failedSince(failed))
 	switch outcome {
 	case "ok":
 		if a.served == nil {
 			a.served = map[string]time.Time{}
 		}
-		a.served[modelID], a.signedOut = now, false
+		a.served[modelID] = now
 	case "throttled":
 		a.throttled = now
 	case "quota":
@@ -373,6 +432,11 @@ func (p *Plugin) observe(rec UsageRecord) {
 	}
 	plan, name := a.Plan, a.Name
 	p.mu.Unlock()
+	status := rec.Failure.StatusCode
+	if outcome == "ok" {
+		status = http.StatusOK
+	}
+	login := p.loginAnswered(rec.AuthID, status, []byte(rec.Failure.Body))
 
 	retry := false
 	if key := r.key; tracked && key != "" {
@@ -398,7 +462,10 @@ func (p *Plugin) observe(rec UsageRecord) {
 			p.note(levelWarn, "Anthropic returned 529 Overloaded to %s.", name)
 		}
 	case "error":
-		if status := rec.Failure.StatusCode; status != http.StatusNotFound {
+		if login {
+			break
+		}
+		if status != http.StatusNotFound {
 			if now.Sub(failed) >= episode {
 				p.note(levelWarn, "Anthropic returned %s to %s.", strings.TrimSpace(fmt.Sprintf("%d %s", status, http.StatusText(status))), name)
 			}

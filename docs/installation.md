@@ -72,7 +72,7 @@ oneclaude rewrites only two blocks of the proxy config, `plugins` and `managemen
 
 - It moves the plugin's files from the folder the config named before, or `~/.cli-proxy-api/plugins/oneclaude/` where versions before 0.7.10 kept them, into its data folder, `~/.local/share/cmod/data/oneclaude/`. `oneclaude install --data <folder>` names another.
 - It writes the routing plugin to `<plugins.dir>/<os>/<arch>/oneclaude-v<version>.<dylib|so>`, such as `darwin/arm64/oneclaude-v0.9.0.dylib` on a Mac and `linux/amd64/oneclaude-v0.9.0.so` on Linux. `plugins.dir` defaults to `~/.cli-proxy-api/plugins`.
-- It sets `plugins.enabled` and `plugins.configs.oneclaude.enabled` to `true`, `plugins.configs.oneclaude.data-dir` to its data folder, and `plugins.configs.oneclaude.store.version` to the new version. The proxy loads the new version without dropping a reply.
+- It sets `plugins.enabled` and `plugins.configs.oneclaude.enabled` to `true`, `plugins.configs.oneclaude.data-dir` to its data folder, `plugins.configs.oneclaude.auth-dir` to the proxy's login folder, and `plugins.configs.oneclaude.store.version` to the new version. The proxy loads the new version without dropping a reply.
 - It turns off Claude Seat Pacer, `plugins.configs.claude-seat-pacer`, when it is on. The proxy asks only one scheduler plugin which account to use.
 - When the proxy has no management key, the password of its control panel, it sets one, `oneclaude`, saved as a bcrypt hash. The panel answers only this machine while `management.allow-remote` is `false`, the proxy's default.
 - A proxy with a management key of its own keeps it.

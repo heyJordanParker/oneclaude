@@ -2,10 +2,16 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/heyJordanParker/oneclaude/cli/internal/usage"
 )
 
@@ -21,10 +27,9 @@ const (
 	retryFailures = 30 * time.Minute
 )
 
+// startPoller starts the usage poll, unless the options leave it out, and
+// lets watch start the watch on the proxy's credentials.
 func (p *Plugin) startPoller() {
-	if p.opts.NoPoller {
-		return
-	}
 	p.lifeMu.Lock()
 	defer p.lifeMu.Unlock()
 	if p.stop != nil {
@@ -32,7 +37,9 @@ func (p *Plugin) startPoller() {
 	}
 	stop := make(chan struct{})
 	p.stop = stop
-	p.host.spawn(func() { p.pollLoop(stop) })
+	if !p.opts.NoPoller {
+		p.host.spawn(func() { p.pollLoop(stop) })
+	}
 }
 
 func (p *Plugin) stopPoller() {
@@ -42,13 +49,16 @@ func (p *Plugin) stopPoller() {
 		close(p.stop)
 		p.stop = nil
 	}
+	if p.watcher != nil {
+		_ = p.watcher.Close()
+		p.watcher, p.watched = nil, ""
+	}
 }
 
 func (p *Plugin) pollLoop(stop chan struct{}) {
 	timer := time.NewTimer(startupGrace)
 	defer timer.Stop()
 	var listedAt time.Time
-	failedAt := map[string]time.Time{}
 	for {
 		select {
 		case <-stop:
@@ -63,7 +73,7 @@ func (p *Plugin) pollLoop(stop chan struct{}) {
 					listedAt = now
 				}
 			}
-			p.refreshOne(now, failedAt)
+			p.refreshOne(now)
 			p.save()
 			p.changed(false)
 		}()
@@ -72,17 +82,36 @@ func (p *Plugin) pollLoop(stop chan struct{}) {
 }
 
 func (p *Plugin) list() error {
-	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-	defer cancel()
-	files, err := p.host.authList(ctx)
+	files, err := p.authFiles()
 	if err != nil {
 		return err
 	}
+	p.updateAccounts(files)
+	return nil
+}
+
+func (p *Plugin) authFiles() ([]HostAuthFileEntry, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+	defer cancel()
+	return p.host.authList(ctx)
+}
+
+// updateAccounts takes the accounts the proxy lists. A Claude account it
+// listed before, so one with an auth index, leaves once the proxy lists it
+// no more, and one only the pick offered, as the dev proxy's api-key ones,
+// stays.
+func (p *Plugin) updateAccounts(files []HostAuthFileEntry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	listed := map[string]bool{}
+	listed, claude := map[string]bool{}, map[string]bool{}
 	for _, f := range files {
-		if f.Disabled || f.ID == "" {
+		if f.ID == "" {
+			continue
+		}
+		if isProvider(f, claudeProvider) {
+			claude[f.ID] = true
+		}
+		if f.Disabled {
 			continue
 		}
 		if isProvider(f, codexProvider) {
@@ -113,7 +142,174 @@ func (p *Plugin) list() error {
 			delete(p.codex, id)
 		}
 	}
-	return nil
+	for id, a := range p.accounts {
+		if a.AuthIndex != "" && !claude[id] {
+			delete(p.accounts, id)
+			p.dirty = true
+		}
+	}
+}
+
+// watch watches dir, the folder the proxy keeps its credential files in,
+// which oneclaude install names in the auth-dir setting, until the plugin
+// quiesces.
+func (p *Plugin) watch(dir string) {
+	p.lifeMu.Lock()
+	defer p.lifeMu.Unlock()
+	if p.stop == nil || dir == p.watched {
+		return
+	}
+	failed := func(err error) {
+		p.host.spawn(func() {
+			p.host.log("warn", "oneclaude cannot watch the proxy's credentials", map[string]any{"folder": dir, "error": err.Error()})
+		})
+	}
+	if p.watcher == nil {
+		w, err := fsnotify.NewWatcher()
+		if err != nil {
+			failed(err)
+			return
+		}
+		p.watcher = w
+		stop := p.stop
+		p.host.spawn(func() { p.watchLoop(w, stop) })
+	}
+	if p.watched != "" {
+		_ = p.watcher.Remove(p.watched)
+		p.watched = ""
+	}
+	if dir == "" {
+		return
+	}
+	if err := p.watcher.Add(dir); err != nil {
+		failed(err)
+		return
+	}
+	p.watched = dir
+}
+
+// watchLoop answers the changes to the credential files the proxy reads,
+// every .json file directly in the watched folder, as the proxy's own watch
+// does. Every event that arrived by then, those during the last answer
+// included, goes into one answer, and like the proxy it skips a file whose
+// content it already answered, and an empty one, which its write fills next.
+func (p *Plugin) watchLoop(w *fsnotify.Watcher, stop chan struct{}) {
+	answered := map[string]string{}
+	for {
+		select {
+		case <-stop:
+			return
+		case err, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			p.host.log("warn", "oneclaude's watch on the proxy's credentials failed", map[string]any{"error": err.Error()})
+		case event, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			named := map[string]bool{}
+			for ok {
+				if event.Has(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) && strings.HasSuffix(event.Name, ".json") {
+					named[event.Name] = true
+				}
+				select {
+				case event, ok = <-w.Events:
+				default:
+					ok = false
+				}
+			}
+			changed := map[string]bool{}
+			for path := range named {
+				content, written := contentOf(path)
+				if was, seen := answered[path]; !written || seen && was == content {
+					continue
+				}
+				answered[path] = content
+				changed[filepath.Base(path)] = content != ""
+			}
+			if len(changed) > 0 {
+				func() {
+					defer func() { _ = recover() }()
+					p.credentialsChanged(changed)
+				}()
+			}
+		}
+	}
+}
+
+// contentOf is a credential file's content as its hash, empty for a file
+// that is gone, and not written for a file that is still empty.
+func contentOf(path string) (content string, written bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", true
+	}
+	if len(raw) == 0 {
+		return "", false
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), true
+}
+
+// credentialsChanged lists the accounts, leaving out each whose file is
+// gone, which the proxy drops only after it checked the file stays gone.
+// It clears the proxy's blocks on each account Anthropic rejected whose file
+// changed, as its new login may fix them, and counts a change of the status
+// and of the blocks, so the blocks a session reads next are the cleared
+// ones. Then it reads the usage of every account Anthropic rejects or that
+// has no reading, at once and with its failures forgotten. host.auth.get
+// reads the file, so the read takes the new login even before the proxy
+// does. names holds each changed file's name, true for a file still there.
+func (p *Plugin) credentialsChanged(names map[string]bool) {
+	listed, err := p.authFiles()
+	if err != nil {
+		p.host.log("warn", "oneclaude could not list the proxy's credentials after one changed", map[string]any{"error": err.Error()})
+		return
+	}
+	var files []HostAuthFileEntry
+	for _, f := range listed {
+		if there, changed := names[filepath.Base(f.Path)]; !changed || there {
+			files = append(files, f)
+		}
+	}
+	p.updateAccounts(files)
+	now := p.now()
+	var due []reading
+	var blocked []string
+	p.mu.Lock()
+	for _, f := range files {
+		if a := p.accounts[f.ID]; a != nil && a.AuthIndex != "" && a.loginFails() && names[filepath.Base(f.Path)] {
+			blocked = append(blocked, a.AuthIndex)
+		}
+	}
+	for id, a := range p.accounts {
+		if a.AuthIndex == "" || a.known && !a.loginFails() {
+			continue
+		}
+		delete(p.failedAt, id+"#plan")
+		delete(p.failedAt, id+"#usage")
+		due = append(due, reading{id: id, index: a.AuthIndex, url: usageURL, attempt: id + "#usage"})
+	}
+	p.mu.Unlock()
+	for _, index := range blocked {
+		if err := p.unblock(index); err != nil {
+			p.host.log("warn", "oneclaude could not clear the blocks of a credential that changed", map[string]any{"auth_index": index, "error": err.Error()})
+		}
+	}
+	p.save()
+	p.changed(true)
+	var reads sync.WaitGroup
+	for _, r := range due {
+		reads.Add(1)
+		p.host.spawn(func() {
+			defer reads.Done()
+			p.read(r, now)
+		})
+	}
+	reads.Wait()
+	p.save()
+	p.changed(false)
 }
 
 func anthropicHeaders(cred credential) http.Header {
@@ -143,29 +339,33 @@ func isProvider(f HostAuthFileEntry, provider string) bool {
 	return strings.EqualFold(f.Provider, provider) || strings.EqualFold(f.Type, provider)
 }
 
+// A reading is one upstream call for an account: its Claude plan, its
+// Claude weekly usage, or its Codex weekly usage. attempt keys its failures.
+type reading struct {
+	id, index, url, attempt string
+	plan, codex             bool
+}
+
 // refreshOne makes at most one upstream call per tick: a Claude plan that is
 // missing or a day old, a weekly reading for a Claude account with no reply
-// within the poll interval, or else a Codex account's weekly reading.
-func (p *Plugin) refreshOne(now time.Time, failedAt map[string]time.Time) {
+// within the poll interval, or else a Codex account's weekly reading. A
+// reading that failed waits retryFailures.
+func (p *Plugin) refreshOne(now time.Time) {
 	s := p.settings()
-	type job struct {
-		id, index, url, attempt string
-		plan, codex             bool
-	}
-	var next *job
+	var next *reading
 	p.mu.Lock()
 	for _, a := range p.accounts {
 		if a.AuthIndex == "" {
 			continue
 		}
 		planDue := a.Plan == "" || now.Sub(a.PlanAt) > planEvery
-		if planDue && now.Sub(failedAt[a.ID+"#plan"]) >= retryFailures {
-			next = &job{id: a.ID, index: a.AuthIndex, url: profileURL, attempt: a.ID + "#plan", plan: true}
+		if planDue && now.Sub(p.failedAt[a.ID+"#plan"]) >= retryFailures {
+			next = &reading{id: a.ID, index: a.AuthIndex, url: profileURL, attempt: a.ID + "#plan", plan: true}
 			break
 		}
 		usageDue := !a.known || now.Sub(a.weekly.ObservedAt) > s.PollInterval
-		if usageDue && now.Sub(failedAt[a.ID+"#usage"]) >= retryFailures {
-			next = &job{id: a.ID, index: a.AuthIndex, url: usageURL, attempt: a.ID + "#usage"}
+		if usageDue && now.Sub(p.failedAt[a.ID+"#usage"]) >= retryFailures {
+			next = &reading{id: a.ID, index: a.AuthIndex, url: usageURL, attempt: a.ID + "#usage"}
 		}
 	}
 	for id, c := range p.codex {
@@ -173,58 +373,60 @@ func (p *Plugin) refreshOne(now time.Time, failedAt map[string]time.Time) {
 			break
 		}
 		usageDue := !c.known || now.Sub(c.weekly.ObservedAt) > s.PollInterval
-		if c.AuthIndex != "" && usageDue && now.Sub(failedAt[id+"#codex"]) >= retryFailures {
-			next = &job{id: id, index: c.AuthIndex, url: codexUsageURL, attempt: id + "#codex", codex: true}
+		if c.AuthIndex != "" && usageDue && now.Sub(p.failedAt[id+"#codex"]) >= retryFailures {
+			next = &reading{id: id, index: c.AuthIndex, url: codexUsageURL, attempt: id + "#codex", codex: true}
 		}
 	}
 	p.mu.Unlock()
-	if next == nil {
-		return
+	if next != nil {
+		p.read(*next, now)
+	}
+}
+
+func (p *Plugin) read(r reading, now time.Time) {
+	failed := func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.failedAt[r.attempt] = now
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 	defer cancel()
-	cred, err := p.host.credential(ctx, next.index)
+	cred, err := p.host.credential(ctx, r.index)
 	if err != nil {
-		failedAt[next.attempt] = now
+		failed()
 		return
 	}
 	headers := anthropicHeaders(cred)
-	if next.codex {
+	if r.codex {
 		headers = codexHeaders(cred)
 	}
-	status, body, err := p.host.get(ctx, next.url, headers)
-	if err != nil || status != http.StatusOK {
-		failedAt[next.attempt] = now
-		if status == http.StatusUnauthorized && !next.codex {
-			p.mu.Lock()
-			a := p.accounts[next.id]
-			signedOut := a != nil && !a.signedOut
-			if signedOut {
-				a.signedOut = true
-			}
-			p.mu.Unlock()
-			if signedOut {
-				p.note(levelWarn, "Anthropic rejected %s's login (401).", a.Name)
-			}
-		}
+	status, body, err := p.host.get(ctx, r.url, headers)
+	if err != nil {
+		failed()
+		return
+	}
+	if !r.codex {
+		p.loginAnswered(r.id, status, body)
+	}
+	if status != http.StatusOK {
+		failed()
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if next.codex {
-		if c := p.codex[next.id]; c != nil {
+	if r.codex {
+		if c := p.codex[r.id]; c != nil {
 			if w, ok := usage.WeeklyFromCodex(body, now); ok {
 				c.weekly, c.known = w, true
 			}
 		}
 		return
 	}
-	a := p.accounts[next.id]
+	a := p.accounts[r.id]
 	if a == nil {
 		return
 	}
-	a.signedOut = false
-	if next.plan {
+	if r.plan {
 		if plan := usage.PlanFromProfile(body); plan != "" {
 			a.Plan, a.PlanAt = plan, now
 			p.dirty = true

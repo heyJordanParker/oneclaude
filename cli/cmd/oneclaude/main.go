@@ -577,6 +577,7 @@ func apply(built plugin, configPath, folder, data string, shared, remove bool) (
 	set(own, "enabled", "true", "!!bool")
 	set(own, "data-dir", data, "!!str")
 	set(child(own, "store"), "version", built.version, "!!str")
+	set(own, "auth-dir", authDir, "!!str")
 	if pacer := lookup(configs, seatPacerID); pacer != nil && scalar(pacer, "enabled", "false") == "true" {
 		set(pacer, "enabled", "false", "!!bool")
 		if data != "" {

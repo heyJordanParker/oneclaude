@@ -68,4 +68,8 @@ Default `1h`, at least `10m`. An account with no reply for this long gets one us
 
 The folder oneclaude keeps its files in ([How it works](how-it-works.md#what-oneclaude-keeps)). The install sets it to cmod's data folder for oneclaude, `~/.local/share/cmod/data/oneclaude`. With none set, oneclaude keeps no files.
 
+### `auth-dir`
+
+The folder the proxy keeps its logins in, which oneclaude watches so a sign-in, a new account or a removed one shows within a second. The install sets it to the proxy's `oauth.auth-dir`, `~/.cli-proxy-api` when the config names none, counted from the folder the proxy runs in. With none set, oneclaude sees a changed login only at its next usage read.
+
 Durations read as Go writes them, such as `90s`, `5m`, or `1h30m`. A duration below its floor, or one that doesn't read, falls back to the default.

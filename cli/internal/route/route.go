@@ -7,18 +7,23 @@ import (
 	"github.com/heyJordanParker/oneclaude/cli/internal/model"
 )
 
-// Candidate is one account the proxy offers for a request.
+// Candidate is one account the proxy offers for a request. LoginFails is
+// whether Anthropic turns its login away, signed out or refused.
 type Candidate struct {
-	ID     string
-	Weekly model.Weekly
-	Known  bool
-	Agents int
-	Limit  int
+	ID         string
+	Weekly     model.Weekly
+	Known      bool
+	LoginFails bool
+	Agents     int
+	Limit      int
 }
 
-// Room reports whether a new agent may go here: the week isn't spent and,
-// with limits on, the account is under its limit.
+// Room reports whether a new agent may go here: Anthropic takes its login,
+// the week isn't spent and, with limits on, the account is under its limit.
 func (c Candidate) Room(limitsOn bool, now time.Time) bool {
+	if c.LoginFails {
+		return false
+	}
 	if w, _ := c.Weekly.Now(now); c.Known && (w.Rejected || w.Used >= 1) {
 		return false
 	}
@@ -27,9 +32,13 @@ func (c Candidate) Room(limitsOn bool, now time.Time) bool {
 
 // Score ranks an account by weekly quota left per hour until it resets, so an
 // account close to its reset with quota left goes first. An account with no
-// reading yet scores as a full week left over a full week.
+// reading yet scores as a full week left over a full week, and one whose
+// login fails below every other.
 func Score(c Candidate, now time.Time) float64 {
 	w, _ := c.Weekly.Now(now)
+	if c.LoginFails {
+		return -2
+	}
 	if !c.Known {
 		return 1 / model.Week.Hours()
 	}
@@ -63,15 +72,21 @@ func Best(cands []Candidate, now time.Time, limitsOn bool) (Candidate, bool) {
 	return best, haveBest
 }
 
-// AllFull reports whether no candidate has room.
+// AllFull reports whether there is a candidate whose login works, and none
+// of them has room.
 func AllFull(cands []Candidate, limitsOn bool, now time.Time) bool {
-	if !limitsOn || len(cands) == 0 {
+	if !limitsOn {
 		return false
 	}
+	full := false
 	for _, c := range cands {
+		if c.LoginFails {
+			continue
+		}
 		if c.Room(true, now) {
 			return false
 		}
+		full = true
 	}
-	return true
+	return full
 }

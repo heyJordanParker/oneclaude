@@ -19,6 +19,7 @@ type Settings struct {
 	AffinityTTL  time.Duration
 	PollInterval time.Duration
 	DataDir      string
+	AuthDir      string
 }
 
 func Defaults() Settings {
@@ -50,6 +51,7 @@ type rawSettings struct {
 		PollInterval string `yaml:"poll-interval"`
 	} `yaml:"quota"`
 	DataDir string `yaml:"data-dir"`
+	AuthDir string `yaml:"auth-dir"`
 }
 
 // ParseSettings reads the plugin's block. The Management Center writes each
@@ -89,6 +91,9 @@ func ParseSettings(raw []byte) (Settings, error) {
 	s.PollInterval = duration(r.Quota.PollInterval, s.PollInterval, 10*time.Minute)
 	if dir := strings.TrimSpace(r.DataDir); dir != "" {
 		s.DataDir = expandHome(dir)
+	}
+	if dir := strings.TrimSpace(r.AuthDir); dir != "" {
+		s.AuthDir = expandHome(dir)
 	}
 	return s, nil
 }

@@ -1,7 +1,8 @@
 // Command fakeanthropic answers /v1/messages the way Anthropic does for a
 // subscription, so the dev proxy runs the plugin without a real account.
 // Each API key is one account with its own weekly usage. A prompt containing
-// "throttle" gets a 429 with no usage headers, and "slow" streams for 6s.
+// "throttle" gets a 429 with no usage headers, "oauthrefused" the 403 Anthropic
+// sends an organization that allows no OAuth login, and "slow" streams for 6s.
 package main
 
 import (
@@ -72,6 +73,12 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limited"}}`)
+		return
+	}
+	if strings.Contains(text, "oauthrefused") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"type":"error","error":{"type":"permission_error","message":"OAuth authentication is currently not allowed for this organization."}}`)
 		return
 	}
 	if strings.Contains(text, "notfound") {

@@ -279,6 +279,7 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
   color: var(--text);
   font: inherit;
   font-weight: 500;
+  text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 150ms var(--ease), scale 100ms var(--ease);
@@ -291,7 +292,7 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
 .button--primary { background: var(--text); color: var(--bg); }
 .button--quiet { background: transparent; color: var(--text-secondary); padding-inline: 0.5rem; }
 
-.button:focus-visible, .link:focus-visible, .input:focus-visible {
+.button:focus-visible, .link:focus-visible {
   outline: 0.125rem solid var(--text-secondary);
   outline-offset: 0.125rem;
 }
@@ -307,26 +308,6 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
 .links { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
 
 .login { display: grid; gap: 0.875rem; justify-items: start; }
-
-.field { display: grid; gap: 0.375rem; inline-size: 100%; max-inline-size: 44rem; }
-.field__label { color: var(--text-secondary); font-size: 0.75rem; }
-.field__row { display: flex; gap: 0.5rem; }
-.field__error { color: var(--failure-text); font-size: 0.75rem; }
-
-.input {
-  flex: 1;
-  min-inline-size: 0;
-  min-block-size: 2.25rem;
-  padding-inline: 0.75rem;
-  border: 0;
-  border-radius: calc(var(--radius) - 0.125rem);
-  background: var(--bg);
-  box-shadow: inset 0 0 0 1px var(--ring-strong);
-  color: var(--text);
-  font: inherit;
-}
-
-.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
 
 .chart {
   display: grid;
@@ -571,7 +552,6 @@ const state = {
   logOpen: false,
   usage: { period: 'month', by: 'account', units: 'cost' },
   usageTable: null,
-  login: null,
   pending: {},
   rowErrors: {},
 }
@@ -837,8 +817,8 @@ function head(title, ...actions) {
   return h('div', { class: 'section__head' }, h('h2', { class: 'section__title' }, title), actions)
 }
 
-function panelLink(label, route) {
-  return h('a', { class: 'link', href: `${PANEL}#${route}`, target: '_top' }, label)
+function panelLink(label, route, look = 'link') {
+  return h('a', { class: look, href: `${PANEL}#${route}`, target: '_top' }, label)
 }
 
 function meter(used, even, label, modifier) {
@@ -967,6 +947,7 @@ function accountState(row) {
   const { account, file } = row
   if (file?.disabled) return ['Disabled']
   if (account?.signed_out) return ['Signed out', 'bad']
+  if (account?.refused) return ['Refused', 'bad']
   if (file?.unavailable) return ['Unavailable', 'warn', file.status_message]
   if (account?.empty) return ['Empty', 'bad']
   if (!account) return ['Not in the pool yet']
@@ -976,14 +957,11 @@ function accountState(row) {
 }
 
 function accountActions(row) {
-  if (!state.key) return null
   const key = rowKey(row)
   const busy = Boolean(state.pending[key])
   const buttons = []
-  if (row.account?.signed_out) {
-    buttons.push(h('button', { class: 'button', type: 'button', 'data-focus': `relogin-${key}`, disabled: Boolean(state.login), onclick: startLogin }, 'Sign in'))
-  }
-  if (row.file) {
+  if (row.account?.signed_out || row.account?.refused) buttons.push(panelLink('Sign in', '/oauth', 'button'))
+  if (row.file && state.key) {
     const disabled = Boolean(row.file.disabled)
     buttons.push(h('button', {
       class: 'button button--quiet',
@@ -1012,7 +990,8 @@ function accountRow(row, now) {
   return h('tr', null,
     h('td', null, h('div', { class: 'account' },
       h('span', { class: 'account__name' }, name),
-      account?.plan ? h('span', { class: 'account__plan' }, planLabel(account.plan)) : null)),
+      account?.plan ? h('span', { class: 'account__plan' }, planLabel(account.plan)) : null,
+      account?.refused ? h('span', { class: 'account__sub cell-tone', 'data-tone': 'bad' }, account.refused) : null)),
     h('td', { class: 'accounts__usage' }, known
       ? h('div', { class: 'usage' },
           meter(account.used, even, `Weekly usage of ${name}`),
@@ -1033,55 +1012,12 @@ function accountRow(row, now) {
       error ? h('p', { class: 'row-error', role: 'alert' }, error) : null))
 }
 
-function loginView() {
-  const login = state.login
-  if (!login) return null
-  if (login.phase === 'starting') return h('div', { class: 'panel login' }, note('Starting a Claude login'))
-  if (login.phase === 'done') return h('div', { class: 'panel login', role: 'status' }, h('p', null, 'Account added. oneclaude reads its usage within a few minutes.'))
-  if (login.phase === 'error') {
-    return h('div', { class: 'panel login', role: 'alert' },
-      note(login.error, 'bad'),
-      h('div', { class: 'actions' },
-        h('button', { class: 'button', type: 'button', 'data-focus': 'login-retry', onclick: startLogin }, 'Try again'),
-        h('button', { class: 'button button--quiet', type: 'button', 'data-focus': 'login-close', onclick: stopLogin }, 'Close')))
-  }
-  return h('div', { class: 'panel login' },
-    h('p', null, 'Log in to the Claude account in the tab that opened. This page adds the account when the login finishes.'),
-    h('div', { class: 'actions' },
-      h('a', { class: 'link', href: login.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open the Claude login'),
-      h('button', { class: 'button button--quiet', type: 'button', 'data-focus': 'login-cancel', onclick: stopLogin }, 'Cancel')),
-    h('form', { class: 'field', onsubmit: submitCallback, novalidate: true },
-      h('label', { class: 'field__label', for: 'callback' }, 'If the login ends on a page that does not load, paste that page\'s address here'),
-      h('div', { class: 'field__row' },
-        h('input', {
-          class: 'input',
-          id: 'callback',
-          type: 'text',
-          inputmode: 'url',
-          'data-focus': 'login-callback',
-          autocomplete: 'off',
-          spellcheck: 'false',
-          placeholder: 'http://localhost:54545/callback?code=…',
-          value: login.callback,
-          'aria-invalid': login.fieldError ? 'true' : null,
-          'aria-describedby': login.fieldError ? 'callback-error' : null,
-          oninput: (event) => { login.callback = event.target.value; login.fieldError = '' },
-        }),
-        h('button', { class: 'button', type: 'submit', 'data-focus': 'login-submit', 'data-busy': Boolean(login.submitting), disabled: Boolean(login.submitting) }, login.submitting ? 'Sending' : 'Send')),
-      login.fieldError ? h('p', { class: 'field__error', id: 'callback-error' }, login.fieldError) : null,
-      login.submitted ? h('p', { class: 'field__label', role: 'status' }, 'Sent. Waiting for the proxy to finish the login.') : null))
-}
-
 function accountsView() {
   const status = state.status
   if (!status) return []
-  const add = state.key
-    ? h('button', { class: 'button button--primary', type: 'button', 'data-focus': 'add-account', disabled: Boolean(state.login && state.login.phase !== 'done'), onclick: startLogin }, 'Add account')
-    : panelLink('Add an account in the panel', '/oauth')
   const rows = accountRows()
   return [
-    head('Claude accounts', add),
-    loginView(),
+    head('Claude accounts', panelLink('Add account', '/oauth', 'button button--primary')),
     rows.length === 0
       ? note('No Claude accounts yet. Add one, and oneclaude places agents on it as soon as the proxy lists it.')
       : h('div', { class: 'scroller' }, h('table', { class: 'accounts' },
@@ -1494,9 +1430,7 @@ function paint(id, content) {
 }
 
 function render() {
-  const active = document.activeElement
-  const focus = active?.dataset?.focus
-  const caret = active instanceof HTMLInputElement ? [active.selectionStart, active.selectionEnd] : null
+  const focus = document.activeElement?.dataset?.focus
   paint('meta', metaView())
   paint('pool', poolView())
   paint('log', logView())
@@ -1508,11 +1442,6 @@ function render() {
   const target = document.querySelector(`[data-focus="${CSS.escape(focus)}"]`)
   if (!target) return
   target.focus({ preventScroll: true })
-  if (caret && target instanceof HTMLInputElement) {
-    try {
-      target.setSelectionRange(caret[0], caret[1])
-    } catch {}
-  }
 }
 
 async function setDisabled(row, disabled) {
@@ -1530,82 +1459,6 @@ async function setDisabled(row, disabled) {
     state.rowErrors[key] = `${disabled ? 'Disabling' : 'Enabling'} failed: ${error.message}`
   }
   delete state.pending[key]
-  render()
-}
-
-function stopLogin() {
-  clearTimeout(state.login?.timer)
-  state.login = null
-  render()
-}
-
-async function startLogin() {
-  clearTimeout(state.login?.timer)
-  const tab = window.open('about:blank', '_blank')
-  const login = { phase: 'starting', callback: '' }
-  state.login = login
-  render()
-  try {
-    const started = await management('/oauth/auth-url?provider=claude&is_webui=true')
-    if (!started.url || !started.state) throw new Error('The proxy did not start a Claude login.')
-    if (state.login !== login) return
-    Object.assign(login, { phase: 'waiting', url: started.url, session: started.state })
-    if (tab) {
-      tab.opener = null
-      tab.location.href = started.url
-    }
-    pollLogin(login)
-  } catch (error) {
-    tab?.close()
-    if (state.login === login) Object.assign(login, { phase: 'error', error: `The login did not start: ${error.message}` })
-  }
-  render()
-}
-
-function pollLogin(login) {
-  login.timer = setTimeout(async () => {
-    if (state.login !== login) return
-    try {
-      const result = await management(`/oauth/status?state=${encodeURIComponent(login.session)}`)
-      if (state.login !== login) return
-      if (result.status === 'ok') {
-        state.login = { phase: 'done' }
-        refreshAll()
-        setTimeout(() => {
-          if (state.login?.phase === 'done') stopLogin()
-        }, 5000)
-      } else if (result.status === 'error') {
-        Object.assign(login, { phase: 'error', error: `The login failed: ${result.error || 'Claude did not finish it.'}` })
-      } else {
-        pollLogin(login)
-      }
-    } catch (error) {
-      if (state.login === login) Object.assign(login, { phase: 'error', error: `The login stopped: ${error.message}` })
-    }
-    render()
-  }, 3000)
-}
-
-async function submitCallback(event) {
-  event.preventDefault()
-  const login = state.login
-  if (!login || login.submitting) return
-  const url = login.callback.trim()
-  if (!url) {
-    login.fieldError = 'Paste the address of the page the login ended on.'
-    render()
-    return
-  }
-  login.submitting = true
-  login.fieldError = ''
-  render()
-  try {
-    await management('/oauth/callback', { method: 'POST', body: JSON.stringify({ provider: 'claude', redirect_url: url }) })
-    login.submitted = true
-  } catch (error) {
-    login.fieldError = `The proxy did not take that address: ${error.message}`
-  }
-  login.submitting = false
   render()
 }
 

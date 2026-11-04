@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/heyJordanParker/oneclaude/cli/internal/limits"
 	"github.com/heyJordanParker/oneclaude/cli/internal/model"
 	"github.com/heyJordanParker/oneclaude/cli/internal/session"
@@ -38,7 +39,8 @@ type Options struct {
 // answered each model. throttled, rejected, overloaded, notFound and failed
 // are when Anthropic last throttled it, turned it away for its spent week,
 // answered overloaded, answered 404, or answered any other error. signedOut is
-// whether its login failed since it last answered.
+// whether Anthropic rejected its login (401) since it last answered, and
+// refused Anthropic's reason when it refused the login (403).
 type accountState struct {
 	model.Account
 	weekly     model.Weekly
@@ -50,6 +52,11 @@ type accountState struct {
 	notFound   time.Time
 	failed     time.Time
 	signedOut  bool
+	refused    string
+}
+
+func (a *accountState) loginFails() bool {
+	return a.signedOut || a.refused != ""
 }
 
 // codexAccount is a Codex account the proxy holds. oneclaude routes none of
@@ -116,6 +123,7 @@ type Plugin struct {
 	historyRead  bool
 	imported     bool
 	repaired     bool
+	failedAt     map[string]time.Time
 
 	filterFailedAt map[string]time.Time
 	responses      map[string]*response
@@ -125,8 +133,10 @@ type Plugin struct {
 
 	historyMu sync.Mutex
 
-	lifeMu sync.Mutex
-	stop   chan struct{}
+	lifeMu  sync.Mutex
+	stop    chan struct{}
+	watcher *fsnotify.Watcher
+	watched string
 }
 
 func New(opts Options) *Plugin {
@@ -144,6 +154,7 @@ func New(opts Options) *Plugin {
 		codex:    map[string]*codexAccount{},
 		requests: map[string]request{},
 		history:  newRequestHistory(),
+		failedAt: map[string]time.Time{},
 
 		filterFailedAt: map[string]time.Time{},
 		responses:      map[string]*response{},
@@ -253,6 +264,7 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 	p.changed(false)
 	p.changes.start()
 	p.startPoller()
+	p.watch(s.AuthDir)
 	return okEnvelope(RegisterResult{
 		SchemaVersion: SchemaVersion,
 		Metadata: Metadata{

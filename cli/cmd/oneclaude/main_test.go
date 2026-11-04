@@ -466,6 +466,30 @@ func TestARunningProxysRelativeConfigResolvesAgainstTheFolderItRunsIn(t *testing
 	if untouched, _ := os.ReadFile(filepath.Join(elsewhere, "dev", "config.yaml")); string(untouched) != devConfig || exists(filepath.Join(elsewhere, ".target")) {
 		t.Fatal("install edited the config in its own working folder, which no running proxy uses")
 	}
+	if edited, _ := os.ReadFile(filepath.Join(checkout, "dev", "config.yaml")); !strings.Contains(string(edited), "auth-dir: "+filepath.Join(checkout, ".target", "dev", "auth")+"\n") {
+		t.Fatalf("the plugin's auth-dir is not the running proxy's auth dir:\n%s", edited)
+	}
+}
+
+func TestInstallNamesTheProxysCredentialFolderForThePlugin(t *testing.T) {
+	config, _, data := setUp(t)
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	home := os.Getenv("HOME")
+	if text, _ := os.ReadFile(config); !strings.Contains(string(text), "            store:\n                version: 0.2.0\n            auth-dir: "+filepath.Join(home, ".cli-proxy-api")+"\n") {
+		t.Fatalf("the plugin's auth-dir is not the proxy's default auth dir:\n%s", text)
+	}
+	raw, _ := os.ReadFile(config)
+	if err := os.WriteFile(config, append(raw, []byte("oauth:\n    auth-dir: ~/logins\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(built, config, data, false); err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := os.ReadFile(config); !strings.Contains(string(text), "auth-dir: "+filepath.Join(home, "logins")+"\n") || strings.Count(string(text), "auth-dir: ") != 2 {
+		t.Fatalf("the plugin's auth-dir does not follow the proxy's oauth.auth-dir:\n%s", text)
+	}
 }
 
 func TestInstallOnLinuxPlacesTheLibraryAsASharedObject(t *testing.T) {

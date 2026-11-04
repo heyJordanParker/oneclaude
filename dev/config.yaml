@@ -43,3 +43,4 @@ plugins:
     oneclaude:
       enabled: true
       data-dir: ".target/dev/data"
+      auth-dir: ".target/dev/auth"

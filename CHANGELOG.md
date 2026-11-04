@@ -4,7 +4,14 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 
 ## [Unreleased]
 
+### Changed
+- The dashboard's `Add account` and `Sign in` open the panel's OAuth login page, as `[Add account]` and `[Sign in]` in `/accounts` do. The dashboard's own login, with its field for a callback address, is gone.
+
 ### Fixed
+- An account you sign in again shows signed in under the prompt and in `/accounts` within a second. oneclaude now watches the proxy's login folder, which the install names in the new `auth-dir` setting: a written, added or removed login lists the accounts again, clears the proxy's blocks on a signed-out or refused account whose login changed, and reads at once the usage of each account that is signed out, refused or not read yet. It works from the first login of a new pool. Before, it stayed signed out until its next usage read, up to 30 minutes.
+- An account Anthropic refuses, such as with `OAuth authentication is currently not allowed for this organization.`, shows as refused with that reason under the prompt, in `/accounts`, on the dashboard and in the log, and new conversations skip it. Before, it looked healthy with a reading hours old while every request to it failed. A request Anthropic answers 401 now signs its account out the same way.
+- An account whose login file is gone leaves the pool. Before, its row stayed.
+- The log says `Anthropic accepted work's login again.` when a signed-out or refused account answers again.
 - The install edits the config of the proxy Claude Code talks to when that proxy runs with a relative `-config`, such as `dev/config.yaml`. It read the path from the folder the install ran in, so it could edit another folder's config, copy your login into a folder another proxy reads, and put the routing plugin where no proxy loads it. Relative folders in the config now count from the proxy's own folder too.
 - The install finds a running proxy's config on Linux without `lsof`, which a minimal Ubuntu lacks.
 

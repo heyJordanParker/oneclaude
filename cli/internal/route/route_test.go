@@ -62,6 +62,21 @@ func TestAnEmptyWeekHasNoRoom(t *testing.T) {
 	}
 }
 
+func TestAnAccountWhoseLoginFailsGoesLastAndFillsNoPool(t *testing.T) {
+	refused := account("refused", 0.1, 20*time.Hour, 0)
+	refused.LoginFails = true
+	empty := account("empty", 1, 2*time.Hour, 0)
+	if got, _ := Best([]Candidate{refused, empty}, now, true); got.ID != "empty" {
+		t.Fatalf("got %s, want empty: Anthropic turns refused's login away", got.ID)
+	}
+	if AllFull([]Candidate{refused}, true, now) {
+		t.Fatal("AllFull = true for a pool whose only account's login fails, want false, as no limit was reached")
+	}
+	if !AllFull([]Candidate{refused, account("full", 0.5, 20*time.Hour, 19)}, true, now) {
+		t.Fatal("AllFull = false while every account whose login works is full, want true")
+	}
+}
+
 func TestAWeekThatResetSinceItsReadingStartsOver(t *testing.T) {
 	stale := Candidate{ID: "stale", Known: true, Weekly: model.Weekly{Used: 1, ResetsAt: now.Add(-time.Hour)}, Limit: 19}
 	if !stale.Room(true, now) {

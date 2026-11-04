@@ -144,20 +144,24 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
   }
 }
 
-// claudeRow is one Claude account. A signed-out account shows only that, with
-// the login that signs it back in, and a blocked one says until when, with
-// the button that clears its blocks.
+// claudeRow is one Claude account. A refused or signed-out account shows
+// only that, with Anthropic's reason for a refusal, and the login that signs
+// it back in, and a blocked one says until when, with the button that clears
+// its blocks.
 function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, now: string, shown: Shown | undefined): Row {
   const key = rowKey(account)
-  if (isSignedOut(account, blocks, now)) {
+  if (account.refused !== undefined || isSignedOut(account, blocks, now)) {
     return {
       key,
       name: account.name,
       facts: [],
       trouble: (
-        <Box gap={2}>
-          <Text color="warning">signed out</Text>
-          <Text dimColor>[<Link href={addAccountUrl(mod.state.memory.pool)}>Sign in</Link>]</Text>
+        <Box flexDirection="column">
+          <Box gap={2}>
+            <Text color="warning">{account.refused === undefined ? 'signed out' : 'refused'}</Text>
+            <Text dimColor>[<Link href={addAccountUrl(mod.state.memory.pool)}>Sign in</Link>]</Text>
+          </Box>
+          {account.refused === undefined ? null : <Text dimColor wrap="wrap">{account.refused}</Text>}
         </Box>
       ),
     }

@@ -27,7 +27,20 @@ var testNow = time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 
 func newTestPlugin(t *testing.T, config string) *Plugin {
 	t.Helper()
-	p := New(Options{Name: "oneclaude", Version: "test", NoPoller: true, Now: func() time.Time { return testNow }})
+	return newClockedPlugin(t, config, func() time.Time { return testNow })
+}
+
+// testClock is a time the test moves on while the plugin's own goroutines
+// read it.
+func testClock() (now func() time.Time, set func(time.Time)) {
+	var at atomic.Int64
+	at.Store(testNow.UnixNano())
+	return func() time.Time { return time.Unix(0, at.Load()).UTC() }, func(to time.Time) { at.Store(to.UnixNano()) }
+}
+
+func newClockedPlugin(t *testing.T, config string, now func() time.Time) *Plugin {
+	t.Helper()
+	p := New(Options{Name: "oneclaude", Version: "test", NoPoller: true, Now: now})
 	payload, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte(config + "\ndata-dir: " + t.TempDir()), SchemaVersion: 1})
 	if _, ok := p.Call(MethodPluginRegister, payload); !ok {
 		t.Fatal("register failed")
@@ -177,7 +190,8 @@ func TestDisabledDeclinesEverything(t *testing.T) {
 }
 
 func TestAThrottleIsLoggedOnceAndAQuotaRefusalIsNot(t *testing.T) {
-	p := newTestPlugin(t, enabled)
+	now, setNow := testClock()
+	p := newClockedPlugin(t, enabled, now)
 	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"claude-ada@x.json"}, http.Header{}, http.StatusTooManyRequests)
 	send(t, p, "r2", "s2", "", "claude-opus-5-5", []string{"claude-ada@x.json"}, http.Header{}, http.StatusTooManyRequests)
 	quota := weekly(1, time.Hour)
@@ -190,8 +204,7 @@ func TestAThrottleIsLoggedOnceAndAQuotaRefusalIsNot(t *testing.T) {
 	if st.Accounts[0].ThrottledAt == nil || !st.Accounts[0].Empty {
 		t.Fatalf("account = %+v, want throttled and its week spent", st.Accounts[0])
 	}
-	later := testNow.Add(episode)
-	p.now = func() time.Time { return later }
+	setNow(testNow.Add(episode))
 	send(t, p, "r4", "s4", "", "claude-opus-5-5", []string{"claude-ada@x.json"}, http.Header{}, http.StatusTooManyRequests)
 	if log := p.Status().Log; len(log) != 2 {
 		t.Fatalf("log = %+v, want a second line once 10 minutes passed", log)
@@ -199,7 +212,8 @@ func TestAThrottleIsLoggedOnceAndAQuotaRefusalIsNot(t *testing.T) {
 }
 
 func TestTheLogRecordsEachAccountsFailuresOncePerEpisodeAndLeavesOutCancelledRequests(t *testing.T) {
-	p := newTestPlugin(t, enabled)
+	now, setNow := testClock()
+	p := newClockedPlugin(t, enabled, now)
 	fail := func(id, account string, status int) {
 		call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: id, Provider: "claude", Model: "claude-opus-5-5", AuthID: account, Failed: true, Failure: UsageFailure{StatusCode: status}})
 	}
@@ -208,8 +222,7 @@ func TestTheLogRecordsEachAccountsFailuresOncePerEpisodeAndLeavesOutCancelledReq
 	fail("ada-2", "claude-ada@x.json", http.StatusBadRequest)
 	fail("bob-1", "claude-bob@x.json", http.StatusInternalServerError)
 	fail("busy", "claude-ada@x.json", 529)
-	later := testNow.Add(episode)
-	p.now = func() time.Time { return later }
+	setNow(testNow.Add(episode))
 	fail("ada-3", "claude-ada@x.json", http.StatusBadGateway)
 	var texts []string
 	for _, e := range p.Status().Log {
@@ -898,8 +911,9 @@ func TestASignedOutAccountShowsUntilItAnswersAgainAndLogsOnce(t *testing.T) {
 	if err := p.list(); err != nil {
 		t.Fatal(err)
 	}
-	p.refreshOne(testNow, map[string]time.Time{})
-	p.refreshOne(testNow, map[string]time.Time{})
+	p.refreshOne(testNow)
+	p.failedAt = map[string]time.Time{}
+	p.refreshOne(testNow)
 	st := p.Status()
 	if !st.Accounts[0].SignedOut || len(st.Log) != 1 || st.Log[0].Text != "Anthropic rejected ada's login (401)." {
 		t.Fatalf("account = %+v, log = %+v, want ada signed out and logged once", st.Accounts[0], st.Log)
@@ -953,7 +967,7 @@ func TestStatusShowsACodexAccountsWeeklyUsageApartFromThePool(t *testing.T) {
 	if err := p.list(); err != nil {
 		t.Fatal(err)
 	}
-	p.refreshOne(testNow, map[string]time.Time{})
+	p.refreshOne(testNow)
 	st := p.Status()
 	if len(st.Codex) != 1 {
 		t.Fatalf("codex = %+v", st.Codex)
@@ -1132,5 +1146,240 @@ func TestOnlyAFailedRequestTheAnswerAfterOneOrAnUnblockCountsABlocksChange(t *te
 	call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/unblock", Body: []byte(`{"auth_index":"a1"}`)})
 	if got := blocksChange(); got <= answered {
 		t.Fatalf("an unblock counted no blocks change: %d after %d", got, answered)
+	}
+}
+
+// writeCredential writes a Claude credential file as the proxy's login does.
+func writeCredential(t *testing.T, path, token string) {
+	t.Helper()
+	email := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "claude-"), ".json")
+	raw, _ := json.Marshal(map[string]string{"type": "claude", "email": email, "access_token": token})
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// credentialProxy answers the host calls for the Claude credential files in
+// dir as the proxy does, and Anthropic takes only the token "signed-in". It
+// counts the usage reads, and keeps the auth index of each credential whose
+// blocks the plugin cleared. Like the proxy, which drops a removed file's
+// credential only after it checked the file stays gone, it lists every file
+// it ever listed.
+type credentialProxy struct {
+	dir     string
+	mu      sync.Mutex
+	listed  map[string]bool
+	reads   int
+	cleared []string
+}
+
+func (c *credentialProxy) call(method string, payload []byte) ([]byte, error) {
+	switch method {
+	case MethodHostAuthList:
+		entries, _ := os.ReadDir(c.dir)
+		c.mu.Lock()
+		if c.listed == nil {
+			c.listed = map[string]bool{}
+		}
+		for _, entry := range entries {
+			c.listed[entry.Name()] = true
+		}
+		var files []HostAuthFileEntry
+		for name := range c.listed {
+			files = append(files, HostAuthFileEntry{ID: name, AuthIndex: name, Type: "claude", Email: strings.TrimSuffix(strings.TrimPrefix(name, "claude-"), ".json"), Path: filepath.Join(c.dir, name)})
+		}
+		c.mu.Unlock()
+		return okEnvelope(HostAuthListResponse{Files: files})
+	case MethodHostAuthGet:
+		var req HostAuthGetRequest
+		_ = json.Unmarshal(payload, &req)
+		raw, err := os.ReadFile(filepath.Join(c.dir, req.AuthIndex))
+		if err != nil {
+			return nil, err
+		}
+		return okEnvelope(HostAuthGetResponse{AuthIndex: req.AuthIndex, JSON: raw})
+	case MethodHostRoutingResetCooldown:
+		var req HostRoutingResetCooldownRequest
+		_ = json.Unmarshal(payload, &req)
+		c.mu.Lock()
+		c.cleared = append(c.cleared, req.AuthIndex)
+		c.mu.Unlock()
+	case MethodHostHTTPDo:
+		var req HostHTTPRequest
+		_ = json.Unmarshal(payload, &req)
+		c.mu.Lock()
+		c.reads++
+		c.mu.Unlock()
+		if req.Headers.Get("Authorization") != "Bearer signed-in" {
+			return okEnvelope(HostHTTPResponse{StatusCode: http.StatusUnauthorized})
+		}
+		body := fmt.Sprintf(`{"seven_day":{"utilization":40,"resets_at":%q}}`, testNow.Add(48*time.Hour).Format(time.RFC3339))
+		return okEnvelope(HostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(body)})
+	}
+	return okEnvelope(emptyResult)
+}
+
+func (c *credentialProxy) counts() (reads int, cleared []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reads, slices.Clone(c.cleared)
+}
+
+// newCredentialPlugin loads the plugin with dir as its auth-dir, as
+// oneclaude install sets it.
+func newCredentialPlugin(t *testing.T, dir string) (*Plugin, *credentialProxy) {
+	t.Helper()
+	proxy := &credentialProxy{dir: dir}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: proxy.call, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir() + "\nauth-dir: " + dir)})
+	p.Call(MethodPluginRegister, cfg)
+	t.Cleanup(p.Shutdown)
+	if err := p.list(); err != nil {
+		t.Fatal(err)
+	}
+	return p, proxy
+}
+
+// statusUntil asks for status.json after each change, as the mod does, until
+// the status shows what done looks for or the second is up.
+func statusUntil(t *testing.T, p *Plugin, done func(Status) bool) (Status, time.Duration) {
+	t.Helper()
+	asked := time.Now()
+	limit := time.After(time.Second)
+	st := p.Status()
+	for !done(st) {
+		select {
+		case st = <-statusAfter(t, p, st.Change):
+		case <-limit:
+			t.Fatalf("the status did not change within a second: %+v", st)
+		}
+	}
+	return st, time.Since(asked)
+}
+
+func TestARewrittenCredentialSignsItsAccountInWithinASecondWithNoPollDue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude-ada@x.json")
+	writeCredential(t, path, "expired")
+	p, _ := newCredentialPlugin(t, dir)
+	p.refreshOne(testNow)
+	if st := p.Status(); !st.Accounts[0].SignedOut {
+		t.Fatalf("ada = %+v, want signed out after Anthropic rejected her login", st.Accounts[0])
+	}
+	writeCredential(t, path, "signed-in")
+	st, took := statusUntil(t, p, func(st Status) bool { return !st.Accounts[0].SignedOut })
+	if !st.Accounts[0].Known || st.Accounts[0].Used != 0.4 {
+		t.Fatalf("ada = %+v, want her usage read with the new login", st.Accounts[0])
+	}
+	if last := st.Log[len(st.Log)-1]; last.Text != "Anthropic accepted ada's login again." {
+		t.Fatalf("log = %+v, want the new login logged", st.Log)
+	}
+	t.Logf("signed in %v after the file was written", took)
+}
+
+func TestARemovedCredentialDropsItsAccount(t *testing.T) {
+	dir := t.TempDir()
+	writeCredential(t, filepath.Join(dir, "claude-ada@x.json"), "signed-in")
+	writeCredential(t, filepath.Join(dir, "claude-bob@x.json"), "signed-in")
+	p, _ := newCredentialPlugin(t, dir)
+	if got := len(p.Status().Accounts); got != 2 {
+		t.Fatalf("%d accounts, want ada and bob", got)
+	}
+	if err := os.Remove(filepath.Join(dir, "claude-ada@x.json")); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := statusUntil(t, p, func(st Status) bool { return len(st.Accounts) == 1 })
+	if st.Accounts[0].Name != "bob" {
+		t.Fatalf("accounts = %+v, want only bob", st.Accounts)
+	}
+}
+
+func TestARewrittenLoginClearsItsAccountsBlocksBeforeTheBlocksChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude-ada@x.json")
+	writeCredential(t, path, "expired")
+	p, proxy := newCredentialPlugin(t, dir)
+	p.refreshOne(testNow)
+	before := p.Status()
+	answered := statusAfter(t, p, before.Change)
+	writeCredential(t, path, "signed-in")
+	select {
+	case st := <-answered:
+		_, cleared := proxy.counts()
+		if st.BlocksChange <= before.BlocksChange || !slices.Equal(cleared, []string{"claude-ada@x.json"}) {
+			t.Fatalf("blocks change %d after %d with %v cleared, want ada's blocks cleared before the blocks change a session reads", st.BlocksChange, before.BlocksChange, cleared)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the rewrite woke no waiting status ask within a second")
+	}
+}
+
+func TestAWriteThatFiresCreateThenWriteGivesOneUsageReadAndOneBlocksChange(t *testing.T) {
+	dir := t.TempDir()
+	p, proxy := newCredentialPlugin(t, dir)
+	before := p.Status()
+	file, err := os.Create(filepath.Join(dir, "claude-ada@x.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := file.WriteString(`{"type":"claude","email":"ada@x","access_token":"expired"}`); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	statusUntil(t, p, func(st Status) bool { return len(st.Accounts) == 1 && st.Accounts[0].SignedOut })
+	time.Sleep(300 * time.Millisecond)
+	reads, _ := proxy.counts()
+	if got := p.Status().BlocksChange - before.BlocksChange; reads != 1 || got != 1 {
+		t.Fatalf("%d usage reads and %d blocks changes for one new file, want one of each", reads, got)
+	}
+}
+
+func TestThePluginWatchesTheCredentialFolderItsSettingNamesFromLoad(t *testing.T) {
+	dir := t.TempDir()
+	proxy := &credentialProxy{dir: dir}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: proxy.call, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir() + "\nauth-dir: " + dir)})
+	p.Call(MethodPluginRegister, cfg)
+	t.Cleanup(p.Shutdown)
+	writeCredential(t, filepath.Join(dir, "claude-ada@x.json"), "signed-in")
+	st, _ := statusUntil(t, p, func(st Status) bool { return len(st.Accounts) == 1 && st.Accounts[0].Known })
+	if st.Accounts[0].Name != "ada" {
+		t.Fatalf("accounts = %+v, want ada, the pool's first login, read with no list before it", st.Accounts)
+	}
+}
+
+func TestARequestAnthropicRejectsSignsItsAccountOutUntilItAnswersAgain(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"ada.json"}, nil, http.StatusUnauthorized)
+	send(t, p, "r2", "s1", "", "claude-opus-5-5", []string{"ada.json"}, nil, http.StatusUnauthorized)
+	if st := p.Status(); !st.Accounts[0].SignedOut || len(st.Log) != 1 || st.Log[0].Text != "Anthropic rejected ada's login (401)." {
+		t.Fatalf("ada = %+v, log = %+v, want her signed out and logged once", st.Accounts[0], st.Log)
+	}
+	send(t, p, "r3", "s1", "", "claude-opus-5-5", []string{"ada.json"}, weekly(0.5, 24*time.Hour), http.StatusOK)
+	if st := p.Status(); st.Accounts[0].SignedOut || len(st.Log) != 2 || st.Log[1].Text != "Anthropic accepted ada's login again." {
+		t.Fatalf("ada = %+v, log = %+v, want her signed in and logged", st.Accounts[0], st.Log)
+	}
+}
+
+func TestAnAccountAnthropicRefusesShowsWhyAndThePickSkipsIt(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"ada.json"}, weekly(0.1, 24*time.Hour), http.StatusOK)
+	send(t, p, "r2", "s2", "", "claude-opus-5-5", []string{"bob.json"}, weekly(0.5, 24*time.Hour), http.StatusOK)
+	reason := "OAuth authentication is currently not allowed for this organization."
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "attempt-r3", TraceID: "r3", Provider: "claude", Model: "claude-opus-5-5", AuthID: "ada.json", Failed: true, Failure: UsageFailure{StatusCode: http.StatusForbidden, Body: `{"type":"error","error":{"type":"permission_error","message":"` + reason + `"}}`}})
+	st := p.Status()
+	if st.Accounts[0].Name != "ada" || st.Accounts[0].Refused != reason || st.Accounts[0].SignedOut {
+		t.Fatalf("ada = %+v, want refused with Anthropic's reason", st.Accounts[0])
+	}
+	if last := st.Log[len(st.Log)-1]; last.Level != levelWarn || last.Text != "Anthropic refused ada's login (403): "+reason {
+		t.Fatalf("log = %+v, want the refusal logged with its reason", st.Log)
+	}
+	both := []string{"ada.json", "bob.json"}
+	if got, _ := send(t, p, "r4", "s1", "", "claude-opus-5-5", both, weekly(0.5, 24*time.Hour), http.StatusOK); got != "bob.json" {
+		t.Fatalf("ada's conversation went to %s, want bob, as Anthropic refuses ada", got)
+	}
+	if got, _ := send(t, p, "r5", "s3", "", "claude-opus-5-5", both, weekly(0.5, 24*time.Hour), http.StatusOK); got != "bob.json" {
+		t.Fatalf("a new conversation went to %s, want bob, as Anthropic refuses ada", got)
 	}
 }

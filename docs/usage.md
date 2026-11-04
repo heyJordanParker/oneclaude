@@ -23,13 +23,13 @@ The line names what needs you, and only while it is true:
 ████████▊███▋███████  63% · 19% over pace · next refill in 2d · 14 agents · 1 account signed out [+]
 ```
 
-- **`1 account signed out`** stays until the account signs in again. Its row in the Accounts tab has `[Sign in]`.
+- **`1 account refused`** means Anthropic refuses the account's login, and its row in the Accounts tab says why. **`1 account signed out`** means Anthropic rejects the login. Each stays until the account answers again, and goes within a second of a sign-in that fixes it. Its row has `[Sign in]`.
 - **`1 account blocked`** means the proxy holds a block on an account that no rate limit explains, such as one it set after a failed request. It stays until the block ends or you clear it with the row's `[Unblock]`.
 - **`agent limit reached`** means every account runs as many agents of a model as it can, so oneclaude holds new subagents back. It stays until 3 minutes, `subagents.retry-after`, pass without a refusal.
 
-The first two open the Accounts tab at the account they name, and `agent limit reached` at the Claude accounts.
+Each of them opens the Accounts tab at the account it names, and `agent limit reached` at the Claude accounts.
 
-The mod reads the proxy's blocks with the proxy's management key: `oneclaude`, which the install sets on a proxy with none, or the key you set for CLIProxyAPI, which the install asks for ([Installation](installation.md#3-adding-oneclaude)). It reads them only after an event that may change them: a request Anthropic failed, the first answer after one, or an unblock. One session on each machine reads them, and every other session there shows its reading. A block whose time is up goes from the line by itself. When the proxy doesn't answer for its blocks, every session keeps showing the last blocks it read.
+The mod reads the proxy's blocks with the proxy's management key: `oneclaude`, which the install sets on a proxy with none, or the key you set for CLIProxyAPI, which the install asks for ([Installation](installation.md#3-adding-oneclaude)). It reads them only after an event that may change them: a request Anthropic failed, the first answer after one, an unblock, or a sign-in. One session on each machine reads them, and every other session there shows its reading. A block whose time is up goes from the line by itself. When the proxy doesn't answer for its blocks, every session keeps showing the last blocks it read.
 
 The line shows the pool Claude Code sends its requests to, its `ANTHROPIC_BASE_URL`, on this machine or another ([A pool on another machine](installation.md#a-pool-on-another-machine)). When oneclaude can't read that pool, the line keeps the last reading and says why, with the time that reading is from:
 
@@ -61,6 +61,10 @@ spare             ████████████████████  
                   refills in 2d · idle
 
 jarvis            signed out  [Sign in]
+
+lab               refused  [Sign in]
+                  OAuth authentication is currently not allowed for this
+                  organization.
 
 Codex accounts
 
@@ -107,12 +111,12 @@ Log
 ```
 
 - **Combined usage** is the pool, as the line under the prompt shows it. "frees 17%" is how much of the pool's quota the next refill gives back.
-- **Claude accounts** lists each account by the part of its address before the `@`. Each row shows its weekly usage, its pace, when its week resets, and the agents on it by model, such as `2 opus`, or `idle`. An account that used its whole week says `empty`, and new conversations skip it until it refills. `throttled 12m ago` shows for an hour after Anthropic rate limited the account. A signed-out account shows only `signed out` and `[Sign in]`, which opens the proxy's login. A blocked account says which models the proxy blocked and until when, and `[Unblock]` clears every block the proxy holds on it. A block that was right comes back with the next failed request.
+- **Claude accounts** lists each account by the part of its address before the `@`. Each row shows its weekly usage, its pace, when its week resets, and the agents on it by model, such as `2 opus`, or `idle`. An account that used its whole week says `empty`, and new conversations skip it until it refills. `throttled 12m ago` shows for an hour after Anthropic rate limited the account. A signed-out account shows only `signed out` and `[Sign in]`, which opens the proxy's login, and a refused one `refused`, `[Sign in]` and Anthropic's reason. New conversations skip both while another account can take them. A sign-in shows within a second, and a removed login's row goes as fast. A blocked account says which models the proxy blocked and until when, and `[Unblock]` clears every block the proxy holds on it. A block that was right comes back with the next failed request.
 - **Codex accounts** shows each Codex (ChatGPT) account the proxy holds, with its weekly usage. oneclaude shows these accounts only, and routes none of their requests.
 - **Weekly resets** lays 8 days, from yesterday's midnight, under the names and dates of the days, one lane per Claude account, soonest reset first. Each lane is the account's current week as one rounded bar, from when the week opened to when it resets, on a faint line that runs across the rest of the lane. It is dark up to now, gray while the account's quota lasts at its pace so far this week, and faint from where that pace would empty it until the reset. The gray is red in the last 5% of the week's quota, as the usage bar is. A white line marks now through every lane. Each lane ends with how long until the week resets and how much the account has left until then. A narrower Sidebar gives each day fewer cells, down to 6 hours a cell, and names only the weekday.
 - **Usage** is what the pool's requests used. [Usage](#usage) explains it.
 - **Usage per day** is one column a day for the last 30 days, in Claude's color: the whole pool's cost, or its tokens when Usage shows tokens. A dot is a day with no request.
-- **Log** lists the last 24 hours of what changed where requests go, newest first: the time, `WARN` or `INFO`, and what happened. It logs throttles, overloads and every other error Anthropic returned once per account until 10 minutes pass without one, 404s, blocks oneclaude or you cleared, subagents oneclaude held back, limits it lowered, and accounts that signed out. It leaves out requests Claude Code cancelled, such as when you press Esc. The tab shows the newest 10 lines, and the dashboard the last 7 days. With nothing to log, the section is gone. [How it works](how-it-works.md) explains each event.
+- **Log** lists the last 24 hours of what changed where requests go, newest first: the time, `WARN` or `INFO`, and what happened. It logs throttles, overloads and every other error Anthropic returned once per account until 10 minutes pass without one, 404s, blocks oneclaude or you cleared, subagents oneclaude held back, limits it lowered, accounts Anthropic rejected or refused, and each that answered again. It leaves out requests Claude Code cancelled, such as when you press Esc. The tab shows the newest 10 lines, and the dashboard the last 7 days. With nothing to log, the section is gone. [How it works](how-it-works.md) explains each event.
 
 A refill time reads in days from 2 days out, such as `4d`, in days and hours under 2 days, such as `1d 6h`, in hours and minutes under a day, such as `5h 20m`, and in minutes under an hour.
 
@@ -166,6 +170,6 @@ The rounded ends of each bar are [Nerd Font](https://www.nerdfonts.com) glyphs. 
 - the proxy's traffic, its credential files, and its settings;
 - buttons to add an account, turn one off, or sign in to one again.
 
-`[Add account]` opens the panel at its OAuth login page. Log in to a Claude or Codex account there, and it joins the pool.
+`Add account`, and `Sign in` on a signed-out or refused account, open the panel at its OAuth login page, as `[Add account]` and `[Sign in]` in the Accounts tab do. Log in to a Claude or Codex account there, and it joins the pool, or signs in again, within a second.
 
 The panel's password is the proxy's management key, `oneclaude` unless you set your own. The panel asks for it the first time either link opens it in a browser. Tick Remember password, and it opens signed in from then on.
