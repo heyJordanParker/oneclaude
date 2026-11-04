@@ -316,6 +316,18 @@ func TestA504FromAnthropicKeepsItsLine(t *testing.T) {
 	}
 }
 
+func TestA504WithAnHTMLBodyFromACDNKeepsItsLine(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "cdn", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", Failed: true, Failure: UsageFailure{StatusCode: http.StatusGatewayTimeout, Body: `<html><head><title>504 Gateway Time-out</title></head><body><center><h1>504 Gateway Time-out</h1></center></body></html>`}})
+	var texts []string
+	for _, e := range p.Status().Log {
+		texts = append(texts, e.Level+" "+e.Text)
+	}
+	if want := []string{"WARN Anthropic returned 504 Gateway Timeout to ada."}; !slices.Equal(texts, want) {
+		t.Fatalf("log = %q, want %q: a CDN's page is an answer, so only the proxy's own deadline is no answer", texts, want)
+	}
+}
+
 func TestABlockOnAnAccountThatJustAnsweredIsCleared(t *testing.T) {
 	var (
 		mu    sync.Mutex

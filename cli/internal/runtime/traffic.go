@@ -382,15 +382,12 @@ func refusalOf(status int, body []byte) (string, bool) {
 
 // unanswered reports whether a failure got no answer from Anthropic: status 0,
 // or the 504 the proxy makes up when its own deadline passes, whose body is
-// the Go error rather than Anthropic's JSON error.
+// the Go error `context deadline exceeded`.
 func unanswered(f UsageFailure) bool {
-	if f.StatusCode != http.StatusGatewayTimeout {
-		return f.StatusCode == 0
+	if f.StatusCode == http.StatusGatewayTimeout {
+		return strings.Contains(f.Body, "deadline exceeded")
 	}
-	var answer struct {
-		Type string `json:"type"`
-	}
-	return json.Unmarshal([]byte(f.Body), &answer) != nil || answer.Type != "error"
+	return f.StatusCode == 0
 }
 
 // networkCause is, in plain words, why a request got no answer, from the Go
