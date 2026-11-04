@@ -2,7 +2,7 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
-## [Unreleased]
+## [0.9.4]
 
 ### Changed
 - The line under the prompt and `/accounts` change within a second of the pool's own change, in every open session. Each session asks the pool for its next change, and the pool answers when it comes, or after 20 seconds with no change. Before, each session read the pool every 15 seconds.
