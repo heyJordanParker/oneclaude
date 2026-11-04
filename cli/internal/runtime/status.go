@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/heyJordanParker/oneclaude/cli/internal/model"
@@ -36,14 +38,167 @@ var dashboardPage []byte
 var dashboardPolicy = "default-src 'none'; script-src " + scriptHash(dashboardPage) + "; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
 // Status is the pool as the mod draws it. Log is the last 24 hours of events,
-// newest last.
+// newest last. Change counts the changes to the status, and BlocksChange the
+// events that may have changed the proxy's blocks, so a reader asks for
+// status.json?after=<change> and gets its answer at the next change, or once
+// the longest wait passes. A plugin that quiesced sends no change, so a
+// reader asks again after a pause, not at once, until the next version
+// answers. AnswersWithinMS is when that answer reaches the reader at the
+// latest, so a reader that hears nothing by then knows the pool is silent.
+// ReadsBlocks marks the one answer per machine that names a new blocks
+// change, so one session of that machine reads the blocks.
 type Status struct {
-	Version  string          `json:"version"`
-	Now      time.Time       `json:"now"`
-	Pool     PoolStatus      `json:"pool"`
-	Accounts []AccountStatus `json:"accounts"`
-	Codex    []CodexStatus   `json:"codex"`
-	Log      []LogEntry      `json:"log"`
+	Version         string          `json:"version"`
+	Now             time.Time       `json:"now"`
+	Change          uint64          `json:"change,omitempty"`
+	BlocksChange    uint64          `json:"blocks_change"`
+	AnswersWithinMS int64           `json:"answers_within_ms"`
+	ReadsBlocks     bool            `json:"reads_blocks,omitempty"`
+	Pool            PoolStatus      `json:"pool"`
+	Accounts        []AccountStatus `json:"accounts"`
+	Codex           []CodexStatus   `json:"codex"`
+	Log             []LogEntry      `json:"log"`
+}
+
+// longestWait is how long status.json?after=<change> waits at most for the
+// next change, well under the 30 seconds Claude Code gives a mod's fetch.
+// answerTrip is the time its answer takes back to the reader: status.json
+// took 0.58 s and 0.87 s from another machine over Tailscale on 2026-11-03.
+const (
+	longestWait = 20 * time.Second
+	answerTrip  = 5 * time.Second
+)
+
+// changes counts the changes to the status, and apart the events that may
+// have changed the proxy's blocks. Both counts start at the load's time in
+// microseconds, so a count a reader kept from an earlier load never matches
+// this one's, and stay below 2^53, so the mod reads them exactly. next
+// closes at each change and stopped when the plugin quiesces, which ends
+// every wait. noting holds each reading of the status until it is counted,
+// so the readings count in the order they were taken. readers is the last
+// blocks change each machine was told to read.
+type changes struct {
+	noting  sync.Mutex
+	mu      sync.Mutex
+	status  uint64
+	blocks  uint64
+	content [sha256.Size]byte
+	next    chan struct{}
+	stopped chan struct{}
+	longest time.Duration
+	readers map[string]uint64
+}
+
+func newChanges(now time.Time) *changes {
+	start := uint64(now.UnixMicro())
+	return &changes{status: start, blocks: start, next: make(chan struct{}), stopped: make(chan struct{}), longest: longestWait, readers: map[string]uint64{}}
+}
+
+// readsBlocks is whether the asker reads the blocks of change: the first ask
+// from its machine that names it does, and an ask that names no machine
+// always does.
+func (c *changes) readsBlocks(device string, change uint64) bool {
+	if device == "" {
+		return true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.readers[device] == change {
+		return false
+	}
+	c.readers[device] = change
+	return true
+}
+
+func (c *changes) counts() (status, blocks uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.status, c.blocks
+}
+
+// note counts a change when content differs from the last one counted, and
+// a change of the blocks when they may have changed.
+func (c *changes) note(content [sha256.Size]byte, blocks bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if content == c.content && !blocks {
+		return
+	}
+	c.content = content
+	if blocks {
+		c.blocks++
+	}
+	c.status++
+	close(c.next)
+	c.next = make(chan struct{})
+}
+
+// wait returns once the status's count is no longer after, once the longest
+// wait passes, or once the plugin quiesces, as the proxy loads another
+// version. A count that is not this load's returns at once.
+func (c *changes) wait(after string) {
+	c.mu.Lock()
+	current, next, stopped := c.status, c.next, c.stopped
+	c.mu.Unlock()
+	if after != strconv.FormatUint(current, 10) {
+		return
+	}
+	timer := time.NewTimer(c.longest)
+	defer timer.Stop()
+	select {
+	case <-next:
+	case <-stopped:
+	case <-timer.C:
+	}
+}
+
+// stop ends every wait as the plugin quiesces, and start lets waits run
+// again once the proxy configures it.
+func (c *changes) stop() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	select {
+	case <-c.stopped:
+	default:
+		close(c.stopped)
+	}
+}
+
+func (c *changes) start() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	select {
+	case <-c.stopped:
+		c.stopped = make(chan struct{})
+	default:
+	}
+}
+
+func (c *changes) isStopped() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	select {
+	case <-c.stopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// changed counts a change of the status when what it says differs from the
+// last one counted, leaving out what only the clock moves, which every
+// answer brings anyway, and a change of the blocks when they may have
+// changed.
+func (p *Plugin) changed(blocks bool) {
+	p.changes.noting.Lock()
+	defer p.changes.noting.Unlock()
+	st := p.Status()
+	st.Now, st.Change, st.BlocksChange, st.Pool.Even, st.Pool.Pace = time.Time{}, 0, 0, 0, 0
+	for i := range st.Accounts {
+		st.Accounts[i].ObservedAt = nil
+	}
+	encoded, _ := json.Marshal(st)
+	p.changes.note(sha256.Sum256(encoded), blocks)
 }
 
 type CodexStatus struct {
@@ -140,7 +295,8 @@ func (p *Plugin) Status() Status {
 	s := p.settings()
 	now := p.now()
 	active := p.agents.Active(now)
-	st := Status{Version: p.opts.Version, Now: now, Accounts: []AccountStatus{}, Codex: []CodexStatus{}, Log: []LogEntry{}}
+	change, blocksChange := p.changes.counts()
+	st := Status{Version: p.opts.Version, Now: now, Change: change, BlocksChange: blocksChange, AnswersWithinMS: (p.changes.longest + answerTrip).Milliseconds(), Accounts: []AccountStatus{}, Codex: []CodexStatus{}, Log: []LogEntry{}}
 	p.mu.Lock()
 	accounts := make([]accountState, 0, len(p.accounts))
 	for _, a := range p.accounts {
@@ -407,7 +563,7 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 		},
 		Resources: []ResourceRoute{
 			{Path: resource + resourceDashboardPath, Menu: "oneclaude", Description: "Your Claude pool, its accounts and the proxy"},
-			{Path: resource + resourceStatusPath, Description: "The pool's usage, pace, accounts and the last 24 hours of its log as JSON, for the oneclaude mod."},
+			{Path: resource + resourceStatusPath, Description: "The pool's usage, pace, accounts and the last 24 hours of its log as JSON, for the oneclaude mod. With ?after={change} it answers at the next change, and with ?device={id} it marks the one answer per machine whose session reads the blocks of a blocks change."},
 			{Path: resource + resourceHistoryPath, Description: "Each account's requests per hour and the log over the last 7 days as JSON, for the dashboard."},
 			{Path: resource + resourceUsagePath, Description: "Usage at API list prices for ?period=quarter|month|week|yesterday|today by ?by=account|model|agent|project|time, sorted by ?units=cost|tokens, as JSON."},
 		},
@@ -436,7 +592,15 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 			Body: dashboardPage,
 		})
 	case req.Path == resource+resourceStatusPath, req.Path == mgmt+"/plugins/"+p.opts.Name+routeStatus:
-		return okEnvelope(jsonResponse(http.StatusOK, p.Status()))
+		if after := req.Query.Get("after"); after != "" {
+			p.changes.wait(after)
+		}
+		st := p.Status()
+		st.ReadsBlocks = p.changes.readsBlocks(req.Query.Get("device"), st.BlocksChange)
+		if p.changes.isStopped() {
+			st.Change = 0
+		}
+		return okEnvelope(jsonResponse(http.StatusOK, st))
 	case req.Path == resource+resourceHistoryPath:
 		return okEnvelope(jsonResponse(http.StatusOK, p.History()))
 	case req.Path == resource+resourceUsagePath:
@@ -472,6 +636,7 @@ func (p *Plugin) unblockRoute(body []byte) ManagementResponse {
 		return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
 	p.note(levelInfo, "oneclaude cleared the proxy's blocks on %s on request.", name)
+	p.changed(true)
 	return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
 }
 

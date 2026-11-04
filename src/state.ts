@@ -5,7 +5,7 @@ import type { Breakdown, Period, Units, UsageTable } from './usage.js'
 // whether its cells are dollars or tokens.
 export type UsageView = { readonly period: Period; readonly by: Breakdown; readonly units: Units }
 
-// pool is the address of the pool Claude Code uses, read at each refresh.
+// pool is the address of the pool Claude Code uses, read at each status ask.
 // reading is the last status any session read from it, and problem why the
 // latest read brought none. isConfirming is true while the Usage section
 // asks the person to confirm sending the optimize prompt to their session.

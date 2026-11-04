@@ -65,6 +65,7 @@ func (p *Plugin) pollLoop(stop chan struct{}) {
 			}
 			p.refreshOne(now, failedAt)
 			p.save()
+			p.changed(false)
 		}()
 		timer.Reset(pollTick)
 	}

@@ -55,6 +55,14 @@ The proxy blocks a model on an account, or the whole account, after some failed 
 - After a 404 on an account that answered that model within the last day, with no rate limit, spent week or failed login since, oneclaude clears every block the proxy holds on that account at once. A block like that can't be right.
 - The mod reads every other block from the proxy's management API with the proxy's management key, and shows it on the account's row and under the prompt. `[Unblock]` clears every block the proxy holds on that account, through the plugin, which logs it. The mod sends only the key the install or its install tab checked the proxy takes, because the proxy bans an address for 30 minutes after 5 refused keys.
 
+Only the proxy knows its blocks, and the proxy checks the management key with bcrypt on every request, so the mod reads them only when they may have changed, and once per machine. The plugin counts a blocks change at each event that may change them: a request Anthropic failed, the first answer after one, and an unblock. Of the sessions on one machine, the first the plugin answers with a new blocks change reads the blocks, and keeps the reading in `blocks.json` in the mod's data folder under that change, where every other session there takes it.
+
+## How the mod follows the pool
+
+The plugin counts each change to what its status says, leaving out what only the clock moves. Each session asks for `status.json?after=<the change it drew>`, and the plugin holds the ask until the next change, so every open session draws it within a second. With no change, the plugin answers after 20 seconds anyway, with the status as it is, and every answer says by when the next one comes at the latest, 25 seconds, under the 30 seconds Claude Code gives a mod's request. A pool that sends nothing by then shows `pool unreachable` until it answers. An ask that fails is asked again after 1, 2, 4, 8, then every 16 seconds, as cmod restarts a program. A plugin of oneclaude 0.9.3 or earlier answers at once, so the mod asks it again a second after each answer, as it does a plugin that is handing over to its next version.
+
+Each session sends its record on its own, one post at a time, and a record the pool didn't take goes again at the next status the pool answers. A session `/clear` starts never waits on a post of the session before it.
+
 ## The log
 
 The plugin logs each event that changed where requests go, one sentence each, and keeps 7 days of it, 500 lines at most. The Accounts tab shows the last 24 hours and the dashboard all of it.
@@ -111,7 +119,7 @@ A proxy oneclaude installs listens on `127.0.0.1`, so only this machine reaches 
 
 The plugin adds these addresses to the proxy, which answer anyone who reaches the proxy, with no key:
 
-- `/v0/resource/plugins/oneclaude/status.json`: the pool, every account, and the last 24 hours of the log, which the mod reads. Each account shows as the part of its address before the `@`.
+- `/v0/resource/plugins/oneclaude/status.json`: the pool, every account, and the last 24 hours of the log, which the mod reads. Each account shows as the part of its address before the `@`. With `?after=<change>` it answers at the next change, or after 20 seconds. With `?device=<id>` it sets `reads_blocks` on the first answer to that machine that names a new blocks change. The mod sends cmod's id for its machine, a hash that never shows the computer's own.
 - `/v0/resource/plugins/oneclaude/history.json`: each account's requests by the hour, and the log, for the last 7 days.
 - `/v0/resource/plugins/oneclaude/usage.json`: the Usage table for `?period=quarter`, `month`, `week`, `yesterday`, or `today`, by `?by=account`, `model`, `agent`, `project`, or `time`, which steps by the hour over a day, the week over 90 days, and the day otherwise, sorted by `?units=cost` or `tokens`, with the last 30 days for the chart. The Accounts tab, the dashboard, and `[Optimize usage]` read it.
 - `/v0/resource/plugins/oneclaude/dashboard`: the dashboard page, which the control panel shows under oneclaude in its plugin menu.

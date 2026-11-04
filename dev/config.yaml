@@ -20,7 +20,7 @@ routing:
     request-retry: 0
 
 oauth:
-  auth-dir: "~/.cli-proxy-api-dev"
+  auth-dir: ".target/dev/auth"
 
 api-keys:
   claude:

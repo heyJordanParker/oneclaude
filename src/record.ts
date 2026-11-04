@@ -1,4 +1,4 @@
-import { sessions, type Mod, type Timer } from '../node_modules/@cmodjs/core/mod.js'
+import { sessions, type Mod } from '../node_modules/@cmodjs/core/mod.js'
 import type { OneclaudeFilter } from '../types/index.js'
 import type { OneclaudeState } from './state.js'
 import { keyOf, manage } from './status.js'
@@ -30,48 +30,51 @@ function checked(input: OneclaudeFilter): OneclaudeFilter {
   }
 }
 
+// A Line is one session's posts: the one under way, and the next, which
+// every send made meanwhile shares and which posts the record as it is when
+// it starts.
+type Line = { readonly session: string; last: Promise<string | undefined>; next?: Promise<string | undefined> }
+
 // recordOf starts the session with no filters, as cmod takes back what a mod
 // adds when it stops, so a mod that is gone leaves no filter behind. Each
-// send posts the whole record, after the sends before it, so the pool keeps
-// the newest, and posts nothing when the pool already took that record. A
-// pool that doesn't answer, or a key the mod lacks or the pool refused, gets
-// it again every second until it goes, the plugin keeps the agents of the
-// records before, and a refusal is logged.
+// send posts the whole record as it is, so the pool keeps the newest, one
+// post at a time per session, and a new session's record never waits on an
+// older session's post. It posts nothing when the pool already took that
+// record. A record the pool did not take goes at the next send, which each
+// status the pool answers makes. The plugin keeps the agents of the records
+// before, and a refusal is logged.
 export function recordOf(mod: Mod<OneclaudeState>): SessionRecord {
   let filters: readonly OneclaudeFilter[] = []
   let agents: Readonly<Record<string, string>> = {}
-  let queue: Promise<string | undefined> = Promise.resolve(undefined)
-  let retry: Timer | undefined
   let taken: string | undefined
+  let line: Line = { session: '', last: Promise.resolve(undefined) }
 
-  const later = (): undefined => {
-    retry ??= mod.after(1000, () => {
-      retry = undefined
-      void send()
-    })
-    return undefined
-  }
-  const post = async (): Promise<string | undefined> => {
+  const post = async (session: string): Promise<string | undefined> => {
     const key = await keyOf(mod)
-    if (key === undefined) return later()
-    const session = sessions.current.id
+    if (key === undefined) return undefined
     const body = JSON.stringify({ session, project: sessions.current.project, agents, filters })
     const sent = `${mod.state.memory.pool} ${body}`
     if (sent === taken) return undefined
     const response = await manage(mod, key, '/plugins/oneclaude/session', { method: 'POST', body })
-    if (response?.ok === true) {
-      taken = sent
+    if (response === undefined || response.ok) {
+      if (response?.ok === true) taken = sent
       return undefined
     }
-    if (response === undefined || response.status >= 500) return later()
     mod.log(`the pool refused the record of session ${session} with ${response.status}: ${response.text}`)
-    if (response.status === 401) return later()
     return response.status === 400 ? (JSON.parse(response.text) as { readonly error?: string }).error ?? response.text : undefined
   }
   // send answers the pool's refusal of the record, or undefined.
   const send = (): Promise<string | undefined> => {
-    queue = queue.then(post, post)
-    return queue
+    const session = sessions.current.id
+    if (line.session !== session) line = { session, last: Promise.resolve(undefined) }
+    const current = line
+    const start = (): Promise<string | undefined> => {
+      current.next = undefined
+      return post(session)
+    }
+    current.next ??= current.last.then(start, start)
+    current.last = current.next
+    return current.next
   }
   const change = async (next: readonly OneclaudeFilter[]): Promise<void> => {
     if (JSON.stringify(next) === JSON.stringify(filters)) return

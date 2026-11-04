@@ -121,6 +121,7 @@ type Plugin struct {
 	responses      map[string]*response
 	responding     atomic.Int32
 	sessions       recordSet
+	changes        *changes
 
 	historyMu sync.Mutex
 
@@ -146,6 +147,7 @@ func New(opts Options) *Plugin {
 
 		filterFailedAt: map[string]time.Time{},
 		responses:      map[string]*response{},
+		changes:        newChanges(opts.Now()),
 	}
 	s := model.Defaults()
 	s.Enabled = false
@@ -209,6 +211,7 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 		return p.configure(payload)
 	case MethodPluginQuiesce:
 		p.stopPoller()
+		p.changes.stop()
 		return okEnvelope(emptyResult)
 	case MethodPluginShutdown:
 		p.Shutdown()
@@ -247,6 +250,8 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 	}
 	p.cfg.Store(&s)
 	p.load(s.DataDir)
+	p.changed(false)
+	p.changes.start()
 	p.startPoller()
 	return okEnvelope(RegisterResult{
 		SchemaVersion: SchemaVersion,
@@ -386,6 +391,7 @@ func (p *Plugin) hash(authID string) string {
 
 // note logs one event, and keeps the last 7 days of them, 500 at most.
 func (p *Plugin) note(level, format string, args ...any) {
+	defer p.changed(false)
 	now := p.now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -416,6 +422,7 @@ func familyName(f model.Family) string {
 // because the host unloads the library as soon as this returns.
 func (p *Plugin) Shutdown() {
 	p.stopPoller()
+	p.changes.stop()
 	p.save()
 	p.mu.Lock()
 	log := p.log

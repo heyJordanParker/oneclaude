@@ -201,6 +201,7 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 
 	if account, ok := p.agents.Bound(key, now, s.AffinityTTL); ok && contains(ids, account) {
 		p.agents.Touch(key, account, family, now)
+		p.host.spawn(func() { p.changed(false) })
 		return SchedulerPickResponse{AuthID: account, Handled: true}
 	}
 	best, ok := route.Best(p.candidates(ids, family, now), now, s.LimitsOn)
@@ -208,6 +209,7 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 		return SchedulerPickResponse{Handled: false}
 	}
 	p.agents.Touch(key, best.ID, family, now)
+	p.host.spawn(func() { p.changed(false) })
 	return SchedulerPickResponse{AuthID: best.ID, Handled: true}
 }
 
@@ -345,6 +347,11 @@ func (p *Plugin) observe(rec UsageRecord) {
 	}
 	served, throttled, overloaded, notFound, failed := a.served[modelID], a.throttled, a.overloaded, a.notFound, a.failed
 	limited := !a.throttled.Before(served) || !a.rejected.Before(served) || a.signedOut
+	// The proxy blocks an account after a request Anthropic failed, never one
+	// Claude Code dropped, and lifts the block at its first answer after one,
+	// so both may change the blocks.
+	failedSince := func(at time.Time) bool { return !at.IsZero() && !at.Before(served) }
+	defer p.changed(outcome != "ok" && outcome != "cancelled" || a.signedOut || failedSince(throttled) || failedSince(a.rejected) || failedSince(overloaded) || failedSince(notFound) || failedSince(failed))
 	switch outcome {
 	case "ok":
 		if a.served == nil {
@@ -404,9 +411,13 @@ func (p *Plugin) observe(rec UsageRecord) {
 		}
 		if now.Sub(served) < falseBlock && !limited && rec.AuthIndex != "" {
 			p.host.spawn(func() {
-				if p.unblock(rec.AuthIndex) == nil && fresh {
+				if p.unblock(rec.AuthIndex) != nil {
+					return
+				}
+				if fresh {
 					p.note(levelInfo, "oneclaude cleared the proxy's blocks on %s, set after a 404 for %s.", name, label)
 				}
+				p.changed(true)
 			})
 		}
 	}

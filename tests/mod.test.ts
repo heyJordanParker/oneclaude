@@ -3,7 +3,7 @@ import type { HttpResponse } from 'claude-code'
 import { BelowPrompt } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { calendarOf } from '../src/components/weekly-resets.js'
-import { oneclaude, REFRESH_MS } from '../src/mod.js'
+import { oneclaude, RETRY_MS } from '../src/mod.js'
 import { bar, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, glide, LOCAL_POOL, modelName, momentOf, paceState, troublesOf, until, type Cell, type Status } from '../src/status.js'
 import { dailyChart, GUTTER, money, tokenCount, usageLayout, type TableLine, type Tokens, type UsageRow, type UsageTable } from '../src/usage.js'
 
@@ -105,43 +105,64 @@ const STATUS_FILE = '/test/home/.local/share/cmod/data/oneclaude/status.json'
 
 const since = `pool unreachable since ${momentOf(now, new Date().toISOString())}`
 
-// flaky starts the mod against a pool whose answer the test changes: a
-// status, an error, an answer still on its way, or 'hung' for a request that
-// never ends. tick runs the refresh timer once, and lapse ends every wait the
-// mod started, or only those of ms.
-function flaky(answer: HttpResponse | Error | Promise<HttpResponse> | 'hung') {
-  const tested = testMod(oneclaude)
-  const pool = { answer, tick: (): unknown => undefined, lapse: (_ms?: number): void => {} }
+const answered = (text: object): HttpResponse => ({ status: 200, ok: true, headers: {}, text: JSON.stringify(text) })
+
+// pooled starts the mod against a pool whose status.json answer the test
+// changes, as the plugin answers it: an ask after the change the pool's
+// status holds waits until change answers it, and any other ask gets the
+// answer at once. Every other address answers other. asked keeps the change
+// each status.json ask named after, or null, and devices the machine it
+// named, and timers the length of each wait the mod started on its clock.
+// lapse ends every wait of ms.
+function pooled(answer: Status | Error | Promise<HttpResponse>, options: { readonly files?: Record<string, string>; readonly other?: (url: string, init?: { readonly method?: string; readonly body?: string; readonly headers?: Readonly<Record<string, string>> }) => HttpResponse | Promise<HttpResponse> } = {}) {
+  const tested = testMod(oneclaude, { files: options.files ?? {} })
   const waits: { readonly ms: number; readonly fn: () => unknown }[] = []
-  tested.fakes.clock.every = (ms, fn) => {
-    if (ms === REFRESH_MS) pool.tick = fn
-    return { cancel() {} }
+  const held: ((response: HttpResponse) => void)[] = []
+  const pool = {
+    answer,
+    asked: [] as (string | null)[],
+    devices: [] as (string | null)[],
+    timers: [] as number[],
+    lapse(ms: number): void {
+      for (const wait of waits.filter((each) => each.ms === ms)) {
+        waits.splice(waits.indexOf(wait), 1)
+        void wait.fn()
+      }
+    },
+    change(next: Status): void {
+      pool.answer = next
+      for (const answer of held.splice(0)) answer(answered(next))
+    },
   }
   tested.fakes.clock.after = (ms, fn) => {
-    waits.push({ ms, fn })
-    return { cancel() {} }
-  }
-  pool.lapse = (ms) => {
-    for (const wait of waits.filter((each) => ms === undefined || each.ms === ms)) {
-      waits.splice(waits.indexOf(wait), 1)
-      void wait.fn()
+    const wait = { ms, fn }
+    waits.push(wait)
+    pool.timers.push(ms)
+    return {
+      cancel() {
+        if (waits.includes(wait)) waits.splice(waits.indexOf(wait), 1)
+      },
     }
   }
-  tested.fakes.http.fetch = async () => {
-    if (pool.answer === 'hung') return new Promise<HttpResponse>(() => {})
-    if (pool.answer instanceof Error) throw pool.answer
-    return pool.answer
+  tested.fakes.http.fetch = async (url, init) => {
+    if (!url.includes('/status.json')) return (options.other ?? (() => ({ status: 200, ok: true, headers: {}, text: '{"files":[]}' })))(url, init)
+    const query = new URL(url).searchParams
+    pool.asked.push(query.get('after'))
+    pool.devices.push(query.get('device'))
+    const current = pool.answer
+    if (current instanceof Error) throw current
+    if (current instanceof Promise) return current
+    if (current.change !== undefined && query.get('after') === String(current.change)) return new Promise<HttpResponse>((resolve) => held.push(resolve))
+    return answered(current)
   }
   return { tested, pool }
 }
 
-const answered = (text: object): HttpResponse => ({ status: 200, ok: true, headers: {}, text: JSON.stringify(text) })
-
 test('the line keeps the last status and warns while the pool doesn\'t answer', async () => {
-  const { tested, pool } = flaky(answered(status))
+  const { tested, pool } = pooled(status)
   expect(await hintLines(tested)).toContain('58% · 9% under')
   pool.answer = new Error('connection refused')
-  await pool.tick()
+  pool.lapse(RETRY_MS[0]!)
   const line = await hintLines(tested)
   expect(line.search(BAR)).toBe(0)
   expect(line).toContain('58% · 9% under')
@@ -152,44 +173,81 @@ test('the line keeps the last status and warns while the pool doesn\'t answer', 
   expect(page).toContain('9% under pace · next refill in 2d frees 11%')
 })
 
-test('the line clears its warning and reads the pool again by itself, also after a request that never ends', async () => {
-  const { tested, pool } = flaky(answered(status))
-  await hintLines(tested)
-  pool.answer = 'hung'
-  pool.tick()
-  await tested.settle()
-  pool.lapse(10_000)
-  expect(await hintLines(tested)).toContain(since)
-  pool.answer = answered({ ...status, pool: { ...status.pool, used: 0.7 } })
-  pool.tick()
-  const line = await hintLines(tested)
-  expect(line).toContain('70% · 3% over')
-  expect(line).not.toContain('unreachable')
+// following is a status of a plugin that counts its changes: change 1 of
+// the status and of the blocks, its answer due within 25 seconds.
+const following: Status = { ...status, change: 1, blocks_change: 1, answers_within_ms: 25_000 }
+
+test('the newest answer wins: each change the pool answers replaces the line at once, and the next ask waits for the change after it', async () => {
+  const { tested, pool } = pooled(following)
+  expect(await hintLines(tested)).toContain('58% · 9% under')
+  expect(pool.asked).toEqual([null, '1'])
+  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7 } })
+  expect(await hintLines(tested)).toContain('70% · 3% over')
+  pool.change({ ...following, change: 3, pool: { ...status.pool, used: 0.75 } })
+  expect(await hintLines(tested)).toContain('75% · 8% over')
+  expect(pool.asked).toEqual([null, '1', '2', '3'])
+  expect(new Set(pool.devices)).toEqual(new Set(['5f0e8c2a9b7d4e31a6c4d2b0e8f71a93']))
 })
 
-test('a late run\'s status never replaces a newer run\'s, and the refresh that gave up names the call it waited on', async () => {
-  const { tested, pool } = flaky(answered(status))
-  await hintLines(tested)
-  let arrive: (response: HttpResponse) => void = () => {}
-  pool.answer = new Promise<HttpResponse>((resolve) => {
-    arrive = resolve
-  })
-  pool.tick()
-  await tested.settle()
-  pool.lapse(REFRESH_MS)
-  await tested.settle()
-  expect(tested.shown.debug.join('\n')).toContain('a refresh still waited on read after 15000 ms')
-  pool.answer = answered({ ...status, pool: { ...status.pool, used: 0.7 } })
-  pool.tick()
-  expect(await hintLines(tested)).toContain('70% · 3% over')
-  arrive(answered(status))
+test('a pool silent past the time its last status named shows unreachable then, and its late answer clears the warning by itself', async () => {
+  const { tested, pool } = pooled(following)
+  expect(await hintLines(tested)).not.toContain('unreachable')
+  pool.lapse(25_000)
   const line = await hintLines(tested)
-  expect(line).toContain('70% · 3% over')
-  expect(line).not.toContain('58%')
+  expect(line).toContain('58% · 9% under')
+  expect(line).toContain(since)
+  expect(tested.shown.debug.join('\n')).toContain(`${LOCAL_POOL} sent no status within 25000 ms`)
+  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7 } })
+  const cleared = await hintLines(tested)
+  expect(cleared).toContain('70% · 3% over')
+  expect(cleared).not.toContain('unreachable')
+})
+
+test('a failed ask asks again after 1, 2, 4, 8, then every 16 seconds, at once after the pool answers', async () => {
+  const { tested, pool } = pooled(new Error('connection refused'))
+  expect(await hintLines(tested)).toContain('oneclaude: pool unreachable')
+  for (const ms of [1000, 2000, 4000, 8000, 16_000]) {
+    pool.lapse(ms)
+    await tested.settle()
+  }
+  expect(pool.timers.filter((ms) => RETRY_MS.includes(ms))).toEqual([1000, 2000, 4000, 8000, 16_000, 16_000])
+  expect(pool.asked).toHaveLength(6)
+  pool.answer = following
+  pool.lapse(16_000)
+  expect(await hintLines(tested)).toContain('58% · 9% under')
+  expect(pool.asked.slice(-2)).toEqual([null, '1'])
+})
+
+test('a plugin that answers at once, as 0.9.3 does, is asked again a second after each answer', async () => {
+  const { tested, pool } = pooled(status)
+  await hintLines(tested)
+  expect(pool.asked).toEqual([null])
+  pool.answer = { ...status, pool: { ...status.pool, used: 0.7 } }
+  pool.lapse(1000)
+  expect(await hintLines(tested)).toContain('70% · 3% over')
+  expect(pool.asked).toEqual([null, null])
+})
+
+test('a status still on its way holds back nothing: the Accounts page opens with the Usage table, and the record goes', async () => {
+  const records: string[] = []
+  const { tested, pool } = pooled(following, {
+    files: stored('oneclaude'),
+    other: (url, init) => {
+      if (url.endsWith('/session')) records.push(init?.body ?? '')
+      if (url.includes('usage.json')) return answered(tables['month account']!)
+      return { status: 200, ok: true, headers: {}, text: '{"files":[]}' }
+    },
+  })
+  await hintLines(tested)
+  await tested.startSession({ source: 'clear', id: 'cleared-session' })
+  await tested.type('/accounts')
+  await tested.settle()
+  expect((await tested.shown.page.lines({ columns: 110 })).join('\n')).toMatch(/All accounts +\$0 +\$0\.01/)
+  expect(records.map((record) => (JSON.parse(record) as SentRecord).session)).toEqual(['test-session', 'cleared-session'])
 })
 
 test('a session that starts while the pool doesn\'t answer shows the last status any session read, and warns', async () => {
-  const { tested: first } = flaky(answered(status))
+  const { tested: first } = pooled(status)
   await hintLines(first)
   const shared = first.calls.filter(({ call, args }) => call === 'fs.write' && args[0] === STATUS_FILE).at(-1)?.args[1] as string
   const tested = testMod(oneclaude, { files: { [STATUS_FILE]: shared } })
@@ -201,29 +259,10 @@ test('a session that starts while the pool doesn\'t answer shows the last status
   expect(line).toContain(since)
 })
 
-test('after /clear the line shows the last status while it reads the pool again', async () => {
-  const { tested, pool } = flaky(answered(status))
+test('after /clear the line shows the last status while the pool holds the ask for its next change', async () => {
+  const { tested } = pooled(following)
   await hintLines(tested)
-  pool.answer = 'hung'
   await tested.startSession({ source: 'clear', id: 'cleared-session' })
-  expect(await hintLines(tested)).toContain('58% · 9% under')
-})
-
-test('the hint line refreshes on its timer', async () => {
-  const tested = testMod(oneclaude)
-  let tick: (() => unknown) | undefined
-  tested.fakes.clock.every = (ms, fn) => {
-    if (ms === REFRESH_MS) tick = fn
-    return { cancel() {} }
-  }
-  let answer: Error | HttpResponse = new Error('connection refused')
-  tested.fakes.http.fetch = async () => {
-    if (answer instanceof Error) throw answer
-    return answer
-  }
-  expect(await hintLines(tested)).toContain('oneclaude: pool unreachable')
-  answer = { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
-  await tick?.()
   expect(await hintLines(tested)).toContain('58% · 9% under')
 })
 
@@ -261,23 +300,25 @@ test('/accounts puts each account\'s trouble on its row, with what fixes it', as
   expect(pane).toContain('throttled 12m ago')
 })
 
-test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'s key, and the row clears', async () => {
-  const tested = testMod(oneclaude, { files: stored('oneclaude') })
+test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'s key, and the row clears at the blocks change it counts', async () => {
   const asked: { url: string; method?: string; key?: string; body?: string }[] = []
-  tested.fakes.http.fetch = async (url, init) => {
-    if (url.endsWith('/unblock')) {
-      asked.push({ url, method: init?.method, key: init?.headers?.['Authorization'], body: init?.body })
-      return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
-    }
-    if (url.endsWith('/auth-files')) {
+  const { tested, pool } = pooled({ ...following, reads_blocks: true }, {
+    files: stored('oneclaude'),
+    other: (url, init) => {
+      if (url.endsWith('/unblock')) {
+        asked.push({ url, method: init?.method, key: init?.headers?.['Authorization'], body: init?.body })
+        return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
+      }
       const cooldowns = asked.length === 0 ? [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] : []
       return { status: 200, ok: true, headers: {}, text: JSON.stringify({ files: [{ auth_index: 't1', provider: 'claude', cooldowns }] }) }
-    }
-    return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
-  }
+    },
+  })
   await tested.type('/accounts')
+  expect((await tested.shown.page.lines()).join('\n')).toContain('[Unblock]')
   await tested.shown.page.press('unblock-turing')
   expect(asked).toEqual([{ url: `${LOCAL_POOL}/v0/management/plugins/oneclaude/unblock`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
+  pool.change({ ...following, change: 2, blocks_change: 2, reads_blocks: true })
+  await tested.settle()
   expect((await tested.shown.page.lines()).join('\n')).not.toContain('[Unblock]')
 })
 
@@ -434,44 +475,68 @@ test('the hint line shows the pool while the proxy\'s blocks are still on their 
 
 const BLOCKS_FILE = '/test/home/.local/share/cmod/data/oneclaude/blocks.json'
 
-// blocksFile is blocks.json as a session wrote it ago ms before, with one
-// block no rate limit explains.
-function blocksFile(ago: number): string {
-  return JSON.stringify({ at: Date.now() - ago, blocks: { t1: [{ model: 'claude-opus-5-5', until: '2026-10-15T20:50:00Z', reason: 'not_found' }] } })
+// blocksFile is blocks.json as a session wrote it at the pool's blocks
+// change, with one block no rate limit explains.
+function blocksFile(change: number): string {
+  return JSON.stringify({ change, blocks: { t1: [{ model: 'claude-opus-5-5', until: '2026-10-15T20:50:00Z', reason: 'not_found' }] } })
 }
 
-// blocksRequests starts the mod with blocks.json in its data folder written
-// ago ms before, and counts the mod's requests for the proxy's blocks.
-async function blocksRequests(ago: number): Promise<{ readonly requests: number; readonly line: string }> {
-  const tested = testMod(oneclaude, { files: { ...stored('oneclaude'), [BLOCKS_FILE]: blocksFile(ago) } })
-  let requests = 0
-  tested.fakes.http.fetch = async (url) => {
-    if (url.endsWith('/auth-files')) {
-      requests++
+// readingBlocks starts the mod with blocks.json of blocks change 1 in its
+// data folder, and counts the mod's requests for the proxy's blocks, which
+// hold none.
+function readingBlocks(first: Status) {
+  const reads = { count: 0 }
+  const { tested, pool } = pooled(first, {
+    files: { ...stored('oneclaude'), [BLOCKS_FILE]: blocksFile(1) },
+    other: (url) => {
+      if (url.endsWith('/auth-files')) reads.count++
       return { status: 200, ok: true, headers: {}, text: '{"files":[]}' }
-    }
-    return { status: 200, ok: true, headers: {}, text: JSON.stringify(status) }
-  }
-  return { line: await hintLines(tested), requests }
+    },
+  })
+  return { tested, pool, reads }
 }
 
-test('open sessions share one reading of the proxy\'s blocks, so the proxy checks the management key once per refresh', async () => {
-  expect(await blocksRequests(1_000)).toEqual({ requests: 0, line: expect.stringContaining('1 account blocked') })
-  expect(await blocksRequests(60_000)).toEqual({ requests: 1, line: expect.not.stringContaining('blocked') })
+test('blocks are read only on a blocks change, by the one session the pool names on each machine, and the others take its reading', async () => {
+  const { tested, pool, reads } = readingBlocks(following)
+  expect(await hintLines(tested)).toContain('1 account blocked')
+  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7 } })
+  expect(await hintLines(tested)).toContain('1 account blocked')
+  pool.change({ ...following, change: 3, blocks_change: 2 })
+  expect(await hintLines(tested)).toContain('1 account blocked')
+  expect(reads.count).toBe(0)
+  pool.change({ ...following, change: 4, blocks_change: 3, reads_blocks: true })
+  expect(await hintLines(tested)).not.toContain('blocked')
+  expect(reads.count).toBe(1)
+  expect(tested.calls.filter(({ call, args }) => call === 'fs.write' && args[0] === BLOCKS_FILE).map(({ args }) => JSON.parse(args[1] as string))).toEqual([{ change: 3, blocks: {} }])
+  pool.change({ ...following, change: 5, blocks_change: 3 })
+  await tested.settle()
+  expect(reads.count).toBe(1)
 })
 
-test('a failed read of the proxy\'s blocks keeps the last blocks, in this session and the others', async () => {
+test('a block whose time is up is gone, though no blocks change came since', async () => {
+  const { tested } = readingBlocks({ ...following, now: '2026-10-15T21:00:00Z' })
+  expect(await hintLines(tested)).not.toContain('blocked')
+})
+
+test('a failed read of the proxy\'s blocks keeps the last blocks, in this session and the others, and reads them at the next status', async () => {
   const failures: readonly (HttpResponse | Error)[] = [new Error('connection refused'), { status: 503, ok: false, headers: {}, text: 'busy' }, { status: 200, ok: true, headers: {}, text: '<html>' }]
   for (const failure of failures) {
-    const tested = testMod(oneclaude, { files: { ...stored('oneclaude'), [BLOCKS_FILE]: blocksFile(60_000) } })
-    tested.fakes.http.fetch = async (url) => {
-      if (!url.endsWith('/auth-files')) return answered(status)
-      if (failure instanceof Error) throw failure
-      return failure
-    }
+    let reads = 0
+    const { tested, pool } = pooled({ ...following, blocks_change: 2, reads_blocks: true }, {
+      files: { ...stored('oneclaude'), [STATUS_FILE]: JSON.stringify(following), [BLOCKS_FILE]: blocksFile(1) },
+      other: (url) => {
+        if (!url.endsWith('/auth-files')) return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
+        reads++
+        if (failure instanceof Error) throw failure
+        return failure
+      },
+    })
     expect(await hintLines(tested)).toContain('1 account blocked')
     expect(tested.calls.filter(({ call, args }) => call === 'fs.write' && args[0] === BLOCKS_FILE)).toEqual([])
-    expect(tested.shown.debug.join('\n')).toContain('oneclaude could not read the proxy\'s blocks, so it keeps the last ones')
+    expect(tested.shown.debug.join('\n')).toContain('oneclaude could not read the proxy\'s blocks')
+    pool.change({ ...following, change: 2, blocks_change: 2 })
+    await tested.settle()
+    expect(reads).toBe(2)
   }
 })
 
@@ -882,13 +947,9 @@ test('a record the pool refuses is logged with the refusal', async () => {
   expect(tested.shown.debug.join('\n')).toContain('the pool refused the record of session test-session with 403: {"error":"remote management disabled"}')
 })
 
-test('a record post that never answers does not stop the next record from being sent', async () => {
+test('a record post still on its way holds back no record of the session /clear starts', async () => {
   const tested = testMod(oneclaude, { files: stored('oneclaude'), projectRoot: '/Users/turing/dotfiles' })
-  const waits: (() => unknown)[] = []
-  tested.fakes.clock.after = (_ms, fn) => {
-    waits.push(fn)
-    return { cancel() {} }
-  }
+  tested.fakes.clock.after = () => ({ cancel() {} })
   const sent: string[] = []
   tested.fakes.http.fetch = async (url, init) => {
     if (url !== `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) return { status: 404, ok: false, headers: {}, text: '' }
@@ -899,10 +960,31 @@ test('a record post that never answers does not stop the next record from being 
   await tested.start()
   await tested.startSession({ source: 'clear', id: 'cleared-session' })
   await tested.settle()
-  for (const wait of waits.splice(0)) void wait()
-  await tested.settle()
   expect(sent).toEqual(['test-session', 'cleared-session'])
-  expect(tested.shown.debug.join('\n')).toContain(`${LOCAL_POOL} sent no answer to /plugins/oneclaude/session within 10000 ms`)
+})
+
+test('records sent while a post is on its way go as one post of the newest record once it ends', async () => {
+  const tested = testMod(oneclaude, { files: stored('oneclaude'), projectRoot: '/Users/turing/dotfiles' })
+  tested.fakes.clock.after = () => ({ cancel() {} })
+  const sent: SentRecord[] = []
+  let end: (error: Error) => void = () => {}
+  tested.fakes.http.fetch = async (url, init) => {
+    if (url !== `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) return { status: 404, ok: false, headers: {}, text: '' }
+    sent.push(JSON.parse(init?.body ?? '{}') as SentRecord)
+    if (sent.length === 1) return new Promise<HttpResponse>((_resolve, reject) => {
+      end = reject
+    })
+    return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
+  }
+  await tested.start()
+  await tested.settle()
+  const first = await tested.startTask({ title: 'Review', agentType: 'code-reviewer' })
+  const second = await tested.startTask({ title: 'Explore', agentType: 'Explore' })
+  await tested.settle()
+  expect(sent.length).toBe(1)
+  end(new Error('aborted: no complete answer within 30000ms'))
+  await tested.settle()
+  expect(sent.map((record) => record.agents)).toEqual([{}, { [first]: 'code-reviewer', [second]: 'Explore' }])
 })
 
 test('a record waits for a missing management key and goes once the key is entered', async () => {

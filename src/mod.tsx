@@ -1,4 +1,4 @@
-import { BelowPrompt, Dashboard, defineMod, http, sessions, settings, type Mod, type Step, type Timer } from '../node_modules/@cmodjs/core/mod.js'
+import { BelowPrompt, Dashboard, defineMod, device, http, sessions, settings, type Mod, type Step, type Timer } from '../node_modules/@cmodjs/core/mod.js'
 import { slashCommand } from '../node_modules/@cmodjs/core/jobs/slash-command.js'
 import { Box, Input, Text } from '../node_modules/@cmodjs/core/ui/elements.js'
 import type { OneclaudeFilter } from '../types/index.js'
@@ -6,24 +6,13 @@ import { PoolLine } from './components/pool-line.js'
 import { accountsPage, showUsage } from './pages/accounts.js'
 import { recordOf } from './record.js'
 import { initialState, type OneclaudeState } from './state.js'
-import { barsOf, baseUrlOf, FRAME_MS, glide, keyOf, LINE, LOCAL_POOL, poolOf, read, saveKey, sharedBlocks, sharedReading, shareStatus, within, type Problem, type Shown } from './status.js'
+import { barsOf, baseUrlOf, FRAME_MS, glide, keyOf, LINE, LOCAL_POOL, poolOf, read, saveKey, sharedBlocks, sharedReading, shareStatus, type Blocks, type Shown, type Status } from './status.js'
 
-export const REFRESH_MS = 15_000
-
-// The pool answers status.json in under a second: 0.58 s and 0.87 s from
-// another machine over Tailscale on 2026-11-03.
-const READ_MS = 10_000
-
-type Call = 'poolOf' | 'read' | 'keyOf' | 'sharedBlocks' | 'showUsage' | 'useProxy'
-
-type Run = { call: Call; isLate: boolean }
-
-async function waitOn<T>(run: Run, call: Call, work: Promise<T>): Promise<T> {
-  run.call = call
-  const value = await work
-  if (run.isLate) throw new Error(`a refresh past its deadline finished ${call}, so it writes nothing`)
-  return value
-}
+// RETRY_MS are the waits before the mod asks a pool that failed it again,
+// doubling from 1 to 16 seconds, as cmod restarts a program, then 16 seconds
+// on. A plugin that holds no ask for its next change answers at once, so the
+// mod asks it again after the first.
+export const RETRY_MS = [1000, 2000, 4000, 8000, 16_000]
 
 // checkKey asks the pool once whether it takes the key the person entered,
 // and keeps it once it does.
@@ -90,47 +79,105 @@ export const oneclaude = defineMod({
       isUsingProxy = true
       if ((await baseUrlOf()) === undefined) await settings.user.update({ env: { ANTHROPIC_BASE_URL: LOCAL_POOL } })
     }
-    // refresh draws the status of the pool Claude Code uses as soon as it
-    // arrives, then the proxy's blocks, and the Usage table while the
-    // Accounts page is open. A pool that doesn't answer keeps the last
-    // status on screen, with the problem.
-    const readPool = async (run: Run): Promise<void> => {
-      const pool = await waitOn(run, 'poolOf', poolOf())
-      mod.state.memory.pool = pool
-      const unanswered: { readonly problem: Problem } = { problem: 'proxy-down' }
-      const answer = await waitOn(run, 'read', within(mod, READ_MS, read(pool), unanswered, () => mod.log(`${pool} sent no status within ${READ_MS} ms`)))
-      if ('problem' in answer) {
-        mod.state.memory.problem = answer.problem
-        return
+    const record = recordOf(mod)
+    // showBlocks draws the proxy's blocks as of the newest status's blocks
+    // change, one reading at a time: the reading another session of this
+    // machine took, or its own when the pool named this session the reader
+    // of that change. A plugin with no blocks change has the blocks read
+    // once. A change with no reading yet is drawn at a later status.
+    let blocksShown: { readonly change: number | undefined; readonly blocks: Blocks } | undefined
+    let blocksWanted: { readonly change: number | undefined; readonly isReader: boolean } = { change: undefined, isReader: false }
+    let isReadingBlocks = false
+    const showBlocks = async (status: Status): Promise<void> => {
+      const isReader = status.reads_blocks === true || status.blocks_change === undefined
+      blocksWanted = { change: status.blocks_change, isReader: isReader || (blocksWanted.change === status.blocks_change && blocksWanted.isReader) }
+      if (isReadingBlocks) return
+      isReadingBlocks = true
+      try {
+        while (blocksShown === undefined || blocksShown.change !== blocksWanted.change) {
+          const wanted = blocksWanted
+          const blocks = await sharedBlocks(mod, wanted.change, wanted.isReader)
+          if (blocks === undefined) return
+          const reading = mod.state.memory.reading
+          if (reading !== null) mod.state.memory.reading = { ...reading, blocks }
+          blocksShown = { change: wanted.change, blocks }
+        }
+      } finally {
+        isReadingBlocks = false
       }
-      mod.state.memory.problem = null
-      mod.state.memory.reading = { status: answer.status, blocks: mod.state.memory.reading?.blocks ?? {} }
-      animate()
-      void shareStatus(mod, answer.status)
-      const key = await waitOn(run, 'keyOf', keyOf(mod))
-      const blocks = key === undefined ? {} : await waitOn(run, 'sharedBlocks', sharedBlocks(mod, key))
-      const latest = mod.state.memory.reading
-      if (latest !== null) mod.state.memory.reading = { ...latest, blocks }
-      mod.state.memory.isOpen = page.isOpen
-      if (page.isOpen) await waitOn(run, 'showUsage', showUsage(mod))
-      await waitOn(run, 'useProxy', useProxy())
     }
-    const refresh = (): Promise<void> => {
-      const run: Run = { call: 'poolOf', isLate: false }
-      return within(mod, REFRESH_MS, readPool(run), undefined, () => {
-        run.isLate = true
-        mod.log(`a refresh still waited on ${run.call} after ${REFRESH_MS} ms, so it ends and writes nothing more`)
+    let usageReading: Promise<void> | undefined
+    // draw shows a status the pool answered with the blocks this session
+    // drew, which /clear keeps, then the blocks of its blocks change, and the
+    // Usage table while the Accounts page is open, and sends the record the
+    // pool lacks.
+    const draw = (status: Status): void => {
+      mod.state.memory.problem = null
+      mod.state.memory.reading = { status, blocks: blocksShown?.blocks ?? mod.state.memory.reading?.blocks ?? {} }
+      animate()
+      void shareStatus(mod, status)
+      void showBlocks(status)
+      void record.send()
+      void useProxy()
+      mod.state.memory.isOpen = page.isOpen
+      if (page.isOpen) usageReading ??= showUsage(mod).finally(() => {
+        usageReading = undefined
       })
+    }
+    const machine = device.read().then(({ id }) => id, (error: unknown) => {
+      mod.log(`oneclaude names no machine to the pool, so this session reads every blocks change itself: ${String(error)}`)
+      return undefined
+    })
+    // ask asks the pool Claude Code uses for its status after the change
+    // after, naming this machine. A pool that brings none shows the problem,
+    // and so does one that sends nothing by the time the last status named,
+    // while the ask waits on.
+    const ask = async (after: number | undefined): Promise<Status | undefined> => {
+      const pool = await poolOf()
+      mod.state.memory.pool = pool
+      const within = mod.state.memory.reading?.status.answers_within_ms
+      const silence = within === undefined ? undefined : mod.after(within, () => {
+        mod.log(`${pool} sent no status within ${within} ms`)
+        mod.state.memory.problem = 'proxy-down'
+      })
+      const answer = await read(pool, after, await machine).finally(() => silence?.stop())
+      if (!('problem' in answer)) return answer.status
+      mod.log(`${pool} brought no status: ${answer.cause}`)
+      mod.state.memory.problem = answer.problem
+      return undefined
+    }
+    const pause = (ms: number): Promise<void> => new Promise((resolve) => void mod.after(ms, resolve))
+    // follow asks for the status after the change it last drew, so the pool
+    // answers at its next change, and asks again at each answer. A failed
+    // ask keeps the last status on screen, and the next ask waits the next of
+    // RETRY_MS and asks for the status at once.
+    const follow = async (): Promise<void> => {
+      let after: number | undefined
+      let failures = 0
+      for (;;) {
+        const status = await ask(after).catch((error: unknown) => {
+          mod.log(`oneclaude could not ask the pool for its status: ${String(error)}`)
+          return undefined
+        })
+        if (status === undefined) {
+          after = undefined
+          await pause(RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]!)
+          continue
+        }
+        failures = 0
+        after = status.change
+        draw(status)
+        if (after === undefined) await pause(RETRY_MS[0]!)
+      }
     }
     // toggle opens or closes the page. cmod shows a page only once the
     // command or press that asked for it ends, so the toggle line follows
-    // what was asked, and each refresh what the Sidebar shows, as after its ×.
+    // what was asked, and each status what the Sidebar shows, as after its ×.
     const toggle = async (): Promise<void> => {
       const isOpening = !page.isOpen
       if (isOpening) {
         mod.state.memory.isConfirming = false
-        await refresh()
-        await showUsage(mod)
+        void showUsage(mod)
         mod.state.memory.shown = Object.fromEntries(Object.entries(mod.state.memory.shown).map(([key, shown]) => [key, key === LINE ? shown : { used: 0, pace: 0 }]))
         animate()
       }
@@ -153,24 +200,21 @@ export const oneclaude = defineMod({
       description: 'Show every Claude account: combined usage, pace, agents and the log',
       reply: toggle,
     }))
-    mod.every(REFRESH_MS, refresh)
-    const record = recordOf(mod)
     sessions.current.onTaskStart((task) => {
       if (task.owner.agentType !== undefined) void record.addAgent(task.id, task.owner.agentType)
     })
     // start begins each session the mod runs in: this one, and each one
     // /clear, /resume or a fork starts, which empty the memory.
     const start = async (): Promise<void> => {
-      void sharedReading(mod).then((shared) => {
-        mod.state.memory.reading ??= shared
-      })
+      const shared = await sharedReading(mod)
+      mod.state.memory.reading ??= shared
       mod.state.memory.pool = await poolOf()
-      void refresh()
       void record.send()
     }
     sessions.current.onSessionStart({ source: /^(clear|resume|fork)$/ }, start)
     sessions.current.onCwdChange(() => void record.send())
     await start()
+    void follow()
     return {
       addFilter: (input: OneclaudeFilter) => record.addFilter(input),
       removeFilter: (input: { name: string }) => record.removeFilter(input),

@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -963,5 +964,173 @@ func TestStatusShowsACodexAccountsWeeklyUsageApartFromThePool(t *testing.T) {
 	}
 	if st.Pool.Accounts != 0 || len(st.Accounts) != 0 {
 		t.Fatalf("a Codex account joined the Claude pool: %+v", st.Pool)
+	}
+}
+
+// statusAfter asks for status.json after a change, as the mod does, and
+// sends the status once the plugin answers.
+func statusAfter(t *testing.T, p *Plugin, change uint64) <-chan Status {
+	t.Helper()
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	answered := make(chan Status, 1)
+	go func() {
+		payload, _ := json.Marshal(ManagementRequest{Method: "GET", Path: "/v0/resource/plugins/oneclaude/status.json", Query: url.Values{"after": {fmt.Sprint(change)}}})
+		raw, _ := p.Call(MethodManagementHandle, payload)
+		var resp ManagementResponse
+		var st Status
+		if unwrapEnvelope(raw, &resp) != nil || resp.StatusCode != http.StatusOK || json.Unmarshal(resp.Body, &st) != nil {
+			t.Errorf("status.json?after=%d answered %d %s", change, resp.StatusCode, resp.Body)
+		}
+		answered <- st
+	}()
+	return answered
+}
+
+func TestTheLongPollAnswersAtTheNextChange(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	before := p.Status()
+	answered := statusAfter(t, p, before.Change)
+	select {
+	case st := <-answered:
+		t.Fatalf("status answered with no change: %+v", st)
+	case <-time.After(200 * time.Millisecond):
+	}
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.5, 48*time.Hour), http.StatusOK)
+	select {
+	case st := <-answered:
+		if st.Change <= before.Change || st.Pool.Agents != 1 {
+			t.Fatalf("got change %d with %d agents, want a change after %d with the new agent", st.Change, st.Pool.Agents, before.Change)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("status did not answer the change")
+	}
+}
+
+func TestTheLongPollAnswersAtItsDeclaredWait(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	p.changes.longest = 100 * time.Millisecond
+	before := p.Status()
+	if before.AnswersWithinMS != (100*time.Millisecond + answerTrip).Milliseconds() {
+		t.Fatalf("answers_within_ms = %d, want the longest wait and the trip back", before.AnswersWithinMS)
+	}
+	asked := time.Now()
+	select {
+	case st := <-statusAfter(t, p, before.Change):
+		if waited := time.Since(asked); waited < 100*time.Millisecond || st.Change != before.Change {
+			t.Fatalf("answered after %v with change %d, want the same change after the longest wait", waited, st.Change)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("status waited past its longest wait")
+	}
+}
+
+func TestQuiesceAnswersEveryWaitingAsk(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	change := p.Status().Change
+	first, second := statusAfter(t, p, change), statusAfter(t, p, change)
+	time.Sleep(50 * time.Millisecond)
+	call[struct{}](t, p, MethodPluginQuiesce, struct{}{})
+	for _, answered := range []<-chan Status{first, second, statusAfter(t, p, change)} {
+		select {
+		case st := <-answered:
+			if st.Change != 0 {
+				t.Fatalf("a quiesced plugin answered with change %d, so its readers would ask it again at once", st.Change)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("a waiting ask outlived the plugin's quiesce")
+		}
+	}
+	call[RegisterResult](t, p, MethodPluginRegister, LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
+	select {
+	case st := <-statusAfter(t, p, p.Status().Change):
+		t.Fatalf("a plugin registered again after its quiesce answered at once, with change %d", st.Change)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestARequestThatChangesNothingTheStatusShowsCountsNoChange(t *testing.T) {
+	var ticks atomic.Int64
+	p := New(Options{Name: "oneclaude", NoPoller: true, Now: func() time.Time { return testNow.Add(time.Duration(ticks.Add(1)) * time.Millisecond) }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	loaded := p.Status().Change
+	p.changed(false)
+	if got := p.Status().Change; got != loaded {
+		t.Fatalf("a poll that found the status as it was at the load counted a change: %d after %d", got, loaded)
+	}
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.5, 48*time.Hour), http.StatusOK)
+	before := p.Status().Change
+	send(t, p, "r2", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.5, 48*time.Hour), http.StatusOK)
+	if got := p.Status().Change; got != before {
+		t.Fatalf("a request that changed only when the account was read counted a change: %d after %d", got, before)
+	}
+	send(t, p, "r3", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.51, 48*time.Hour), http.StatusOK)
+	if got := p.Status().Change; got <= before {
+		t.Fatalf("a request that moved the account's usage counted no change: %d after %d", got, before)
+	}
+}
+
+func TestOneAnswerPerMachineReadsEachBlocksChange(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	reads := func(device string) bool {
+		query := url.Values{}
+		if device != "" {
+			query.Set("device", device)
+		}
+		resp := call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "GET", Path: "/v0/resource/plugins/oneclaude/status.json", Query: query})
+		var st Status
+		if err := json.Unmarshal(resp.Body, &st); err != nil {
+			t.Fatal(err)
+		}
+		return st.ReadsBlocks
+	}
+	if got := []bool{reads("mac"), reads("mac"), reads("devbox"), reads(""), reads("")}; !slices.Equal(got, []bool{true, false, true, true, true}) {
+		t.Fatalf("reads_blocks = %v, want the first answer of each machine, and every answer that names none", got)
+	}
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, nil, http.StatusTooManyRequests)
+	if got := []bool{reads("mac"), reads("mac")}; !slices.Equal(got, []bool{true, false}) {
+		t.Fatalf("reads_blocks after a blocks change = %v, want the first answer again", got)
+	}
+}
+
+func TestOnlyAFailedRequestTheAnswerAfterOneOrAnUnblockCountsABlocksChange(t *testing.T) {
+	host := func(method string, payload []byte) ([]byte, error) {
+		if method == MethodHostAuthList {
+			return okEnvelope(HostAuthListResponse{Files: []HostAuthFileEntry{{ID: "a@x.json", AuthIndex: "a1", Type: "claude", Email: "ada@x"}}})
+		}
+		return okEnvelope(emptyResult)
+	}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: host, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	if err := p.list(); err != nil {
+		t.Fatal(err)
+	}
+	blocksChange := func() uint64 { return p.Status().BlocksChange }
+	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.5, 48*time.Hour), http.StatusOK)
+	send(t, p, "r2", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.5, 48*time.Hour), http.StatusOK)
+	served := blocksChange()
+	send(t, p, "r3", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.5, 48*time.Hour), http.StatusOK)
+	send(t, p, "r4", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, nil, statusClientClosed)
+	if got := blocksChange(); got != served {
+		t.Fatalf("a served or dropped request counted a blocks change: %d after %d", got, served)
+	}
+	send(t, p, "r5", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, nil, http.StatusTooManyRequests)
+	throttled := blocksChange()
+	if throttled <= served {
+		t.Fatalf("a throttled request counted no blocks change: %d after %d", throttled, served)
+	}
+	send(t, p, "r6", "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.5, 48*time.Hour), http.StatusOK)
+	answered := blocksChange()
+	if answered <= throttled {
+		t.Fatalf("the answer after a throttle counted no blocks change: %d after %d", answered, throttled)
+	}
+	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
+	call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/unblock", Body: []byte(`{"auth_index":"a1"}`)})
+	if got := blocksChange(); got <= answered {
+		t.Fatalf("an unblock counted no blocks change: %d after %d", got, answered)
 	}
 }

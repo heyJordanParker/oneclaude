@@ -15,6 +15,7 @@ oneclaude/
 ├── setup/                   the install and uninstall steps cmod runs
 ├── tests/                   the mod's tests
 ├── dev/config.yaml          the dev proxy's config
+├── dev/session.ts           starts a Claude Code session against the dev proxy
 └── docs/                    the documentation
 ```
 
@@ -70,7 +71,9 @@ cd cli
 ONECLAUDE_DEV_PROXY=1 go test -run DevProxy -v .
 ```
 
-`dev/config.yaml` names its folders relative to the repository root, so the proxy runs from there. It keeps its logins in `~/.cli-proxy-api-dev`, and downloads its control panel into `dev/static/`, which git ignores. The subagent test needs 5 minutes after an earlier run, while that run's agents still count as active.
+`dev/config.yaml` names its folders relative to the repository root, so the proxy runs from there. It keeps its logins in `.target/dev/auth`, and downloads its control panel into `dev/static/`, which git ignores. The subagent test needs 5 minutes after an earlier run, while that run's agents still count as active.
+
+To watch the mod against the dev proxy, start a Claude Code session with `bun dev/session.ts <name>`, and attach with `tmux -L oneclaude-dev attach -t <name>`. Every such session shares a home of its own in `.target/dev/home`, with no Claude login and a cmod store that holds oneclaude's install record, so cmod runs no install step, which would copy your Claude login into the dev proxy. Never start a test session with your own home or cmod store.
 
 ## Change the mod
 

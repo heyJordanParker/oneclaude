@@ -29,7 +29,7 @@ The line names what needs you, and only while it is true:
 
 The first two open the Accounts tab at the account they name, and `agent limit reached` at the Claude accounts.
 
-The mod reads the proxy's blocks with the proxy's management key: `oneclaude`, which the install sets on a proxy with none, or the key you set for CLIProxyAPI, which the install asks for ([Installation](installation.md#3-adding-oneclaude)). When the proxy doesn't answer for its blocks, every session keeps showing the last blocks it read.
+The mod reads the proxy's blocks with the proxy's management key: `oneclaude`, which the install sets on a proxy with none, or the key you set for CLIProxyAPI, which the install asks for ([Installation](installation.md#3-adding-oneclaude)). It reads them only after an event that may change them: a request Anthropic failed, the first answer after one, or an unblock. One session on each machine reads them, and every other session there shows its reading. A block whose time is up goes from the line by itself. When the proxy doesn't answer for its blocks, every session keeps showing the last blocks it read.
 
 The line shows the pool Claude Code sends its requests to, its `ANTHROPIC_BASE_URL`, on this machine or another ([A pool on another machine](installation.md#a-pool-on-another-machine)). When oneclaude can't read that pool, the line keeps the last reading and says why, with the time that reading is from:
 
@@ -37,9 +37,9 @@ The line shows the pool Claude Code sends its requests to, its `ANTHROPIC_BASE_U
 ████████▊███▋███████  63% · 19% over pace · next refill in 2d · 14 agents · pool unreachable since 14:02 [+]
 ```
 
-The warning goes away by itself at the first reading the pool answers, within 15 seconds of it answering again, in every open session. A session that starts while the pool doesn't answer shows the last reading any session on this machine made, with the warning. A machine that never read the pool shows only the warning, as `oneclaude: pool unreachable`.
+The line follows the pool as it changes: each session asks the pool for its next change, and the pool answers within a second of it, or after 20 seconds with no change. The warning goes away by itself at the first reading the pool answers, in every open session. A session asks a pool that failed it again after 1, 2, 4, 8, then every 16 seconds, so the warning goes within 16 seconds of the pool answering again. A session that starts while the pool doesn't answer shows the last reading any session on this machine made, with the warning. A machine that never read the pool shows only the warning, as `oneclaude: pool unreachable`.
 
-- `pool unreachable` means nothing answers at `ANTHROPIC_BASE_URL`, `127.0.0.1:8317` by default, no answer came within 10 seconds, or the proxy answered with an error. Start the proxy with `brew services start cliproxyapi` on macOS or `systemctl --user start cliproxyapi` on Linux, or read its log.
+- `pool unreachable` means nothing answers at `ANTHROPIC_BASE_URL`, `127.0.0.1:8317` by default, the proxy answered with an error, or no answer came by the time the pool's last reading promised one, 25 seconds. Start the proxy with `brew services start cliproxyapi` on macOS or `systemctl --user start cliproxyapi` on Linux, or read its log.
 - `plugin off` means the proxy runs without oneclaude's plugin. Run `oneclaude install`, the install step, to add it again.
 - `status unreadable` means the proxy answered something oneclaude doesn't understand.
 

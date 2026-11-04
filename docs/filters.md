@@ -32,7 +32,7 @@ await mod.dependencies.oneclaude.addFilter({
 
 `removeFilter({ name })` takes the filter out of the session.
 
-oneclaude sends the pool the session's filters with its management key ([Installation](installation.md#3-adding-oneclaude)). A filter added while the pool doesn't answer reaches it within a second of the pool answering again, and `addFilter` doesn't wait for that.
+oneclaude sends the pool the session's filters with its management key ([Installation](installation.md#3-adding-oneclaude)). A filter added while the pool doesn't answer reaches it with the first status the pool answers again, and `addFilter` doesn't wait for that.
 
 ## Which traffic a filter sees
 
