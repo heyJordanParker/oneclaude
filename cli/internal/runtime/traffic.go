@@ -380,6 +380,42 @@ func refusalOf(status int, body []byte) (string, bool) {
 	return cmp.Or(strings.TrimSpace(answer.Error.Message), "permission_error"), true
 }
 
+// networkCause is, in plain words, why a request got no answer, from the Go
+// error the proxy reports in its place, as `Post "https://api.anthropic.com/
+// v1/messages": dial tcp: lookup api.anthropic.com on 127.0.0.53:53: read udp
+// 127.0.0.1:50528->127.0.0.53:53: i/o timeout`.
+func networkCause(err string) string {
+	switch {
+	case strings.Contains(err, "lookup "):
+		_, host, _ := strings.Cut(err, "lookup ")
+		host, _, _ = strings.Cut(host, " ")
+		host = strings.TrimSuffix(host, ":")
+		if strings.Contains(err, "timeout") {
+			return "the DNS lookup of " + host + " timed out"
+		}
+		return "the DNS lookup of " + host + " failed"
+	case strings.Contains(err, "connection refused"):
+		return "the connection was refused"
+	case strings.Contains(err, "connection reset"):
+		return "the connection was reset"
+	case strings.Contains(err, "network is unreachable"), strings.Contains(err, "no route to host"):
+		return "the network is unreachable"
+	case strings.Contains(err, "timeout"):
+		return "the connection timed out"
+	case strings.Contains(err, "handshake"):
+		return "the TLS handshake failed"
+	case strings.Contains(err, "remote error: tls: "):
+		_, alert, _ := strings.Cut(err, "remote error: tls: ")
+		return "the TLS connection failed (" + alert + ")"
+	case strings.Contains(err, "EOF"), strings.Contains(err, "broken pipe"), strings.Contains(err, "use of closed network connection"):
+		return "the connection dropped"
+	}
+	if _, after, found := strings.Cut(err, `": `); found {
+		err = after
+	}
+	return cmp.Or(strings.TrimSpace(err), "no answer came")
+}
+
 func (p *Plugin) observe(rec UsageRecord) {
 	if rec.Provider != claudeProvider || rec.AuthID == "" {
 		return
@@ -406,13 +442,13 @@ func (p *Plugin) observe(rec UsageRecord) {
 		a.weekly, a.known = weekly, true
 		p.dirty = true
 	}
-	served, throttled, overloaded, notFound, failed := a.served[modelID], a.throttled, a.overloaded, a.notFound, a.failed
+	served, throttled, overloaded, notFound, failed, unreachable := a.served[modelID], a.throttled, a.overloaded, a.notFound, a.failed, p.unreachable
 	limited := !a.throttled.Before(served) || !a.rejected.Before(served) || a.loginFails()
 	// The proxy blocks an account after a request Anthropic failed, never one
 	// Claude Code dropped, and lifts the block at its first answer after one,
 	// so both may change the blocks.
 	failedSince := func(at time.Time) bool { return !at.IsZero() && !at.Before(served) }
-	defer p.changed(outcome != "ok" && outcome != "cancelled" || a.loginFails() || failedSince(throttled) || failedSince(a.rejected) || failedSince(overloaded) || failedSince(notFound) || failedSince(failed))
+	defer p.changed(outcome != "ok" && outcome != "cancelled" || a.loginFails() || failedSince(throttled) || failedSince(a.rejected) || failedSince(overloaded) || failedSince(notFound) || failedSince(failed) || failedSince(unreachable))
 	switch outcome {
 	case "ok":
 		if a.served == nil {
@@ -426,9 +462,12 @@ func (p *Plugin) observe(rec UsageRecord) {
 	case "overloaded":
 		a.overloaded = now
 	case "error":
-		if rec.Failure.StatusCode == http.StatusNotFound {
+		switch rec.Failure.StatusCode {
+		case 0:
+			p.unreachable = now
+		case http.StatusNotFound:
 			a.notFound = now
-		} else {
+		default:
 			a.failed = now
 		}
 	}
@@ -465,6 +504,12 @@ func (p *Plugin) observe(rec UsageRecord) {
 		}
 	case "error":
 		if login {
+			break
+		}
+		if status == 0 {
+			if now.Sub(unreachable) >= episode {
+				p.note(levelWarn, "oneclaude couldn't reach Anthropic: %s.", networkCause(rec.Failure.Body))
+			}
 			break
 		}
 		if status != http.StatusNotFound {

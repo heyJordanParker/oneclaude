@@ -94,7 +94,9 @@ const (
 )
 
 // An account's throttles, overloads, 404s and other failures each log once per
-// episode: again only after this long without one.
+// episode: again only after this long without one. A connection that failed
+// is the pool's network, so failed connections log once per episode for the
+// whole pool.
 const episode = 10 * time.Minute
 
 // Plugin answers every host method. The host calls pick, the interceptor and
@@ -115,6 +117,7 @@ type Plugin struct {
 	requests     map[string]request
 	events       []LogEntry
 	refusedAt    time.Time
+	unreachable  time.Time
 	log          *usage.Log
 	salt         string
 	loadedDir    string

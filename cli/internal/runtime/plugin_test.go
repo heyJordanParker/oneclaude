@@ -239,6 +239,56 @@ func TestTheLogRecordsEachAccountsFailuresOncePerEpisodeAndLeavesOutCancelledReq
 	}
 }
 
+func TestAConnectionThatFailsLogsItsCauseOnceForEveryAccount(t *testing.T) {
+	now, setNow := testClock()
+	p := newClockedPlugin(t, enabled, now)
+	fail := func(id, account string, status int, body string) {
+		call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: id, Provider: "claude", Model: "claude-opus-5-5", AuthID: account, Failed: true, Failure: UsageFailure{StatusCode: status, Body: body}})
+	}
+	dns := `Post "https://api.anthropic.com/v1/messages?beta=true": claude tls: dial upstream: dial tcp: lookup api.anthropic.com on 127.0.0.53:53: read udp 127.0.0.1:50528->127.0.0.53:53: i/o timeout`
+	for _, account := range []string{"claude-ada@x.json", "claude-bob@x.json", "claude-cy@x.json"} {
+		fail("dns-"+account, account, 0, dns)
+	}
+	fail("ada-500", "claude-ada@x.json", http.StatusInternalServerError, "")
+	setNow(testNow.Add(episode))
+	fail("refused", "claude-bob@x.json", 0, `Post "https://api.anthropic.com/v1/messages?beta=true": claude tls: dial upstream: dial tcp 160.79.104.10:443: connect: connection refused`)
+	var texts []string
+	for _, e := range p.Status().Log {
+		texts = append(texts, e.Level+" "+e.Text)
+	}
+	want := []string{
+		"WARN oneclaude couldn't reach Anthropic: the DNS lookup of api.anthropic.com timed out.",
+		"WARN Anthropic returned 500 Internal Server Error to ada.",
+		"WARN oneclaude couldn't reach Anthropic: the connection was refused.",
+	}
+	if !slices.Equal(texts, want) {
+		t.Fatalf("log = %q, want %q: one line per burst of failed connections, with its cause", texts, want)
+	}
+}
+
+func TestEachFailedConnectionReadsAsItsCause(t *testing.T) {
+	for err, want := range map[string]string{
+		`Post "https://api.anthropic.com/v1/messages?beta=true": claude tls: dial upstream: dial tcp: lookup api.anthropic.com on 127.0.0.53:53: read udp 127.0.0.1:50528->127.0.0.53:53: i/o timeout`: "the DNS lookup of api.anthropic.com timed out",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": dial tcp: lookup api.anthropic.com: no such host`:                                                                                     "the DNS lookup of api.anthropic.com failed",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": claude tls: dial upstream: dial tcp 160.79.104.10:443: connect: connection refused`:                                                   "the connection was refused",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": dial tcp 160.79.104.10:443: i/o timeout`:                                                                                              "the connection timed out",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": dial tcp 160.79.104.10:443: connect: network is unreachable`:                                                                          "the network is unreachable",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": read tcp 198.51.100.8:55242->160.79.104.10:443: read: connection reset by peer`:                                                       "the connection was reset",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": write tcp 198.51.100.8:52396->160.79.104.10:443: write: broken pipe`:                                                                  "the connection dropped",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": write tcp 198.51.100.8:55250->160.79.104.10:443: use of closed network connection`:                                                    "the connection dropped",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": EOF`:                                                                                                                                  "the connection dropped",
+		`unexpected EOF`: "the connection dropped",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": claude tls: handshake upstream: EOF`:    "the TLS handshake failed",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": remote error: tls: bad record MAC`:      "the TLS connection failed (bad record MAC)",
+		`Post "https://api.anthropic.com/v1/messages?beta=true": proxyconnect tcp: socks connect failed`: "proxyconnect tcp: socks connect failed",
+		``: "no answer came",
+	} {
+		if got := networkCause(err); got != want {
+			t.Errorf("networkCause(%q) = %q, want %q", err, got, want)
+		}
+	}
+}
+
 func TestABlockOnAnAccountThatJustAnsweredIsCleared(t *testing.T) {
 	var (
 		mu    sync.Mutex
@@ -1146,6 +1196,29 @@ func TestOnlyAFailedRequestTheAnswerAfterOneOrAnUnblockCountsABlocksChange(t *te
 	call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/unblock", Body: []byte(`{"auth_index":"a1"}`)})
 	if got := blocksChange(); got <= answered {
 		t.Fatalf("an unblock counted no blocks change: %d after %d", got, answered)
+	}
+}
+
+func TestAFailedConnectionAndTheAnswerAfterItCountABlocksChange(t *testing.T) {
+	now, setNow := testClock()
+	p := newClockedPlugin(t, enabled, now)
+	blocksChange := func() uint64 { return p.Status().BlocksChange }
+	at := func(seconds int, status int) uint64 {
+		setNow(testNow.Add(time.Duration(seconds) * time.Second))
+		send(t, p, fmt.Sprintf("r%d", seconds), "s1", "", "claude-opus-5-5", []string{"a@x.json"}, weekly(0.5, 48*time.Hour), status)
+		return blocksChange()
+	}
+	served := at(1, http.StatusOK)
+	unreached := at(2, 0)
+	if unreached <= served {
+		t.Fatalf("a failed connection counted no blocks change: %d after %d", unreached, served)
+	}
+	answered := at(3, http.StatusOK)
+	if answered <= unreached {
+		t.Fatalf("the answer after a failed connection counted no blocks change: %d after %d", answered, unreached)
+	}
+	if got := at(4, http.StatusOK); got != answered {
+		t.Fatalf("a second answer counted a blocks change: %d after %d", got, answered)
 	}
 }
 

@@ -2,6 +2,11 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [Unreleased]
+
+### Fixed
+- A request that gets no answer at all logs why, such as `oneclaude couldn't reach Anthropic: the DNS lookup of api.anthropic.com timed out.`, once for the whole pool until 10 minutes pass without one. Before, the log blamed Anthropic with `Anthropic returned 0 to work.`, which named no cause, once for every account the proxy tried, so one dropped internet connection filled it with a line per account every 10 seconds.
+
 ## [0.9.5]
 
 ### Changed
