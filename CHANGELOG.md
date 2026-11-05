@@ -2,6 +2,12 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.9.6]
+
+### Fixed
+- A request that gets no answer at all logs why, such as `oneclaude couldn't reach Anthropic: the DNS lookup of api.anthropic.com timed out.`, once for the whole pool until 10 minutes pass without one. Before, the log blamed Anthropic with `Anthropic returned 0 to work.`, which named no cause, once for every account the proxy tried, so one dropped internet connection filled it with a line per account every 10 seconds.
+- A request the proxy gave up on at its own deadline logs `oneclaude couldn't reach Anthropic: the request timed out.` the same way. Before, the log said `Anthropic returned 504 Gateway Timeout to work.`, though Anthropic never answered. Every other 504, such as one Anthropic sends, still logs as one.
+
 ## [0.9.5]
 
 ### Changed
@@ -44,14 +50,14 @@ What changed in each version of oneclaude, for the people who use it. cmod publi
 ## [0.9.1]
 
 ### Changed
-- oneclaude runs on cmod 5.0.0 or later, which sets a mod up without asking for permissions. The mod now reaches a pool on another machine that `ANTHROPIC_BASE_URL` names, such as `http://devbox:8317`.
+- oneclaude runs on cmod 5.0.0 or later, which sets a mod up without asking for permissions. The mod now reaches a pool on another machine that `ANTHROPIC_BASE_URL` names, such as `http://homeserver:8317`.
 - `[Optimize usage]` always shows, since cmod no longer has a permission that turns it off.
 
 ## [0.9.0]
 
 ### Added
 - oneclaude runs on Linux, on arm64 and x64, as well as on macOS on Apple silicon and Intel. With no CLIProxyAPI, the install step installs the newest release, checked against the digest GitHub keeps for it, and runs it as the systemd user service `cliproxyapi`, which starts again whenever it stops.
-- One pool can serve every machine you run Claude Code on. On a machine whose `ANTHROPIC_BASE_URL` names another machine, such as `http://devbox:8317`, the install step sets up no proxy, and the line under the prompt, `/accounts`, every button, Usage and filters read the pool there. The mod reaches it once cmod lets a mod connect to the host Claude Code sends its requests to, which a coming cmod release adds.
+- One pool can serve every machine you run Claude Code on. On a machine whose `ANTHROPIC_BASE_URL` names another machine, such as `http://homeserver:8317`, the install step sets up no proxy, and the line under the prompt, `/accounts`, every button, Usage and filters read the pool there. The mod reaches it once cmod lets a mod connect to the host Claude Code sends its requests to, which a coming cmod release adds.
 
 ### Changed
 - Usage's agent types and projects come from each session's own oneclaude mod, wherever the session runs, instead of the transcripts on the pool's machine. A request from a session that runs no oneclaude mod counts as Not recorded.
