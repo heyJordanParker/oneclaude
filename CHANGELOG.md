@@ -2,6 +2,11 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.9.7]
+
+### Fixed
+- A new session no longer shows `Hears nothing from session …` or `Changes nothing in session …` as error toasts. oneclaude now runs on cmod 5.13.1, which writes those to the Log as warnings, and its toasts put ✕ at the right end and every other button on the left.
+
 ## [0.9.6]
 
 ### Fixed
