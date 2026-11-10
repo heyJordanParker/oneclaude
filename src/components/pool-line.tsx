@@ -10,11 +10,11 @@ const PACE_COLORS: Readonly<Record<PaceState, string | undefined>> = {
   'far-over': 'error',
 }
 
-export type Fact = string | { readonly used: number; readonly even: number }
+export type Fact = string | { readonly ahead: number }
 
 // factText is the facts as one line of plain text, the width they take.
 export function factText(facts: readonly Fact[]): string {
-  return facts.map((fact) => (typeof fact === 'string' ? fact : pace(fact.used, fact.even))).join(' · ')
+  return facts.map((fact) => (typeof fact === 'string' ? fact : pace(fact.ahead))).join(' · ')
 }
 
 // Facts draws the facts on one line, cut at the end, or wrapped between facts,
@@ -22,8 +22,8 @@ export function factText(facts: readonly Fact[]): string {
 export function Facts({ facts, color, wrap = 'wrap' }: { readonly facts: readonly Fact[]; readonly color?: string; readonly wrap?: 'wrap' | 'truncate-end' }): RenderElement {
   const draw = (fact: Fact): RenderElement | string => {
     if (typeof fact === 'string') return fact
-    const paceColor = PACE_COLORS[paceState(fact.used, fact.even)]
-    return paceColor === undefined ? pace(fact.used, fact.even) : <Text color={paceColor} dimColor={false}>{pace(fact.used, fact.even)}</Text>
+    const paceColor = PACE_COLORS[paceState(fact.ahead)]
+    return paceColor === undefined ? pace(fact.ahead) : <Text color={paceColor} dimColor={false}>{pace(fact.ahead)}</Text>
   }
   if (wrap === 'wrap') {
     return (
@@ -43,7 +43,7 @@ export function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble 
     ? ['reading accounts', plural(pool.agents, 'agent')]
     : [
         percent(pool.used),
-        { used: pool.used, even: pool.even },
+        ...(pool.pace === undefined ? [] : [{ ahead: pool.pace }]),
         ...(pool.next_refill === undefined ? [] : [`next refill in ${until(pool.next_refill, now)}`]),
         plural(pool.agents, 'agent'),
       ]
