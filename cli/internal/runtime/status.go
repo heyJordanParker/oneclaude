@@ -193,7 +193,7 @@ func (p *Plugin) changed(blocks bool) {
 	p.changes.noting.Lock()
 	defer p.changes.noting.Unlock()
 	st := p.Status()
-	st.Now, st.Change, st.BlocksChange, st.Pool.Even, st.Pool.Pace = time.Time{}, 0, 0, 0, 0
+	st.Now, st.Change, st.BlocksChange, st.Pool.Even, st.Pool.Pace = time.Time{}, 0, 0, 0, nil
 	for i := range st.Accounts {
 		st.Accounts[i].ObservedAt = nil
 	}
@@ -210,12 +210,14 @@ type CodexStatus struct {
 	Empty     bool       `json:"empty"`
 }
 
-// PoolStatus is the whole pool. LimitReached is true while oneclaude refuses
-// new subagents because every account reached the agent limit.
+// PoolStatus is the whole pool. Pace is how much faster than its quota lasts
+// the pool spends now, 0 on pace, and absent while it can't be known.
+// LimitReached is true while oneclaude refuses new subagents because every
+// account reached the agent limit.
 type PoolStatus struct {
 	Used         float64    `json:"used"`
 	Even         float64    `json:"even"`
-	Pace         float64    `json:"pace"`
+	Pace         *float64   `json:"pace,omitempty"`
 	NextRefill   *time.Time `json:"next_refill,omitempty"`
 	RefillGain   float64    `json:"refill_gain"`
 	Agents       int        `json:"agents"`
@@ -282,14 +284,138 @@ type HourHistory struct {
 }
 
 // requestHistory holds the request log as History serves it: hours per
-// account, and days per account, model, agent type and project.
+// account, and days per account, model, agent type and project, and as pace
+// reads it: each account's spend by the minute.
 type requestHistory struct {
 	hours map[string]map[int64]*HourHistory
 	days  map[dayKey]*dayUsage
+	spend map[string]*spendRing
 }
 
 func newRequestHistory() requestHistory {
-	return requestHistory{hours: map[string]map[int64]*HourHistory{}, days: map[dayKey]*dayUsage{}}
+	return requestHistory{hours: map[string]map[int64]*HourHistory{}, days: map[dayKey]*dayUsage{}, spend: map[string]*spendRing{}}
+}
+
+// Pace weighs the quota the last paceNow of requests moved, from their list
+// price and each account's quota per dollar over the last paceLearns,
+// against the quota each account has left until its reset. An account needs
+// learnedEnough of its quota moved in that time for a quota per dollar of its
+// own, else the pool's serves. A reading resetDrop or more below the last is
+// a new week.
+const (
+	paceNow       = 15 * time.Minute
+	paceLearns    = 72 * time.Hour
+	paceMinutes   = int64(paceLearns / time.Minute)
+	learnedEnough = 0.10
+	resetDrop     = 0.05
+)
+
+// spendMinute is one account's requests in one minute: their list price,
+// and the last weekly reading among them, taken at readAt.
+type spendMinute struct {
+	minute int64
+	cost   float64
+	used   float64
+	readAt time.Time
+}
+
+// spendRing holds an account's last paceLearns by the minute, each minute in
+// its own slot, which a newer minute takes over.
+type spendRing [paceMinutes]spendMinute
+
+func (r *spendRing) add(m spendMinute) {
+	slot := &r[m.minute%paceMinutes]
+	if slot.minute > m.minute {
+		return
+	}
+	if slot.minute < m.minute {
+		*slot = spendMinute{minute: m.minute}
+	}
+	slot.cost += m.cost
+	if m.readAt.After(slot.readAt) {
+		slot.used, slot.readAt = m.used, m.readAt
+	}
+}
+
+func (r *spendRing) merge(other *spendRing) {
+	for _, m := range other {
+		if m.minute != 0 {
+			r.add(m)
+		}
+	}
+}
+
+// spending is an account's spend at a moment: the list price of its last
+// paceNow, and over its last paceLearns the quota its requests moved and
+// what they cost.
+type spending struct {
+	now, moved, paid float64
+}
+
+func (r *spendRing) at(now time.Time) spending {
+	var s spending
+	last := now.Unix() / 60
+	recent := last - int64(paceNow/time.Minute)
+	var before, pending float64
+	read := false
+	for minute := last - paceMinutes + 1; minute <= last; minute++ {
+		m := r[minute%paceMinutes]
+		if m.minute != minute {
+			continue
+		}
+		if minute > recent {
+			s.now += m.cost
+		}
+		pending += m.cost
+		if m.readAt.IsZero() {
+			continue
+		}
+		if read && before-m.used < resetDrop {
+			s.moved += m.used - before
+			s.paid += pending
+		}
+		before, read, pending = m.used, true, 0
+	}
+	return s
+}
+
+// paceShare is one account's part of the pool's pace: its spending, and the
+// quota per hour it has left until its reset.
+type paceShare struct {
+	spending
+	affordable float64
+}
+
+// poolPace is how much faster than its quota lasts the pool spends now, 0 on
+// pace. It is unknown while no account has quota left, or one spends with no
+// quota per dollar learned.
+func poolPace(shares []paceShare) *float64 {
+	var pool spending
+	var affordable float64
+	for _, s := range shares {
+		pool.moved += s.moved
+		pool.paid += s.paid
+		affordable += s.affordable
+	}
+	if affordable <= 0 {
+		return nil
+	}
+	var perHour float64
+	for _, s := range shares {
+		if s.now == 0 {
+			continue
+		}
+		learned := s.spending
+		if learned.moved < learnedEnough || learned.paid <= 0 {
+			learned = pool
+		}
+		if learned.moved < learnedEnough || learned.paid <= 0 {
+			return nil
+		}
+		perHour += s.now * learned.moved / learned.paid * float64(time.Hour/paceNow)
+	}
+	pace := perHour/affordable - 1
+	return &pace
 }
 
 // Status is the pool as the mod draws it. Every account counts equally, and an
@@ -302,8 +428,12 @@ func (p *Plugin) Status() Status {
 	st := Status{Version: p.opts.Version, Now: now, Change: change, BlocksChange: blocksChange, AnswersWithinMS: (p.changes.longest + answerTrip).Milliseconds(), Accounts: []AccountStatus{}, Codex: []CodexStatus{}, Log: []LogEntry{}}
 	p.mu.Lock()
 	accounts := make([]accountState, 0, len(p.accounts))
+	spent := map[string]spending{}
 	for _, a := range p.accounts {
 		accounts = append(accounts, *a)
+		if ring := p.history.spend[hashOf(p.salt, a.ID)]; ring != nil {
+			spent[a.ID] = ring.at(now)
+		}
 	}
 	for _, c := range p.codex {
 		row := CodexStatus{Name: c.Name, Known: c.known}
@@ -328,6 +458,7 @@ func (p *Plugin) Status() Status {
 	sort.Slice(st.Codex, func(i, j int) bool { return st.Codex[i].Name < st.Codex[j].Name })
 
 	var used, even float64
+	var shares []paceShare
 	for _, a := range accounts {
 		row := AccountStatus{Name: a.Name, AuthIndex: a.AuthIndex, Plan: a.Plan, Known: a.known, SignedOut: a.signedOut, Refused: a.refused, Agents: map[model.Family]int{}, Limits: map[model.Family]int{}}
 		if throttled := a.throttled; now.Sub(throttled) < time.Hour {
@@ -354,6 +485,11 @@ func (p *Plugin) Status() Status {
 				if st.Pool.NextRefill == nil || resets.Before(*st.Pool.NextRefill) {
 					st.Pool.NextRefill, st.Pool.RefillGain = &resets, w.Used
 				}
+				share := paceShare{spending: spent[a.ID]}
+				if hours := resets.Sub(now).Hours(); hours > 0 && !row.Empty {
+					share.affordable = (1 - w.Used) / hours
+				}
+				shares = append(shares, share)
 			}
 		}
 		st.Accounts = append(st.Accounts, row)
@@ -362,7 +498,7 @@ func (p *Plugin) Status() Status {
 	if st.Pool.Known > 0 {
 		st.Pool.Used = used / float64(st.Pool.Known)
 		st.Pool.Even = even / float64(st.Pool.Known)
-		st.Pool.Pace = st.Pool.Used - st.Pool.Even
+		st.Pool.Pace = poolPace(shares)
 		st.Pool.RefillGain /= float64(st.Pool.Known)
 	}
 	return st
@@ -444,8 +580,20 @@ func (p *Plugin) readRequestLog() {
 		p.mu.Unlock()
 	}
 	earlier := newRequestHistory()
+	spendFrom := loadedAt.Add(-paceLearns)
 	hoursFrom := loadedAt.Add(-historyWindow)
 	daysFrom := loadedAt.AddDate(0, 0, -daysKept)
+	learned := false
+	learn := func() {
+		learned = true
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.loadedDir == dir && p.loadedAt.Equal(loadedAt) {
+			for account, ring := range earlier.spend {
+				p.history.ringOf(account).merge(ring)
+			}
+		}
+	}
 	current := true
 	lines := 0
 	_ = usage.ReadBack(path, func(raw []byte) bool {
@@ -459,11 +607,17 @@ func (p *Plugin) readRequestLog() {
 		if line.At.Before(daysFrom) {
 			return false
 		}
+		if !learned && line.At.Before(spendFrom) {
+			learn()
+		}
 		if line.At.Before(loadedAt) {
 			earlier.add(line, !line.At.Before(hoursFrom))
 		}
 		return current
 	})
+	if !learned {
+		learn()
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.loadedDir != dir || !p.loadedAt.Equal(loadedAt) {
@@ -491,9 +645,27 @@ func (h requestHistory) add(line requestLine, withHour bool) {
 		agent = "main"
 	}
 	modelID := model.ModelOf(line.Model, line.Family)
+	cost := model.CostOf(modelID, line.Tokens)
 	at := line.At.In(time.Local)
 	h.day(dayKey{day: at.Format(dayLayout), hour: at.Hour(), account: line.Account, model: modelID, agent: agent, project: line.Project}).
-		merge(&dayUsage{tokens: line.Tokens, cost: model.CostOf(modelID, line.Tokens)})
+		merge(&dayUsage{tokens: line.Tokens, cost: cost})
+	if line.Account == "" {
+		return
+	}
+	m := spendMinute{minute: line.At.Unix() / 60, cost: cost.Input + cost.Output + cost.CacheRead + cost.CacheWrite}
+	if line.WeeklyAfter != nil {
+		m.used, m.readAt = *line.WeeklyAfter, line.At
+	}
+	h.ringOf(line.Account).add(m)
+}
+
+func (h requestHistory) ringOf(account string) *spendRing {
+	r := h.spend[account]
+	if r == nil {
+		r = &spendRing{}
+		h.spend[account] = r
+	}
+	return r
 }
 
 func (h requestHistory) day(key dayKey) *dayUsage {

@@ -136,7 +136,7 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
     shown: shown ?? { used: pool.used, pace: pool.even },
     facts: [
       percent(pool.used),
-      { used: pool.used, even: pool.even },
+      ...(pool.pace === undefined ? [] : [{ ahead: pool.pace }]),
       ...(pool.next_refill === undefined ? [] : [`next refill in ${until(pool.next_refill, now)} frees ${percent(pool.refill_gain)}`]),
       plural(pool.agents, 'agent'),
       ...(unread > 0 ? [`${plural(unread, 'account')} not read yet`] : []),
@@ -218,7 +218,7 @@ function usageFacts(account: Account | Codex, now: string): Fact[] {
   const even = evenOf(account, now)
   return [
     account.empty ? 'empty' : percent(account.used),
-    ...(account.empty || even === undefined ? [] : [{ used: account.used, even }]),
+    ...(account.empty || even === undefined ? [] : [{ ahead: account.used - even }]),
     `refills in ${until(account.resets_at, now)}`,
   ]
 }
