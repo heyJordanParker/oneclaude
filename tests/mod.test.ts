@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { HttpResponse } from 'claude-code'
+import type { HttpInit, HttpResponse } from 'claude-code'
 import { BelowPrompt } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { calendarOf } from '../src/components/weekly-resets.js'
@@ -47,6 +47,12 @@ function answering(response: Partial<HttpResponse> | Error, cooldowns: Readonly<
     return { status: 200, ok: true, headers: {}, text: '', ...response }
   }
   return tested
+}
+
+// textOf is a body the mod sent, which is always text.
+function textOf(body: NonNullable<HttpInit['body']>): string {
+  if (typeof body !== 'string') throw new Error('the mod sent a body that is not text')
+  return body
 }
 
 async function hintLines(tested: ReturnType<typeof testMod>): Promise<string> {
@@ -114,7 +120,7 @@ const answered = (text: object): HttpResponse => ({ status: 200, ok: true, heade
 // each status.json ask named after, or null, and devices the machine it
 // named, and timers the length of each wait the mod started on its clock.
 // lapse ends every wait of ms.
-function pooled(answer: Status | Error | Promise<HttpResponse>, options: { readonly files?: Record<string, string>; readonly other?: (url: string, init?: { readonly method?: string; readonly body?: string; readonly headers?: Readonly<Record<string, string>> }) => HttpResponse | Promise<HttpResponse> } = {}) {
+function pooled(answer: Status | Error | Promise<HttpResponse>, options: { readonly files?: Record<string, string>; readonly other?: (url: string, init?: HttpInit) => HttpResponse | Promise<HttpResponse> } = {}) {
   const tested = testMod(oneclaude, { files: options.files ?? {} })
   const waits: { readonly ms: number; readonly fn: () => unknown }[] = []
   const held: ((response: HttpResponse) => void)[] = []
@@ -233,7 +239,7 @@ test('a status still on its way holds back nothing: the Accounts page opens with
   const { tested, pool } = pooled(following, {
     files: stored('oneclaude'),
     other: (url, init) => {
-      if (url.endsWith('/session')) records.push(init?.body ?? '')
+      if (url.endsWith('/session')) records.push(textOf(init?.body ?? ''))
       if (url.includes('usage.json')) return answered(tables['month account']!)
       return { status: 200, ok: true, headers: {}, text: '{"files":[]}' }
     },
@@ -306,7 +312,7 @@ test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'
     files: stored('oneclaude'),
     other: (url, init) => {
       if (url.endsWith('/unblock')) {
-        asked.push({ url, method: init?.method, key: init?.headers?.['Authorization'], body: init?.body })
+        asked.push({ url, method: init?.method, key: init?.headers?.['Authorization'], body: textOf(init?.body ?? '') })
         return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
       }
       const cooldowns = asked.length === 0 ? [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] : []
@@ -857,7 +863,7 @@ function recording(answer: (record: SentRecord) => HttpResponse | Error = () => 
   tested.fakes.http.fetch = async (url, init) => {
     if (!url.startsWith(pool)) throw new Error('connection refused')
     if (url === `${pool}/v0/management/plugins/oneclaude/session`) {
-      const record = JSON.parse(init?.body ?? '{}') as SentRecord
+      const record = JSON.parse(textOf(init?.body ?? '{}')) as SentRecord
       records.push({ record, key: init?.headers?.['Authorization'] })
       const response = answer(record)
       if (response instanceof Error) throw response
@@ -961,7 +967,7 @@ test('a record post still on its way holds back no record of the session /clear 
   const sent: string[] = []
   tested.fakes.http.fetch = async (url, init) => {
     if (url !== `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) return { status: 404, ok: false, headers: {}, text: '' }
-    sent.push((JSON.parse(init?.body ?? '{}') as SentRecord).session)
+    sent.push((JSON.parse(textOf(init?.body ?? '{}')) as SentRecord).session)
     if (sent.length === 1) return new Promise<HttpResponse>(() => {})
     return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
   }
@@ -978,7 +984,7 @@ test('records sent while a post is on its way go as one post of the newest recor
   let end: (error: Error) => void = () => {}
   tested.fakes.http.fetch = async (url, init) => {
     if (url !== `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) return { status: 404, ok: false, headers: {}, text: '' }
-    sent.push(JSON.parse(init?.body ?? '{}') as SentRecord)
+    sent.push(JSON.parse(textOf(init?.body ?? '{}')) as SentRecord)
     if (sent.length === 1) return new Promise<HttpResponse>((_resolve, reject) => {
       end = reject
     })
@@ -1009,7 +1015,7 @@ test('a record waits for a missing management key and goes once the key is enter
   }
   const sent: SentRecord[] = []
   tested.fakes.http.fetch = async (url, init) => {
-    if (url === `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) sent.push(JSON.parse(init?.body ?? '{}') as SentRecord)
+    if (url === `${LOCAL_POOL}/v0/management/plugins/oneclaude/session`) sent.push(JSON.parse(textOf(init?.body ?? '{}')) as SentRecord)
     return { status: 200, ok: true, headers: {}, text: url.endsWith('/auth-files') ? '{"files":[]}' : JSON.stringify(status) }
   }
   await tested.start()
