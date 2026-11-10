@@ -405,6 +405,10 @@ func (p *Plugin) hash(authID string) string {
 	p.mu.Lock()
 	salt := p.salt
 	p.mu.Unlock()
+	return hashOf(salt, authID)
+}
+
+func hashOf(salt, authID string) string {
 	sum := sha256.Sum256([]byte(salt + authID))
 	return hex.EncodeToString(sum[:])[:8]
 }

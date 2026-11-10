@@ -687,6 +687,95 @@ func TestUsageSurvivesARestart(t *testing.T) {
 	}
 }
 
+const paceReset = 100 * time.Hour
+
+func spendQuota(t *testing.T, p *Plugin, rid, account string, dollars, used float64) {
+	t.Helper()
+	in := call[RequestInterceptResponse](t, p, MethodRequestInterceptBefore, RequestInterceptRequest{RequestID: "client-" + rid, TraceID: rid, Model: "claude-opus-5-5", Headers: agentHeaders(rid, "")})
+	pick := call[SchedulerPickResponse](t, p, MethodSchedulerPick, SchedulerPickRequest{Provider: "claude", Model: "claude-opus-5-5", Options: SchedulerOptions{Headers: in.Headers}, Candidates: []SchedulerAuthCandidate{{ID: account, Provider: "claude"}}})
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "attempt-" + rid, TraceID: rid, Provider: "claude", Model: "claude-opus-5-5", AuthID: pick.AuthID, ResponseHeaders: weekly(used, paceReset), Detail: UsageDetail{OutputTokens: int64(dollars * 1e6 / 20)}})
+}
+
+func spendADay(t *testing.T, p *Plugin, set func(time.Time), readings func(hour int) float64) {
+	t.Helper()
+	for hour := 0; hour < 24; hour++ {
+		set(testNow.Add(time.Duration(hour-24) * time.Hour))
+		spendQuota(t, p, fmt.Sprintf("r%d", hour), "a", 10, readings(hour))
+	}
+}
+
+func paceOf(t *testing.T, p *Plugin) float64 {
+	t.Helper()
+	pace := p.Status().Pool.Pace
+	if pace == nil {
+		t.Fatal("the pool's pace is unknown")
+	}
+	return *pace
+}
+
+func TestPaceIsHowFastThePoolSpendsNowAgainstWhatItsQuotaAffords(t *testing.T) {
+	now, set := testClock()
+	p := newClockedPlugin(t, enabled, now)
+	spendADay(t, p, set, func(hour int) float64 { return 0.06 + 0.01*float64(hour) })
+	set(testNow.Add(-10 * time.Minute))
+	spendQuota(t, p, "now", "a", 10, 0.30)
+	set(testNow)
+	pointPerTenDollars, quarterHoursPerHour, left := 0.001, 4.0, 0.70
+	if got, want := paceOf(t, p), 10*quarterHoursPerHour*pointPerTenDollars/(left/paceReset.Hours())-1; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("pace = %v, want %v", got, want)
+	}
+	set(testNow.Add(20 * time.Minute))
+	if got := paceOf(t, p); got != -1 {
+		t.Fatalf("pace with nothing spent in 15 minutes = %v, want -1", got)
+	}
+}
+
+func TestPaceLearnsAcrossANewWeek(t *testing.T) {
+	now, set := testClock()
+	p := newClockedPlugin(t, enabled, now)
+	spendADay(t, p, set, func(hour int) float64 {
+		if hour < 12 {
+			return 0.80 + 0.01*float64(hour)
+		}
+		return 0.01 * float64(hour-12)
+	})
+	set(testNow.Add(-5 * time.Minute))
+	spendQuota(t, p, "now", "a", 10, 0.12)
+	set(testNow)
+	if got, want := paceOf(t, p), 10*4*0.001/(0.88/paceReset.Hours())-1; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("pace = %v, want %v", got, want)
+	}
+}
+
+func TestPaceIsUnknownUntilTheQuotaPerDollarIsLearned(t *testing.T) {
+	p := newTestPlugin(t, enabled)
+	spendQuota(t, p, "r1", "a", 10, 0.30)
+	if st := p.Status(); st.Pool.Pace != nil {
+		t.Fatalf("pace = %v with no quota per dollar learned, want unknown", *st.Pool.Pace)
+	}
+}
+
+func TestPaceLearnsFromTheRequestLogAfterAReload(t *testing.T) {
+	dir := t.TempDir()
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
+	now, set := testClock()
+	p := New(Options{Name: "oneclaude", NoPoller: true, Now: now})
+	p.Call(MethodPluginRegister, cfg)
+	spendADay(t, p, set, func(hour int) float64 { return 0.06 + 0.01*float64(hour) })
+	set(testNow.Add(-10 * time.Minute))
+	spendQuota(t, p, "now", "a", 10, 0.30)
+	set(testNow)
+	want := paceOf(t, p)
+	p.Shutdown()
+	again := New(Options{Name: "oneclaude", NoPoller: true, Now: now})
+	again.Call(MethodPluginRegister, cfg)
+	defer again.Shutdown()
+	again.History()
+	if got := paceOf(t, again); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("pace after a reload = %v, want %v", got, want)
+	}
+}
+
 func history(t *testing.T, p *Plugin) (History, string) {
 	t.Helper()
 	resp := call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "GET", Path: "/v0/resource/plugins/oneclaude/history.json"})

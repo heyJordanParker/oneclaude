@@ -735,16 +735,14 @@ function clamp(fraction) {
   return Math.min(1, Math.max(0, fraction))
 }
 
-function paceState(used, even) {
-  const ahead = used - even
+function paceState(ahead) {
   if (ahead > 0.25) return 'far-over'
   if (ahead > 0.05) return 'over'
   if (ahead < -0.05) return 'under'
   return 'on'
 }
 
-function pace(used, even) {
-  const ahead = used - even
+function pace(ahead) {
   const points = Math.round(Math.abs(ahead) * 100)
   if (points === 0) return 'on pace'
   return `${points}% ${ahead < 0 ? 'under' : 'over'} pace`
@@ -872,7 +870,7 @@ function poolView() {
     ? [fact('reading accounts'), fact(plural(pool.agents, 'agent'))]
     : [
         fact(`${percent(pool.used)} used`, undefined, true),
-        fact(pace(pool.used, pool.even), paceState(pool.used, pool.even)),
+        pool.pace === undefined ? null : fact(pace(pool.pace), paceState(pool.pace)),
         pool.next_refill ? fact(`next refill in ${until(pool.next_refill, now)} frees ${percent(pool.refill_gain)}`) : null,
         fact(plural(pool.agents, 'agent')),
         fact(plural(pool.accounts, 'account')),
@@ -996,7 +994,7 @@ function accountRow(row, now) {
       ? h('div', { class: 'usage' },
           meter(account.used, even, `Weekly usage of ${name}`),
           facts(fact(account.empty ? 'empty' : percent(account.used), account.empty ? 'bad' : undefined, true),
-            even === undefined ? null : fact(pace(account.used, even), paceState(account.used, even))))
+            even === undefined ? null : fact(pace(account.used - even), paceState(account.used - even))))
       : h('span', { class: 'muted' }, 'not read yet')),
     h('td', { 'data-label': 'Refills' }, known ? `in ${until(account.resets_at, now)}` : h('span', { class: 'muted' }, '—')),
     h('td', { 'data-label': 'Agents', title: limits.length ? `Room for ${limits.join(', ')} agents on this account` : null },

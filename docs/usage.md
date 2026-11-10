@@ -10,7 +10,7 @@ oneclaude needs nothing from you once it is installed. Every new conversation go
 
 - **The bar** is the pool's weekly usage. [The bars](#the-bars) explains its colors.
 - **63%** is how much of the week's quota the pool has used: the average of every Claude account oneclaude has a reading for.
-- **19% over pace** compares that usage with an even spend. Each account's week has run for some share of its time. The pool is 19 points ahead of that share, so it spends faster than one week of quota lasts. "Under pace" means quota will be left over at the refill. The text turns green under pace and orange over it, red more than 25 points over, and stays plain within 5 points.
+- **19% over pace** is how fast the pool spends right now: the quota its requests of the last 15 minutes used, against the quota every account has left until its reset. 19% over means that rate would run out before the refills, and under pace means quota would be left over. Start more agents and it rises within a minute, stop them and it falls to 100% under within 15 minutes. oneclaude reads what a request uses from its list price and how much quota each account's requests of the last 3 days used per dollar, so a new install shows no pace until its requests used a tenth of one account's week. The text turns green under pace and orange over it, red more than 25% over, and stays plain within 5%.
 - **next refill in 2d** is when the next account's week resets.
 - **14 agents** is how many Claude Code conversations and subagents run on the pool now.
 - **`[+]`** opens the Accounts tab, and **`[-]`** closes it.
@@ -111,7 +111,7 @@ Log
 ```
 
 - **Combined usage** is the pool, as the line under the prompt shows it. "frees 17%" is how much of the pool's quota the next refill gives back.
-- **Claude accounts** lists each account by the part of its address before the `@`. Each row shows its weekly usage, its pace, when its week resets, and the agents on it by model, such as `2 opus`, or `idle`. An account that used its whole week says `empty`, and new conversations skip it until it refills. `throttled 12m ago` shows for an hour after Anthropic rate limited the account. A signed-out account shows only `signed out` and `[Sign in]`, which opens the proxy's login, and a refused one `refused`, `[Sign in]` and Anthropic's reason. New conversations skip both while another account can take them. A sign-in shows within a second, and a removed login's row goes as fast. A blocked account says which models the proxy blocked and until when, and `[Unblock]` clears every block the proxy holds on it. A block that was right comes back with the next failed request.
+- **Claude accounts** lists each account by the part of its address before the `@`. Each row shows its weekly usage, its pace so far this week, how many points its usage is ahead of or behind the share of its week that has passed, when its week resets, and the agents on it by model, such as `2 opus`, or `idle`. An account that used its whole week says `empty`, and new conversations skip it until it refills. `throttled 12m ago` shows for an hour after Anthropic rate limited the account. A signed-out account shows only `signed out` and `[Sign in]`, which opens the proxy's login, and a refused one `refused`, `[Sign in]` and Anthropic's reason. New conversations skip both while another account can take them. A sign-in shows within a second, and a removed login's row goes as fast. A blocked account says which models the proxy blocked and until when, and `[Unblock]` clears every block the proxy holds on it. A block that was right comes back with the next failed request.
 - **Codex accounts** shows each Codex (ChatGPT) account the proxy holds, with its weekly usage. oneclaude shows these accounts only, and routes none of their requests.
 - **Weekly resets** lays 8 days, from yesterday's midnight, under the names and dates of the days, one lane per Claude account, soonest reset first. Each lane is the account's current week as one rounded bar, from when the week opened to when it resets, on a faint line that runs across the rest of the lane. It is dark up to now, gray while the account's quota lasts at its pace so far this week, and faint from where that pace would empty it until the reset. The gray is red in the last 5% of the week's quota, as the usage bar is. A white line marks now through every lane. Each lane ends with how long until the week resets and how much the account has left until then. A narrower Sidebar gives each day fewer cells, down to 6 hours a cell, and names only the weekday.
 - **Usage** is what the pool's requests used. [Usage](#usage) explains it.
@@ -149,13 +149,13 @@ The prompt holds the last 30 days by agent type, project, and model, with every 
 
 ## The bars
 
-Every bar is 20 cells wide and exact to an eighth of a cell. It fills to the account's usage, and the color change marks pace, where an even spend would be by now:
+Every bar is 20 cells wide and exact to an eighth of a cell. It fills to the account's usage, and the color change marks where an even spend over the week would be by now:
 
-- **Under pace**, the bar fills in gray to the usage, and a lighter track runs on to the pace mark. That lighter part is quota you could spend now and still be on pace.
-- **Over pace**, the bar fills in gray to the pace mark, then in orange to the usage. The orange part is how far ahead of pace the account is.
+- **Behind an even spend**, the bar fills in gray to the usage, and a lighter track runs on to the mark. That lighter part is quota you could spend now and still be even.
+- **Ahead of an even spend**, the bar fills in gray to the mark, then in orange to the usage. The orange part is how far ahead of an even spend the account is.
 - **In the last 5% of the week's quota**, the bar turns red.
 
-An empty account has no pace mark, because pace means nothing once the week is spent. Bars glide to each new reading, and the Accounts tab's bars grow from zero when it opens.
+An empty account has no mark, because an even spend means nothing once the week is spent. Bars glide to each new reading, and the Accounts tab's bars grow from zero when it opens.
 
 The rounded ends of each bar are [Nerd Font](https://www.nerdfonts.com) glyphs. A terminal font without them shows a blank or a box at each end.
 

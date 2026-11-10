@@ -64,7 +64,7 @@ export type Family = 'opus' | 'sonnet' | 'haiku' | 'fable'
 export type Pool = {
   readonly used: number
   readonly even: number
-  readonly pace: number
+  readonly pace?: number
   readonly next_refill?: string
   readonly refill_gain: number
   readonly agents: number
@@ -301,8 +301,7 @@ export function percent(fraction: number): string {
   return `${Math.round(fraction * 100)}%`
 }
 
-export function pace(used: number, even: number): string {
-  const ahead = used - even
+export function pace(ahead: number): string {
   const points = Math.round(Math.abs(ahead) * 100)
   if (points === 0) return 'on pace'
   return `${points}% ${ahead < 0 ? 'under' : 'over'} pace`
@@ -310,8 +309,7 @@ export function pace(used: number, even: number): string {
 
 export type PaceState = 'on' | 'under' | 'over' | 'far-over'
 
-export function paceState(used: number, even: number): PaceState {
-  const ahead = used - even
+export function paceState(ahead: number): PaceState {
   if (ahead > 0.25) return 'far-over'
   if (ahead > 0.05) return 'over'
   if (ahead < -0.05) return 'under'

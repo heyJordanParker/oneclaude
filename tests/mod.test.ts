@@ -181,9 +181,9 @@ test('the newest answer wins: each change the pool answers replaces the line at 
   const { tested, pool } = pooled(following)
   expect(await hintLines(tested)).toContain('58% · 9% under')
   expect(pool.asked).toEqual([null, '1'])
-  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7 } })
+  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7, pace: 0.03 } })
   expect(await hintLines(tested)).toContain('70% · 3% over')
-  pool.change({ ...following, change: 3, pool: { ...status.pool, used: 0.75 } })
+  pool.change({ ...following, change: 3, pool: { ...status.pool, used: 0.75, pace: 0.08 } })
   expect(await hintLines(tested)).toContain('75% · 8% over')
   expect(pool.asked).toEqual([null, '1', '2', '3'])
   expect(new Set(pool.devices)).toEqual(new Set(['5f0e8c2a9b7d4e31a6c4d2b0e8f71a93']))
@@ -197,7 +197,7 @@ test('a pool silent past the time its last status named shows unreachable then, 
   expect(line).toContain('58% · 9% under')
   expect(line).toContain(since)
   expect(tested.shown.debug.join('\n')).toContain(`${LOCAL_POOL} sent no status within 25000 ms`)
-  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7 } })
+  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7, pace: 0.03 } })
   const cleared = await hintLines(tested)
   expect(cleared).toContain('70% · 3% over')
   expect(cleared).not.toContain('unreachable')
@@ -222,7 +222,7 @@ test('a plugin that answers at once, as 0.9.3 does, is asked again a second afte
   const { tested, pool } = pooled(status)
   await hintLines(tested)
   expect(pool.asked).toEqual([null])
-  pool.answer = { ...status, pool: { ...status.pool, used: 0.7 } }
+  pool.answer = { ...status, pool: { ...status.pool, used: 0.7, pace: 0.03 } }
   pool.lapse(1000)
   expect(await hintLines(tested)).toContain('70% · 3% over')
   expect(pool.asked).toEqual([null, null])
@@ -499,7 +499,7 @@ function readingBlocks(first: Status) {
 test('blocks are read only on a blocks change, by the one session the pool names on each machine, and the others take its reading', async () => {
   const { tested, pool, reads } = readingBlocks(following)
   expect(await hintLines(tested)).toContain('1 account blocked')
-  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7 } })
+  pool.change({ ...following, change: 2, pool: { ...status.pool, used: 0.7, pace: 0.03 } })
   expect(await hintLines(tested)).toContain('1 account blocked')
   pool.change({ ...following, change: 3, blocks_change: 2 })
   expect(await hintLines(tested)).toContain('1 account blocked')
@@ -830,11 +830,19 @@ test('a count reads in 3 figures, and dollars in whole dollars from $1', () => {
   expect([0, 0.104, 5.4, 1193.2].map(money)).toEqual(['$0', '$0.10', '$5', '$1,193'])
 })
 
-test('pace is on within 5 points, and far over past 25', () => {
-  expect(paceState(0.5, 0.46)).toBe('on')
-  expect(paceState(0.4, 0.5)).toBe('under')
-  expect(paceState(0.6, 0.5)).toBe('over')
-  expect(paceState(0.8, 0.5)).toBe('far-over')
+test('pace is on within 5%, and far over past 25%', () => {
+  expect(paceState(0.04)).toBe('on')
+  expect(paceState(-0.1)).toBe('under')
+  expect(paceState(0.1)).toBe('over')
+  expect(paceState(0.3)).toBe('far-over')
+})
+
+test('the line shows the pace the pool spends at now, and none while the pool can\'t know it', async () => {
+  const spending = await hintLines(answering({ text: JSON.stringify({ ...status, pool: { ...status.pool, used: 0.83, even: 0.68, pace: -0.06 } }) }))
+  expect(spending).toContain('83% · 6% under pace')
+  const learning = await hintLines(answering({ text: JSON.stringify({ ...status, pool: { ...status.pool, pace: undefined } }) }))
+  expect(learning).toContain('58% · next refill in 2d')
+  expect(learning).not.toContain('pace')
 })
 
 type SentRecord = { readonly session: string; readonly project: string; readonly agents: Readonly<Record<string, string>>; readonly filters: readonly object[] }

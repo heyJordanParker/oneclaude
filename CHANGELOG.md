@@ -2,6 +2,11 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.10.0]
+
+### Changed
+- The pool's pace is live: how fast your requests of the last 15 minutes spend quota, against what every account has left until its reset. Start more agents and it goes over pace within a minute, stop them and it falls under. Before, it compared the week's usage so far with an even spend, so a few heavy days held it over pace for the rest of the week, whatever ran now. oneclaude reads what a request spends from its list price and each account's quota per dollar over the last 3 days, which on real traffic predicted 3 hours of quota within 10%, half the time. A new install shows no pace until its requests used a tenth of one account's week. The line under the prompt, Combined usage in `/accounts` and the dashboard show it. Each account's row keeps its pace so far this week.
+
 ## [0.9.7]
 
 ### Fixed
