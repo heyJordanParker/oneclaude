@@ -5,7 +5,7 @@ import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
-import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, isSignedOut, keyOf, modelName, momentOf, paceOf, percent, plural, POOL, PROBLEMS, rowKey, unblock, until, warningOf, type Account, type Block, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
+import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, isSignedOut, keyOf, momentOf, paceOf, percent, plural, POOL, PROBLEMS, retry, rowKey, until, warningOf, type Account, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
 import { BREAKDOWNS, dailyChart, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
@@ -144,30 +144,19 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
   }
 }
 
-// claudeRow is one Claude account. A refused or signed-out account shows
-// only that, with Anthropic's reason for a refusal, and the login that signs
-// it back in, and a blocked one says until when, with the button that clears
-// its blocks.
+// claudeRow is one Claude account. An account in trouble shows what is wrong
+// in a word or two and the one button that fixes it: [Sign in] when Anthropic
+// rejects its login, else [Retry]. The log holds Anthropic's reason.
 function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, now: string, shown: Shown | undefined): Row {
   const key = rowKey(account)
-  if (account.refused !== undefined || isSignedOut(account, blocks, now)) {
-    return {
-      key,
-      name: account.name,
-      facts: [],
-      trouble: (
-        <Box flexDirection="column">
-          <Box gap={2}>
-            <Text color="warning">{account.refused === undefined ? 'signed out' : 'refused'}</Text>
-            <Text dimColor>[<Link href={addAccountUrl(mod.state.memory.pool)}>Sign in</Link>]</Text>
-          </Box>
-          {account.refused === undefined ? null : <Text dimColor wrap="wrap">{account.refused}</Text>}
-        </Box>
-      ),
-    }
+  if (account.refused !== undefined) {
+    return { key, name: account.name, facts: [], trouble: <TroubleView text="refused"><RetryButton mod={mod} account={account} /></TroubleView> }
   }
-  const blocked = blocksOf(account, blocks, now)
-  const trouble = blocked.length === 0 ? undefined : <BlockedView mod={mod} account={account} blocked={blocked} now={now} />
+  if (isSignedOut(account, blocks, now)) {
+    return { key, name: account.name, facts: [], trouble: <TroubleView text="signed out"><Text dimColor>[<Link href={addAccountUrl(mod.state.memory.pool)}>Sign in</Link>]</Text></TroubleView> }
+  }
+  const last = blocksOf(account, blocks, now).map((block) => block.until).sort().at(-1)
+  const trouble = last === undefined ? undefined : <TroubleView text={`blocked until ${momentOf(last, now)}`}><RetryButton mod={mod} account={account} /></TroubleView>
   if (!account.known) return { key, name: account.name, facts: ['not read yet'], trouble }
   const agents = FAMILIES.filter((family) => (account.agents[family] ?? 0) > 0).map((family) => `${account.agents[family]} ${family}`)
   return {
@@ -185,20 +174,21 @@ function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, n
   }
 }
 
-function BlockedView({ mod, account, blocked, now }: { readonly mod: Mod<OneclaudeState>; readonly account: Account; readonly blocked: readonly Block[]; readonly now: string }): RenderElement {
-  const models = [...new Set(blocked.flatMap((block) => (block.model === undefined ? [] : [modelName(block.model)])))]
-  const last = blocked.map((block) => block.until).sort().at(-1) ?? now
-  const what = models.length === 0 || blocked.some((block) => block.model === undefined) ? 'blocked' : `blocked for ${models.join(', ')}`
-  const clear = async (): Promise<void> => {
-    const key = await keyOf(mod)
-    if (key === undefined || !(await unblock(mod, account, key))) mod.toast.error(`oneclaude could not clear the blocks on ${account.name}`)
-  }
+function TroubleView({ text, children }: { readonly text: string; readonly children: RenderElement }): RenderElement {
   return (
     <Box gap={2}>
-      <Text color="warning">{`${what} until ${momentOf(last, now)}`}</Text>
-      <Button key={`unblock-${account.name}`} plain dimColor onPress={clear}>[Unblock]</Button>
+      <Text color="warning">{text}</Text>
+      {children}
     </Box>
   )
+}
+
+function RetryButton({ mod, account }: { readonly mod: Mod<OneclaudeState>; readonly account: Account }): RenderElement {
+  const press = async (): Promise<void> => {
+    const key = await keyOf(mod)
+    if (key === undefined || !(await retry(mod, account, key))) mod.toast.error(`oneclaude could not retry ${account.name}`)
+  }
+  return <Button key={`retry-${account.name}`} plain dimColor onPress={press}>[Retry]</Button>
 }
 
 function codexRow(account: Codex, now: string, shown: Shown | undefined): Row {

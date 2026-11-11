@@ -4,7 +4,7 @@ import { BelowPrompt } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { calendarOf } from '../src/components/weekly-resets.js'
 import { oneclaude, RETRY_MS } from '../src/mod.js'
-import { bar, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, glide, LOCAL_POOL, modelName, momentOf, paceState, troublesOf, until, type Cell, type Status } from '../src/status.js'
+import { bar, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, glide, LOCAL_POOL, momentOf, paceState, troublesOf, until, type Cell, type Status } from '../src/status.js'
 import { dailyChart, GUTTER, money, tokenCount, usageLayout, type TableLine, type Tokens, type UsageRow, type UsageTable } from '../src/usage.js'
 
 const now = '2026-10-15T16:00:00Z'
@@ -290,28 +290,34 @@ test('/accounts shows the combined usage, every account with its pace, and the l
   expect(pane.indexOf("oneclaude cleared the proxy's blocks")).toBeLessThan(pane.indexOf('Anthropic rate limited'))
 })
 
-test('/accounts puts each account\'s trouble on its row, with what fixes it', async () => {
+test('/accounts puts each account\'s trouble on its row in a word or two, with the one button that fixes it', async () => {
+  const reason = 'OAuth authentication is currently not allowed for this organization.'
   const troubled = {
     ...status,
-    accounts: status.accounts.map((account) => (
-      account.name === 'jarvis' ? { ...account, signed_out: true } : account.name === 'lamport' ? { ...account, throttled_at: '2026-10-15T15:48:00Z' } : account
-    )),
+    accounts: [
+      ...status.accounts.map((account) => (
+        account.name === 'jarvis' ? { ...account, signed_out: true } : account.name === 'lamport' ? { ...account, throttled_at: '2026-10-15T15:48:00Z' } : account
+      )),
+      { ...status.accounts[0]!, name: 'hopper', auth_index: 'h1', refused: reason },
+    ],
   }
   const blocks = { t1: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] }
   const tested = answering({ text: JSON.stringify(troubled) }, blocks)
   await tested.type('/accounts')
   const pane = (await tested.shown.page.lines()).join('\n')
-  expect(pane).toMatch(/jarvis +signed out {2}\[Sign in\]/)
-  expect(pane).toContain(`blocked for Opus 5.5 until ${momentOf('2026-10-15T20:50:00Z', now)}  [Unblock]`)
+  expect(pane).toMatch(/jarvis +signed out {2}\[Sign in\]\n/)
+  expect(pane).toMatch(/hopper +refused {2}\[Retry\]\n/)
+  expect(pane).not.toContain(reason)
+  expect(pane).toContain(`blocked until ${momentOf('2026-10-15T20:50:00Z', now)}  [Retry]`)
   expect(pane).toContain('throttled 12m ago')
 })
 
-test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'s key, and the row clears at the blocks change it counts', async () => {
+test('[Retry] asks the plugin to retry the account, with oneclaude\'s key, and the row clears at the blocks change it counts', async () => {
   const asked: { url: string; method?: string; key?: string; body?: string }[] = []
   const { tested, pool } = pooled({ ...following, reads_blocks: true }, {
     files: stored('oneclaude'),
     other: (url, init) => {
-      if (url.endsWith('/unblock')) {
+      if (url.endsWith('/retry')) {
         asked.push({ url, method: init?.method, key: init?.headers?.['Authorization'], body: textOf(init?.body ?? '') })
         return { status: 200, ok: true, headers: {}, text: '{"status":"ok"}' }
       }
@@ -320,12 +326,12 @@ test('[Unblock] asks the plugin to clear the account\'s blocks, with oneclaude\'
     },
   })
   await tested.type('/accounts')
-  expect((await tested.shown.page.lines()).join('\n')).toContain('[Unblock]')
-  await tested.shown.page.press('unblock-turing')
-  expect(asked).toEqual([{ url: `${LOCAL_POOL}/v0/management/plugins/oneclaude/unblock`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
+  expect((await tested.shown.page.lines()).join('\n')).toContain('[Retry]')
+  await tested.shown.page.press('retry-turing')
+  expect(asked).toEqual([{ url: `${LOCAL_POOL}/v0/management/plugins/oneclaude/retry`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
   pool.change({ ...following, change: 2, blocks_change: 2, reads_blocks: true })
   await tested.settle()
-  expect((await tested.shown.page.lines()).join('\n')).not.toContain('[Unblock]')
+  expect((await tested.shown.page.lines()).join('\n')).not.toContain('[Retry]')
 })
 
 // sentKeys starts the mod holding the stored key, if any, against a pool
@@ -667,9 +673,7 @@ test('a refill reads in days, then days and hours under 2 days, then hours and m
   expect(until(at(-1), now)).toBe('now')
 })
 
-test('a block names its model as Anthropic does, and its day only when it ends on another day', () => {
-  expect(modelName('claude-opus-5-5')).toBe('Opus 5.5')
-  expect(modelName('claude-haiku-5-20261001')).toBe('Haiku 5')
+test('a block names its day only when it ends on another day', () => {
   const noon = new Date(2026, 9, 15, 12, 0).toISOString()
   expect(momentOf(new Date(2026, 9, 15, 14, 5).toISOString(), noon)).toBe('14:05')
   expect(momentOf(new Date(2026, 9, 22, 9, 30).toISOString(), noon)).toBe('Oct 22 09:30')

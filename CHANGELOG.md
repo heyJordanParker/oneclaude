@@ -2,6 +2,14 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.10.1]
+
+### Changed
+- Every account in trouble shows what is wrong in a word or two and the one button that fixes it, in `/accounts` and on the dashboard: `signed out` with `[Sign in]`, `refused` with `[Retry]`, and `blocked until 14:00` with `[Retry]`, which replaces `[Unblock]`. `[Retry]` clears the proxy's blocks on the account and asks Anthropic about it once, so an account refused after a failed payment comes back the moment you fix the payment. Before, a refused account offered only `[Sign in]`, which a refusal of the organization never needs, and printed Anthropic's whole reason under the row. The reason stays in the log, and in the dashboard badge's tooltip. A refused account still comes back by itself within 30 minutes.
+
+### Fixed
+- An account you add joins the pool within a second. oneclaude asked the proxy for its logins the moment the new login file appeared, before the proxy had read the file itself, so the new account was missing until the proxy wrote the file again or oneclaude listed the logins again, up to 10 minutes later. oneclaude now asks again until the proxy lists it.
+
 ## [0.10.0]
 
 ### Changed

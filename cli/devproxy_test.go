@@ -120,6 +120,41 @@ func TestDevProxyAConversationStaysOnOneAccount(t *testing.T) {
 	}
 }
 
+// TestDevProxyANewLoginJoinsThePoolWithinASecond writes a login the way the
+// proxy's own sign-in does, one os.WriteFile into its auth-dir of a token that
+// expires in a day, which the proxy registers without writing the file again,
+// and waits for the plugin to list it. Its usage read goes to
+// api.anthropic.com with a token that only ever answers 401.
+func TestDevProxyANewLoginJoinsThePoolWithinASecond(t *testing.T) {
+	devOnly(t)
+	name := fmt.Sprintf("new%d", rand.Int())
+	path := fmt.Sprintf("../.target/dev/auth/claude-%s@example.com.json", name)
+	t.Cleanup(func() { _ = os.Remove(path) })
+	raw, _ := json.Marshal(map[string]any{"type": "claude", "email": name + "@example.com", "access_token": "not-a-token", "expired": time.Now().Add(24 * time.Hour).Format(time.RFC3339), "disabled": false})
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		var st struct {
+			Accounts []struct {
+				Name string `json:"name"`
+			} `json:"accounts"`
+		}
+		if resp, err := http.Get(devProxy + "/v0/resource/plugins/oneclaude/status.json"); err == nil {
+			_ = json.NewDecoder(resp.Body).Decode(&st)
+			_ = resp.Body.Close()
+		}
+		for _, a := range st.Accounts {
+			if a.Name == name {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("%s did not join the pool within a second of its login file", name)
+}
+
 func TestDevProxyRefusesANewSubagentWhenEveryAccountIsFull(t *testing.T) {
 	devOnly(t)
 	session := fmt.Sprintf("pool-%d", rand.Int())
