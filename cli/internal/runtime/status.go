@@ -25,7 +25,7 @@ const (
 	resourceHistoryPath   = "/history.json"
 	resourceUsagePath     = "/usage.json"
 	routeStatus           = "/status"
-	routeUnblock          = "/unblock"
+	routeRetry            = "/retry"
 	routeSession          = "/session"
 	historyWindow         = 7 * 24 * time.Hour
 	daysKept              = 90
@@ -733,7 +733,7 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 	return okEnvelope(ManagementRegistrationResponse{
 		Routes: []ManagementRoute{
 			{Method: http.MethodGet, Path: mgmt + "/plugins/" + p.opts.Name + routeStatus, Description: "The pool's usage, pace, accounts and the last 24 hours of its log as JSON."},
-			{Method: http.MethodPost, Path: mgmt + "/plugins/" + p.opts.Name + routeUnblock, Description: "Clears every block the proxy holds on the account {auth_index}, and logs it."},
+			{Method: http.MethodPost, Path: mgmt + "/plugins/" + p.opts.Name + routeRetry, Description: "Clears every block the proxy holds on the account {auth_index}, asks Anthropic about it once, and logs it."},
 			{Method: http.MethodPost, Path: mgmt + "/plugins/" + p.opts.Name + routeSession, Description: "Keeps a Claude Code session's record from the oneclaude mod: {session, project, agents, filters}."},
 		},
 		Resources: []ResourceRoute{
@@ -780,8 +780,8 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 		return okEnvelope(jsonResponse(http.StatusOK, p.History()))
 	case req.Path == resource+resourceUsagePath:
 		return okEnvelope(jsonResponse(http.StatusOK, p.Usage(req.Query.Get("period"), req.Query.Get("by"), req.Query.Get("units"))))
-	case req.Path == mgmt+"/plugins/"+p.opts.Name+routeUnblock && req.Method == http.MethodPost:
-		return okEnvelope(p.unblockRoute(req.Body))
+	case req.Path == mgmt+"/plugins/"+p.opts.Name+routeRetry && req.Method == http.MethodPost:
+		return okEnvelope(p.retryRoute(req.Body))
 	case req.Path == mgmt+"/plugins/"+p.opts.Name+routeSession && req.Method == http.MethodPost:
 		return okEnvelope(p.sessionRoute(req.Body))
 	default:
@@ -789,29 +789,44 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 	}
 }
 
-// unblockRoute clears every block on the account the person picked in the
-// Accounts tab.
-func (p *Plugin) unblockRoute(body []byte) ManagementResponse {
+// retryRoute retries the account the person picked: it clears every block the
+// proxy holds on it, then asks Anthropic about it once, as a new login does,
+// and answers once Anthropic did. A retry while one runs on that account
+// answers at once, so pressing again never adds a request.
+func (p *Plugin) retryRoute(body []byte) ManagementResponse {
 	var req HostRoutingResetCooldownRequest
 	if json.Unmarshal(body, &req) != nil || req.AuthIndex == "" {
 		return jsonResponse(http.StatusBadRequest, map[string]string{"error": "auth_index is required"})
 	}
-	name := ""
+	var id, name string
 	p.mu.Lock()
 	for _, a := range p.accounts {
 		if a.AuthIndex == req.AuthIndex {
-			name = a.Name
+			id, name = a.ID, a.Name
 		}
 	}
+	running := p.retrying[id]
+	if id != "" && !running {
+		p.retrying[id] = true
+	}
 	p.mu.Unlock()
-	if name == "" {
+	if id == "" {
 		return jsonResponse(http.StatusNotFound, map[string]string{"error": "no Claude account has that auth_index"})
 	}
+	if running {
+		return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
+	}
+	defer func() {
+		p.mu.Lock()
+		delete(p.retrying, id)
+		p.mu.Unlock()
+	}()
 	if err := p.unblock(req.AuthIndex); err != nil {
 		return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
-	p.note(levelInfo, "oneclaude cleared the proxy's blocks on %s on request.", name)
+	p.note(levelInfo, "oneclaude retried %s on request.", name)
 	p.changed(true)
+	p.readNow([]reading{usageReading(id, req.AuthIndex)}, p.now())
 	return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
 }
 

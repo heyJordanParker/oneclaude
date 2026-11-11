@@ -1102,16 +1102,30 @@ func TestASignedOutAccountShowsUntilItAnswersAgainAndLogsOnce(t *testing.T) {
 	}
 }
 
-func TestUnblockClearsTheAccountsBlocksAndLogsIt(t *testing.T) {
+func TestRetryClearsTheBlocksAndBringsBackARefusedAccountWithOneAsk(t *testing.T) {
+	var mu sync.Mutex
 	var reset []string
+	asks := 0
+	asking, answer := make(chan struct{}, 1), make(chan struct{})
 	host := func(method string, payload []byte) ([]byte, error) {
 		switch method {
 		case MethodHostAuthList:
 			return okEnvelope(HostAuthListResponse{Files: []HostAuthFileEntry{{ID: "claude-ada@x.json", AuthIndex: "a1", Type: "claude", Email: "ada@x"}}})
+		case MethodHostAuthGet:
+			return okEnvelope(HostAuthGetResponse{AuthIndex: "a1", JSON: json.RawMessage(`{"access_token":"paid"}`)})
 		case MethodHostRoutingResetCooldown:
 			var req HostRoutingResetCooldownRequest
 			_ = json.Unmarshal(payload, &req)
+			mu.Lock()
 			reset = append(reset, req.AuthIndex)
+			mu.Unlock()
+		case MethodHostHTTPDo:
+			mu.Lock()
+			asks++
+			mu.Unlock()
+			asking <- struct{}{}
+			<-answer
+			return okEnvelope(HostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{}`)})
 		}
 		return okEnvelope(emptyResult)
 	}
@@ -1122,18 +1136,83 @@ func TestUnblockClearsTheAccountsBlocksAndLogsIt(t *testing.T) {
 	if err := p.list(); err != nil {
 		t.Fatal(err)
 	}
+	reason := "OAuth authentication is currently not allowed for this organization."
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "refused", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json", Failed: true, Failure: UsageFailure{StatusCode: http.StatusForbidden, Body: `{"type":"error","error":{"type":"permission_error","message":"` + reason + `"}}`}})
 	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
-	unblock := func(body string) int {
-		return call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/unblock", Body: []byte(body)}).StatusCode
+	retry := func(body string) int {
+		return call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/retry", Body: []byte(body)}).StatusCode
 	}
-	if got := unblock(`{"auth_index":"nobody"}`); got != http.StatusNotFound {
+	if got := retry(`{"auth_index":"nobody"}`); got != http.StatusNotFound {
 		t.Fatalf("an unknown account = %d, want 404", got)
 	}
-	if got := unblock(`{"auth_index":"a1"}`); got != http.StatusOK || !slices.Equal(reset, []string{"a1"}) {
-		t.Fatalf("unblock = %d, reset = %v, want ada's blocks cleared", got, reset)
+	first := make(chan int)
+	go func() { first <- retry(`{"auth_index":"a1"}`) }()
+	<-asking
+	if got := retry(`{"auth_index":"a1"}`); got != http.StatusOK {
+		t.Fatalf("a retry while one runs = %d, want 200 at once", got)
 	}
-	if log := p.Status().Log; len(log) != 1 || log[0].Text != "oneclaude cleared the proxy's blocks on ada on request." {
-		t.Fatalf("log = %+v", log)
+	close(answer)
+	if got := <-first; got != http.StatusOK {
+		t.Fatalf("retry = %d, want 200", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if asks != 1 || !slices.Equal(reset, []string{"a1"}) {
+		t.Fatalf("asks = %d, reset = %v, want one ask of Anthropic and ada's blocks cleared once", asks, reset)
+	}
+	st := p.Status()
+	if st.Accounts[0].Refused != "" {
+		t.Fatalf("ada = %+v, want accepted again", st.Accounts[0])
+	}
+	var texts []string
+	for _, entry := range st.Log {
+		texts = append(texts, entry.Text)
+	}
+	want := []string{"Anthropic refused ada's login (403): " + reason, "oneclaude retried ada on request.", "Anthropic accepted ada's login again."}
+	if !slices.Equal(texts, want) {
+		t.Fatalf("log = %q, want %q", texts, want)
+	}
+}
+
+func TestARefusedAccountComesBackAtItsNextCheck(t *testing.T) {
+	refused := true
+	host := func(method string, payload []byte) ([]byte, error) {
+		switch method {
+		case MethodHostAuthList:
+			return okEnvelope(HostAuthListResponse{Files: []HostAuthFileEntry{{ID: "claude-ada@x.json", AuthIndex: "a1", Type: "claude", Email: "ada@x"}}})
+		case MethodHostAuthGet:
+			return okEnvelope(HostAuthGetResponse{AuthIndex: "a1", JSON: json.RawMessage(`{"access_token":"t"}`)})
+		case MethodHostHTTPDo:
+			if refused {
+				return okEnvelope(HostHTTPResponse{StatusCode: http.StatusForbidden, Body: []byte(`{"type":"error","error":{"type":"permission_error","message":"OAuth authentication is currently not allowed for this organization."}}`)})
+			}
+			return okEnvelope(HostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{}`)})
+		}
+		return okEnvelope(emptyResult)
+	}
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: host, Now: func() time.Time { return testNow }})
+	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir())})
+	p.Call(MethodPluginRegister, cfg)
+	defer p.Shutdown()
+	if err := p.list(); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	p.accounts["claude-ada@x.json"].Plan = "default_claude_max_20x"
+	p.accounts["claude-ada@x.json"].PlanAt = testNow
+	p.mu.Unlock()
+	p.refreshOne(testNow)
+	if p.Status().Accounts[0].Refused == "" {
+		t.Fatal("ada answered 403, want refused")
+	}
+	refused = false
+	p.refreshOne(testNow.Add(retryFailures - time.Second))
+	if p.Status().Accounts[0].Refused == "" {
+		t.Fatal("ada was checked again before its wait passed")
+	}
+	p.refreshOne(testNow.Add(retryFailures))
+	if got := p.Status().Accounts[0].Refused; got != "" {
+		t.Fatalf("ada = %q at its next check, want accepted again with no sign-in", got)
 	}
 }
 
@@ -1287,7 +1366,7 @@ func TestOneAnswerPerMachineReadsEachBlocksChange(t *testing.T) {
 	}
 }
 
-func TestOnlyAFailedRequestTheAnswerAfterOneOrAnUnblockCountsABlocksChange(t *testing.T) {
+func TestOnlyAFailedRequestTheAnswerAfterOneOrARetryCountsABlocksChange(t *testing.T) {
 	host := func(method string, payload []byte) ([]byte, error) {
 		if method == MethodHostAuthList {
 			return okEnvelope(HostAuthListResponse{Files: []HostAuthFileEntry{{ID: "a@x.json", AuthIndex: "a1", Type: "claude", Email: "ada@x"}}})
@@ -1321,9 +1400,9 @@ func TestOnlyAFailedRequestTheAnswerAfterOneOrAnUnblockCountsABlocksChange(t *te
 		t.Fatalf("the answer after a throttle counted no blocks change: %d after %d", answered, throttled)
 	}
 	call[ManagementRegistrationResponse](t, p, MethodManagementRegister, ManagementRegistrationRequest{BasePath: "/v0/management", ResourceBasePath: "/v0/resource/plugins/oneclaude"})
-	call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/unblock", Body: []byte(`{"auth_index":"a1"}`)})
+	call[ManagementResponse](t, p, MethodManagementHandle, ManagementRequest{Method: "POST", Path: "/v0/management/plugins/oneclaude/retry", Body: []byte(`{"auth_index":"a1"}`)})
 	if got := blocksChange(); got <= answered {
-		t.Fatalf("an unblock counted no blocks change: %d after %d", got, answered)
+		t.Fatalf("a retry counted no blocks change: %d after %d", got, answered)
 	}
 }
 
@@ -1365,11 +1444,15 @@ func writeCredential(t *testing.T, path, token string) {
 // counts the usage reads, and keeps the auth index of each credential whose
 // blocks the plugin cleared. Like the proxy, which drops a removed file's
 // credential only after it checked the file stays gone, it lists every file
-// it ever listed.
+// it ever listed. With late set, it leaves a new file out of the first list
+// that finds it, as the proxy lists a new file only once its own watch, which
+// the same file event wakes, read it.
 type credentialProxy struct {
 	dir     string
+	late    bool
 	mu      sync.Mutex
 	listed  map[string]bool
+	found   map[string]bool
 	reads   int
 	cleared []string
 	saved   []string
@@ -1381,9 +1464,13 @@ func (c *credentialProxy) call(method string, payload []byte) ([]byte, error) {
 		entries, _ := os.ReadDir(c.dir)
 		c.mu.Lock()
 		if c.listed == nil {
-			c.listed = map[string]bool{}
+			c.listed, c.found = map[string]bool{}, map[string]bool{}
 		}
 		for _, entry := range entries {
+			if c.late && !c.found[entry.Name()] {
+				c.found[entry.Name()] = true
+				continue
+			}
 			c.listed[entry.Name()] = true
 		}
 		var files []HostAuthFileEntry
@@ -1486,6 +1573,20 @@ func TestARewrittenCredentialSignsItsAccountInWithinASecondWithNoPollDue(t *test
 		t.Fatalf("log = %+v, want the new login logged", st.Log)
 	}
 	t.Logf("signed in %v after the file was written", took)
+}
+
+func TestANewLoginJoinsThePoolThoughTheProxyListsItOnlyAfterItsOwnWatch(t *testing.T) {
+	dir := t.TempDir()
+	p, proxy := newCredentialPlugin(t, dir)
+	proxy.mu.Lock()
+	proxy.late = true
+	proxy.mu.Unlock()
+	writeCredential(t, filepath.Join(dir, "claude-ada@x.json"), "signed-in")
+	st, took := statusUntil(t, p, func(st Status) bool { return len(st.Accounts) == 1 && st.Accounts[0].Known })
+	if st.Accounts[0].Name != "ada" {
+		t.Fatalf("accounts = %+v, want ada, read with her new login", st.Accounts)
+	}
+	t.Logf("ada joined %v after her login file was written", took)
 }
 
 func TestARemovedCredentialDropsItsAccount(t *testing.T) {

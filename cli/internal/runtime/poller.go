@@ -27,6 +27,8 @@ const (
 	fetchTimeout  = 15 * time.Second
 	startupGrace  = 20 * time.Second
 	retryFailures = 30 * time.Minute
+	catchUp       = 2 * time.Second
+	catchUpStep   = 50 * time.Millisecond
 )
 
 // startPoller starts the usage poll, unless the options leave it out, and
@@ -255,17 +257,18 @@ func contentOf(path string) (content string, written bool) {
 	return hex.EncodeToString(sum[:]), true
 }
 
-// credentialsChanged lists the accounts, leaving out each whose file is
-// gone, which the proxy drops only after it checked the file stays gone.
-// It clears the proxy's blocks on each account Anthropic rejected whose file
-// changed, as its new login may fix them, and counts a change of the status
+// credentialsChanged lists the accounts once the proxy lists each changed
+// file that is still there, and leaves out each whose file is gone, which the
+// proxy drops only after it checked the file stays gone. It clears the
+// proxy's blocks on each account Anthropic rejected whose file changed, as
+// its new login may fix them, and counts a change of the status
 // and of the blocks, so the blocks a session reads next are the cleared
 // ones. Then it reads the usage of every account Anthropic rejects or that
 // has no reading, at once and with its failures forgotten. host.auth.get
 // reads the file, so the read takes the new login even before the proxy
 // does. names holds each changed file's name, true for a file still there.
 func (p *Plugin) credentialsChanged(names map[string]bool) {
-	listed, err := p.authFiles()
+	listed, err := p.listHolding(names)
 	if err != nil {
 		p.host.log("warn", "oneclaude could not list the proxy's credentials after one changed", map[string]any{"error": err.Error()})
 		return
@@ -291,8 +294,7 @@ func (p *Plugin) credentialsChanged(names map[string]bool) {
 			continue
 		}
 		delete(p.failedAt, id+"#plan")
-		delete(p.failedAt, id+"#usage")
-		due = append(due, reading{id: id, index: a.AuthIndex, url: usageURL, attempt: id + "#usage"})
+		due = append(due, usageReading(id, a.AuthIndex))
 	}
 	p.mu.Unlock()
 	for _, index := range blocked {
@@ -302,6 +304,46 @@ func (p *Plugin) credentialsChanged(names map[string]bool) {
 	}
 	p.save()
 	p.changed(true)
+	p.readNow(due, now)
+}
+
+// listHolding lists the proxy's credentials once the list holds every file in
+// names that is still there, or after catchUp. The proxy lists a new file only
+// once its own watch, which the same file event wakes, has read it, so the
+// list right after the event lacks it.
+func (p *Plugin) listHolding(names map[string]bool) ([]HostAuthFileEntry, error) {
+	for waited := time.Duration(0); ; waited += catchUpStep {
+		listed, err := p.authFiles()
+		if err != nil || holdsAll(listed, names) || waited >= catchUp {
+			return listed, err
+		}
+		time.Sleep(catchUpStep)
+	}
+}
+
+// holdsAll reports whether listed holds every file in names that is still
+// there.
+func holdsAll(listed []HostAuthFileEntry, names map[string]bool) bool {
+	held := map[string]bool{}
+	for _, f := range listed {
+		held[filepath.Base(f.Path)] = true
+	}
+	for name, there := range names {
+		if there && !held[name] {
+			return false
+		}
+	}
+	return true
+}
+
+// readNow makes each reading at once, all together, with its earlier failures
+// forgotten, then saves and counts what they changed.
+func (p *Plugin) readNow(due []reading, now time.Time) {
+	p.mu.Lock()
+	for _, r := range due {
+		delete(p.failedAt, r.attempt)
+	}
+	p.mu.Unlock()
 	var reads sync.WaitGroup
 	for _, r := range due {
 		reads.Add(1)
@@ -415,6 +457,11 @@ type reading struct {
 	plan, codex             bool
 }
 
+// usageReading is the reading of a Claude account's weekly usage.
+func usageReading(id, index string) reading {
+	return reading{id: id, index: index, url: usageURL, attempt: id + "#usage"}
+}
+
 // refreshOne makes at most one upstream call per tick: a Claude plan that is
 // missing or a day old, a weekly reading for a Claude account with no reply
 // within the poll interval, or else a Codex account's weekly reading. A
@@ -433,8 +480,8 @@ func (p *Plugin) refreshOne(now time.Time) {
 			break
 		}
 		usageDue := !a.known || now.Sub(a.weekly.ObservedAt) > s.PollInterval
-		if usageDue && now.Sub(p.failedAt[a.ID+"#usage"]) >= retryFailures {
-			next = &reading{id: a.ID, index: a.AuthIndex, url: usageURL, attempt: a.ID + "#usage"}
+		if r := usageReading(a.ID, a.AuthIndex); usageDue && now.Sub(p.failedAt[r.attempt]) >= retryFailures {
+			next = &r
 		}
 	}
 	for id, c := range p.codex {

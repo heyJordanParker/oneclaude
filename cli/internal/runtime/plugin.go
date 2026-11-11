@@ -130,6 +130,7 @@ type Plugin struct {
 	imported     bool
 	repaired     bool
 	failedAt     map[string]time.Time
+	retrying     map[string]bool
 
 	filterFailedAt map[string]time.Time
 	responses      map[string]*response
@@ -163,6 +164,7 @@ func New(opts Options) *Plugin {
 		requests: map[string]request{},
 		history:  newRequestHistory(),
 		failedAt: map[string]time.Time{},
+		retrying: map[string]bool{},
 
 		filterFailedAt: map[string]time.Time{},
 		responses:      map[string]*response{},

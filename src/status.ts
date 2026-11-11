@@ -224,10 +224,10 @@ export async function sharedBlocks(mod: Mod<OneclaudeState>, change: number | un
   return blocks
 }
 
-// unblock asks the plugin to clear every block on the account, and says
-// whether it did.
-export async function unblock(mod: Mod<OneclaudeState>, account: Account, key: string): Promise<boolean> {
-  const response = await manage(mod, key, '/plugins/oneclaude/unblock', { method: 'POST', body: JSON.stringify({ auth_index: account.auth_index }) })
+// retry asks the plugin to clear every block on the account and ask Anthropic
+// about it once, and says whether it did.
+export async function retry(mod: Mod<OneclaudeState>, account: Account, key: string): Promise<boolean> {
+  const response = await manage(mod, key, '/plugins/oneclaude/retry', { method: 'POST', body: JSON.stringify({ auth_index: account.auth_index }) })
   return response?.ok === true
 }
 
@@ -270,13 +270,6 @@ export function troublesOf(status: Status, blocks: Blocks): readonly Trouble[] {
     ...(blocked.length > 0 ? [{ text: `${plural(blocked.length, 'account')} blocked`, key: rowKey(blocked[0]!) }] : []),
     ...(status.pool.limit_reached ? [{ text: 'agent limit reached', key: ACCOUNTS }] : []),
   ]
-}
-
-// modelName is a model id as Anthropic names it: claude-opus-5-5 is Opus 5.5.
-export function modelName(id: string): string {
-  const [family = id, ...version] = id.replace(/^claude-/, '').split('-')
-  const numbers = version.filter((part) => /^\d{1,2}$/.test(part))
-  return [family.charAt(0).toUpperCase() + family.slice(1), numbers.join('.')].filter(Boolean).join(' ')
 }
 
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

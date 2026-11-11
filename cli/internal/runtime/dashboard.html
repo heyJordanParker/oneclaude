@@ -500,6 +500,7 @@ h1, h2, h3, p, dl, dd, ul, ol, table { margin: 0; padding: 0; }
 
 const PANEL = '/management.html'
 const MANAGEMENT = '/v8/management'
+const PLUGIN_MANAGEMENT = '/v0/management/plugins/oneclaude'
 const RESOURCE = new URL('.', location.href).pathname
 const OBFUSCATED = 'enc::v1::'
 const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
@@ -610,10 +611,10 @@ function readKey() {
   state.key = key !== state.refused ? key : null
 }
 
-async function management(path, init = {}) {
+async function management(path, init = {}, base = MANAGEMENT) {
   const key = state.key
   if (!key) throw new Error('The panel has no saved management key.')
-  const response = await fetch(MANAGEMENT + path, {
+  const response = await fetch(base + path, {
     ...init,
     cache: 'no-store',
     headers: { Authorization: `Bearer ${key}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
@@ -944,8 +945,8 @@ function rowKey(row) {
 function accountState(row) {
   const { account, file } = row
   if (file?.disabled) return ['Disabled']
+  if (account?.refused) return ['Refused', 'bad', account.refused]
   if (account?.signed_out) return ['Signed out', 'bad']
-  if (account?.refused) return ['Refused', 'bad']
   if (file?.unavailable) return ['Unavailable', 'warn', file.status_message]
   if (account?.empty) return ['Empty', 'bad']
   if (!account) return ['Not in the pool yet']
@@ -954,21 +955,35 @@ function accountState(row) {
   return null
 }
 
+// accountActions is the one button that fixes the account's trouble, Sign in
+// for a login Anthropic rejects and Retry for any other, then Disable or
+// Enable.
 function accountActions(row) {
   const key = rowKey(row)
-  const busy = Boolean(state.pending[key])
+  const pending = state.pending[key]
+  const trouble = accountState(row)?.[0]
   const buttons = []
-  if (row.account?.signed_out || row.account?.refused) buttons.push(panelLink('Sign in', '/oauth', 'button'))
+  if (trouble === 'Signed out') buttons.push(panelLink('Sign in', '/oauth', 'button'))
+  if ((trouble === 'Refused' || trouble === 'Unavailable') && row.file?.auth_index && state.key) {
+    buttons.push(h('button', {
+      class: 'button',
+      type: 'button',
+      'data-focus': `retry-${key}`,
+      'data-busy': pending === 'retry',
+      disabled: Boolean(pending),
+      onclick: () => retry(row),
+    }, pending === 'retry' ? 'Retrying' : 'Retry'))
+  }
   if (row.file && state.key) {
     const disabled = Boolean(row.file.disabled)
     buttons.push(h('button', {
       class: 'button button--quiet',
       type: 'button',
       'data-focus': `toggle-${key}`,
-      'data-busy': busy,
-      disabled: busy,
+      'data-busy': pending === 'toggle',
+      disabled: Boolean(pending),
       onclick: () => setDisabled(row, !disabled),
-    }, busy ? (disabled ? 'Enabling' : 'Disabling') : disabled ? 'Enable' : 'Disable'))
+    }, pending === 'toggle' ? (disabled ? 'Enabling' : 'Disabling') : disabled ? 'Enable' : 'Disable'))
   }
   return buttons
 }
@@ -988,8 +1003,7 @@ function accountRow(row, now) {
   return h('tr', null,
     h('td', null, h('div', { class: 'account' },
       h('span', { class: 'account__name' }, name),
-      account?.plan ? h('span', { class: 'account__plan' }, planLabel(account.plan)) : null,
-      account?.refused ? h('span', { class: 'account__sub cell-tone', 'data-tone': 'bad' }, account.refused) : null)),
+      account?.plan ? h('span', { class: 'account__plan' }, planLabel(account.plan)) : null)),
     h('td', { class: 'accounts__usage' }, known
       ? h('div', { class: 'usage' },
           meter(account.used, even, `Weekly usage of ${name}`),
@@ -1442,9 +1456,24 @@ function render() {
   target.focus({ preventScroll: true })
 }
 
+async function retry(row) {
+  const key = rowKey(row)
+  state.pending[key] = 'retry'
+  delete state.rowErrors[key]
+  render()
+  try {
+    await management('/retry', { method: 'POST', body: JSON.stringify({ auth_index: row.file.auth_index }) }, PLUGIN_MANAGEMENT)
+    await Promise.all([loadStatus(), loadProxy()])
+  } catch (error) {
+    state.rowErrors[key] = `Retry failed: ${error.message}`
+  }
+  delete state.pending[key]
+  render()
+}
+
 async function setDisabled(row, disabled) {
   const key = rowKey(row)
-  state.pending[key] = true
+  state.pending[key] = 'toggle'
   delete state.rowErrors[key]
   render()
   try {
