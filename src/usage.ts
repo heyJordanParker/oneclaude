@@ -12,7 +12,7 @@ export const BREAKDOWNS: readonly (readonly [Breakdown, string])[] = [['account'
 export const UNITS: readonly (readonly [Units, string])[] = [['cost', 'Cost'], ['tokens', 'Tokens']]
 
 // Tokens and Cost are counted by kind. A cost is in dollars at API list
-// prices, the 1-hour rate for cache writes.
+// prices, a cache write at the rate of the cache Claude Code writes it to.
 export type Tokens = { readonly input: number; readonly output: number; readonly cache_write: number; readonly cache_read: number }
 export type Cost = Tokens
 

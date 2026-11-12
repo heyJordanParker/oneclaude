@@ -704,6 +704,15 @@ func spendADay(t *testing.T, p *Plugin, set func(time.Time), readings func(hour 
 	}
 }
 
+// pacePlugin loads before the requests a pace test replays, as the pool does,
+// so its read of the request log back finds none of them.
+func pacePlugin(t *testing.T) (*Plugin, func(time.Time)) {
+	t.Helper()
+	now, set := testClock()
+	set(testNow.Add(-paceLearns))
+	return newClockedPlugin(t, enabled, now), set
+}
+
 func paceOf(t *testing.T, p *Plugin) float64 {
 	t.Helper()
 	pace := p.Status().Pool.Pace
@@ -714,8 +723,7 @@ func paceOf(t *testing.T, p *Plugin) float64 {
 }
 
 func TestPaceIsHowFastThePoolSpendsNowAgainstWhatItsQuotaAffords(t *testing.T) {
-	now, set := testClock()
-	p := newClockedPlugin(t, enabled, now)
+	p, set := pacePlugin(t)
 	spendADay(t, p, set, func(hour int) float64 { return 0.06 + 0.01*float64(hour) })
 	set(testNow.Add(-10 * time.Minute))
 	spendQuota(t, p, "now", "a", 10, 0.30)
@@ -731,8 +739,7 @@ func TestPaceIsHowFastThePoolSpendsNowAgainstWhatItsQuotaAffords(t *testing.T) {
 }
 
 func TestPaceLearnsAcrossANewWeek(t *testing.T) {
-	now, set := testClock()
-	p := newClockedPlugin(t, enabled, now)
+	p, set := pacePlugin(t)
 	spendADay(t, p, set, func(hour int) float64 {
 		if hour < 12 {
 			return 0.80 + 0.01*float64(hour)
@@ -743,6 +750,34 @@ func TestPaceLearnsAcrossANewWeek(t *testing.T) {
 	spendQuota(t, p, "now", "a", 10, 0.12)
 	set(testNow)
 	if got, want := paceOf(t, p), 10*4*0.001/(0.88/paceReset.Hours())-1; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("pace = %v, want %v", got, want)
+	}
+}
+
+func TestPaceKnowsAFreshWeekFromTheWeekBefore(t *testing.T) {
+	p, set := pacePlugin(t)
+	for hour := 0; hour < 24; hour++ {
+		set(testNow.Add(time.Duration(hour-120) * time.Hour))
+		spendQuota(t, p, fmt.Sprintf("r%d", hour), "a", 10, 0.50+0.01*float64(hour))
+	}
+	set(testNow.Add(-5 * time.Minute))
+	spendQuota(t, p, "now", "a", 10, 0)
+	set(testNow)
+	pointPerTenDollars, quarterHoursPerHour, left := 0.001, 4.0, 1.0
+	if got, want := paceOf(t, p), 10*quarterHoursPerHour*pointPerTenDollars/(left/paceReset.Hours())-1; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("pace = %v, want %v", got, want)
+	}
+}
+
+func TestAnAccountWithNoQuotaMovedTakesThePoolsQuotaPerDollar(t *testing.T) {
+	p, set := pacePlugin(t)
+	spendADay(t, p, set, func(hour int) float64 { return 0.06 + 0.01*float64(hour) })
+	set(testNow.Add(-5 * time.Minute))
+	spendQuota(t, p, "new", "b", 10, 0)
+	set(testNow)
+	pointPerTenDollars, quarterHoursPerHour := 0.001, 4.0
+	affordable := (1-0.29)/paceReset.Hours() + 1/paceReset.Hours()
+	if got, want := paceOf(t, p), 10*quarterHoursPerHour*pointPerTenDollars/affordable-1; math.Abs(got-want) > 1e-9 {
 		t.Fatalf("pace = %v, want %v", got, want)
 	}
 }
@@ -759,6 +794,7 @@ func TestPaceLearnsFromTheRequestLogAfterAReload(t *testing.T) {
 	dir := t.TempDir()
 	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + dir)})
 	now, set := testClock()
+	set(testNow.Add(-paceLearns))
 	p := New(Options{Name: "oneclaude", NoPoller: true, Now: now})
 	p.Call(MethodPluginRegister, cfg)
 	spendADay(t, p, set, func(hour int) float64 { return 0.06 + 0.01*float64(hour) })
@@ -923,7 +959,7 @@ func TestUsageSplitsAPeriodByAccountModelAgentAndProjectAtListPrices(t *testing.
 	account := "claude-turing@example.com.json"
 	spend(t, p, "r1", "s1", "", "claude-opus-5-5", account, UsageDetail{InputTokens: 2, OutputTokens: 127, CacheCreationTokens: 43544})
 	spend(t, p, "r2", "s1", "", "claude-opus-5-5", account, UsageDetail{InputTokens: 2, OutputTokens: 127, CacheCreationTokens: 43544})
-	spend(t, p, "r3", "s1", "a7", "claude-sonnet-5-5-20261001", account, UsageDetail{CacheReadTokens: 1_000_000})
+	spend(t, p, "r3", "s1", "a7", "claude-sonnet-5-5-20261001", account, UsageDetail{CacheReadTokens: 1_000_000, CacheCreationTokens: 100_000})
 	spend(t, p, "r4", "elsewhere", "", "claude-haiku-5-5", account, UsageDetail{OutputTokens: 1_000_000})
 
 	agents := usageOf(t, p, "today", "agent")
@@ -934,8 +970,8 @@ func TestUsageSplitsAPeriodByAccountModelAgentAndProjectAtListPrices(t *testing.
 	if main.Label != "Main sessions" || main.Tokens.CacheWrite != 87088 || math.Abs(costOf(main)-(2*0.3509+0.5)) > 1e-9 {
 		t.Fatalf("main sessions = %+v, want both Opus requests and the Haiku one", main)
 	}
-	if review.Label != "code-reviewer" || math.Abs(costOf(review)-0.1) > 1e-9 {
-		t.Fatalf("subagent = %+v", review)
+	if review.Label != "code-reviewer" || math.Abs(costOf(review)-(0.1+0.25)) > 1e-9 {
+		t.Fatalf("subagent = %+v, want its cache writes at the 5-minute rate", review)
 	}
 	projects := usageOf(t, p, "today", "project")
 	if projects.Rows[0].Label != "dotfiles" || projects.Rows[1].Label != "Not recorded" || projects.Rows[1].Key != "" {

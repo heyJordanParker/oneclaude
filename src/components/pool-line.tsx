@@ -1,4 +1,3 @@
-import type { RenderElement } from 'claude-code'
 import { Box, Button, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { pace, paceState, percent, plural, PROBLEMS, troublesOf, until, warningOf, type PaceState, type Problem, type Reading, type Shown } from '../status.js'
 import { poolBar } from './pool-bar.js'
@@ -19,8 +18,8 @@ export function factText(facts: readonly Fact[]): string {
 
 // Facts draws the facts on one line, cut at the end, or wrapped between facts,
 // so a fact such as "18 agents" never splits across lines.
-export function Facts({ facts, color, wrap = 'wrap' }: { readonly facts: readonly Fact[]; readonly color?: string; readonly wrap?: 'wrap' | 'truncate-end' }): RenderElement {
-  const draw = (fact: Fact): RenderElement | string => {
+export function Facts({ facts, color, wrap = 'wrap' }: { readonly facts: readonly Fact[]; readonly color?: string; readonly wrap?: 'wrap' | 'truncate-end' }): JSX.Element {
+  const draw = (fact: Fact): JSX.Element | string => {
     if (typeof fact === 'string') return fact
     const paceColor = PACE_COLORS[paceState(fact.ahead)]
     return paceColor === undefined ? pace(fact.ahead) : <Text color={paceColor} dimColor={false}>{pace(fact.ahead)}</Text>
@@ -36,7 +35,7 @@ export function Facts({ facts, color, wrap = 'wrap' }: { readonly facts: readonl
   return <Text color={color} dimColor={color === undefined} wrap={wrap}>{parts}</Text>
 }
 
-export function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble }: { readonly reading: Reading | null; readonly problem: Problem | null; readonly shown?: Shown; readonly isOpen: boolean; readonly onToggle: () => unknown; readonly onTrouble: (key: string) => unknown }): RenderElement {
+export function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble }: { readonly reading: Reading | null; readonly problem: Problem | null; readonly shown?: Shown; readonly isOpen: boolean; readonly onToggle: () => unknown; readonly onTrouble: (key: string) => unknown }): JSX.Element {
   if (reading === null) return problem === null ? <Text dimColor>oneclaude: reading the pool</Text> : <Text color="warning">{`oneclaude: ${PROBLEMS[problem]}`}</Text>
   const { pool, now } = reading.status
   const facts: Fact[] = pool.known === 0

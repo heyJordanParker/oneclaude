@@ -1,5 +1,4 @@
-import type { Color, RenderElement } from 'claude-code'
-import { Box, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
+import { Box, Text, type Color } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { CAP_LEFT, CAP_RIGHT, NEARLY_EMPTY, percent, runsOf, until, type Account, type Cell } from '../status.js'
 import { drawCells } from './pool-bar.js'
 
@@ -101,7 +100,7 @@ function offsetOf(iso: string): number {
 
 // WeeklyResets draws the days, then each lane under a row that carries only
 // the line of now, so the line runs through every lane.
-export function WeeklyResets({ calendar, width }: { readonly calendar: Calendar; readonly width: number }): RenderElement {
+export function WeeklyResets({ calendar, width }: { readonly calendar: Calendar; readonly width: number }): JSX.Element {
   const gap = ' '.repeat(GAP)
   const indent = ' '.repeat(width + GAP)
   const line = <Text color={NOW_COLOR}>{`${indent}${' '.repeat(calendar.now)}${NOW_LINE}`}</Text>

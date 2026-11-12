@@ -19,6 +19,6 @@
     "types"
   ],
   "dependencies": {
-    "@cmodjs/core": "^5.13.2"
+    "@cmodjs/core": "^6.0.2"
   }
 }

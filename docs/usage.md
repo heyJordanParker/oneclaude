@@ -10,7 +10,7 @@ oneclaude needs nothing from you once it is installed. Every new conversation go
 
 - **The bar** is the pool's weekly usage. [The bars](#the-bars) explains its colors.
 - **63%** is how much of the week's quota the pool has used: the average of every Claude account oneclaude has a reading for.
-- **19% over pace** is how fast the pool spends right now: the quota its requests of the last 15 minutes used, against the quota every account has left until its reset. 19% over means that rate would run out before the refills, and under pace means quota would be left over. Start more agents and it rises within a minute, stop them and it falls to 100% under within 15 minutes. oneclaude reads what a request uses from its list price and how much quota each account's requests of the last 3 days used per dollar, so a new install shows no pace until its requests used a tenth of one account's week. The text turns green under pace and orange over it, red more than 25% over, and stays plain within 5%.
+- **19% over pace** is how fast the pool spends right now: the quota its requests of the last 15 minutes used, against the quota every account has left until its reset. 19% over means that rate would run out before the refills, and under pace means quota would be left over. Start more agents and it rises within a minute, stop them and it falls to 100% under within 15 minutes. oneclaude reads what a request uses from its list price and how much quota each account's requests used per dollar over its last week and this one, because Anthropic sizes accounts on the same plan differently: the same requests can fill one account half again as fast as another. An account that used no quota in those weeks counts at the pool's rate, and a new install shows a pace from its first request after an account's reading rises. The text turns green under pace and orange over it, red more than 25% over, and stays plain within 5%.
 - **next refill in 2d** is when the next account's week resets.
 - **14 agents** is how many Claude Code conversations and subagents run on the pool now.
 - **`[+]`** opens the Accounts tab, and **`[-]`** closes it.
@@ -132,7 +132,7 @@ The Usage table adds up every request the pool answered, from oneclaude's reques
 
 Each row splits into input, output, cache writes, and cache reads. Then come **Cached**, how much of its input came from the cache, cache reads out of all input; its **Share** of the period's total; and its **Total**, last and in Claude's color, because it matters most. A Cached share under 90% shows in the warning color: it marks conversations and subagents that start cold, and so write their whole prompt to the cache again.
 
-A dollar figure is what the same tokens cost on the Claude API at [Anthropic's list prices](https://platform.claude.com/docs/en/about-claude/pricing), with cache writes at the 1-hour rate, the cache Claude Code writes. Your subscriptions are flat-priced, so it shows what they give you, not what you pay. A model with no list price adds its tokens and no dollars.
+A dollar figure is what the same tokens cost on the Claude API at [Anthropic's list prices](https://platform.claude.com/docs/en/about-claude/pricing), with cache writes at the rate of the cache Claude Code writes them to: the 1-hour rate for a main session, and the 5-minute rate for a subagent. Your subscriptions are flat-priced, so it shows what they give you, not what you pay. A model with no list price adds its tokens and no dollars.
 
 A Sidebar narrower than the table leaves out the four token kinds.
 

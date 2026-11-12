@@ -8,9 +8,16 @@ import (
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
 func TestARequestCostsWhatClaudeCodeSaysItCosts(t *testing.T) {
-	cost := CostOf("claude-opus-5-5", Tokens{Input: 2, Output: 127, CacheWrite: 43544})
+	cost := CostOf("claude-opus-5-5", Tokens{Input: 2, Output: 127, CacheWrite: 43544}, HourCache)
 	if !near(cost.Input+cost.Output+cost.CacheRead+cost.CacheWrite, 0.3509) {
 		t.Fatalf("cost = %+v, want $0.3509", cost)
+	}
+}
+
+func TestACacheWriteForFiveMinutesCostsLessThanOneForAnHour(t *testing.T) {
+	tokens := Tokens{CacheWrite: 1_000_000}
+	if minutes, hour := CostOf("claude-opus-5-5", tokens, FiveMinuteCache), CostOf("claude-opus-5-5", tokens, HourCache); !near(minutes.CacheWrite, 5) || !near(hour.CacheWrite, 8) {
+		t.Fatalf("a million Opus 5.5 cache-write tokens cost %v for 5 minutes and %v for an hour, want $5 and $8", minutes.CacheWrite, hour.CacheWrite)
 	}
 }
 
@@ -26,15 +33,15 @@ func TestAModelIsPricedWithoutItsDateOrContextSuffix(t *testing.T) {
 }
 
 func TestHaikuPaysTheLongPriceOverAHundredThousandPromptTokens(t *testing.T) {
-	short := CostOf("claude-haiku-5-5", Tokens{Input: 60_000, CacheRead: 40_000})
-	long := CostOf("claude-haiku-5-5", Tokens{Input: 60_000, CacheRead: 40_001})
+	short := CostOf("claude-haiku-5-5", Tokens{Input: 60_000, CacheRead: 40_000}, HourCache)
+	long := CostOf("claude-haiku-5-5", Tokens{Input: 60_000, CacheRead: 40_001}, HourCache)
 	if !near(short.Input, 0.006) || !near(long.Input, 0.03) {
 		t.Fatalf("a 100,000-token prompt paid %v for input and one token more %v, want $0.006 and $0.03", short.Input, long.Input)
 	}
 }
 
 func TestAnUnpricedModelCostsNothing(t *testing.T) {
-	if cost := CostOf("claude-unreleased-9", Tokens{Input: 10}); cost != (Cost{}) {
+	if cost := CostOf("claude-unreleased-9", Tokens{Input: 10}, HourCache); cost != (Cost{}) {
 		t.Fatalf("an unpriced model cost %+v", cost)
 	}
 }

@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { HttpInit, HttpResponse } from 'claude-code'
-import { BelowPrompt } from '../node_modules/@cmodjs/core/mod.js'
+import { BelowPrompt, type HttpOptions, type HttpResponse } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
 import { calendarOf } from '../src/components/weekly-resets.js'
 import { oneclaude, RETRY_MS } from '../src/mod.js'
@@ -50,7 +49,7 @@ function answering(response: Partial<HttpResponse> | Error, cooldowns: Readonly<
 }
 
 // textOf is a body the mod sent, which is always text.
-function textOf(body: NonNullable<HttpInit['body']>): string {
+function textOf(body: NonNullable<HttpOptions['body']>): string {
   if (typeof body !== 'string') throw new Error('the mod sent a body that is not text')
   return body
 }
@@ -120,7 +119,7 @@ const answered = (text: object): HttpResponse => ({ status: 200, ok: true, heade
 // each status.json ask named after, or null, and devices the machine it
 // named, and timers the length of each wait the mod started on its clock.
 // lapse ends every wait of ms.
-function pooled(answer: Status | Error | Promise<HttpResponse>, options: { readonly files?: Record<string, string>; readonly other?: (url: string, init?: HttpInit) => HttpResponse | Promise<HttpResponse> } = {}) {
+function pooled(answer: Status | Error | Promise<HttpResponse>, options: { readonly files?: Record<string, string>; readonly other?: (url: string, init?: HttpOptions) => HttpResponse | Promise<HttpResponse> } = {}) {
   const tested = testMod(oneclaude, { files: options.files ?? {} })
   const waits: { readonly ms: number; readonly fn: () => unknown }[] = []
   const held: ((response: HttpResponse) => void)[] = []

@@ -296,18 +296,15 @@ func newRequestHistory() requestHistory {
 	return requestHistory{hours: map[string]map[int64]*HourHistory{}, days: map[dayKey]*dayUsage{}, spend: map[string]*spendRing{}}
 }
 
-// Pace weighs the quota the last paceNow of requests moved, from their list
-// price and each account's quota per dollar over the last paceLearns,
-// against the quota each account has left until its reset. An account needs
-// learnedEnough of its quota moved in that time for a quota per dollar of its
-// own, else the pool's serves. A reading resetDrop or more below the last is
-// a new week.
+// Pace weighs the quota the last paceNow of requests moves, from their list
+// price and each account's quota per dollar over its last week and this one,
+// against the quota each account has left until its reset. An account that
+// moved no quota in those weeks takes the pool's quota per dollar.
 const (
-	paceNow       = 15 * time.Minute
-	paceLearns    = 72 * time.Hour
-	paceMinutes   = int64(paceLearns / time.Minute)
-	learnedEnough = 0.10
-	resetDrop     = 0.05
+	paceNow     = 15 * time.Minute
+	paceWeek    = 7 * 24 * time.Hour
+	paceLearns  = 2 * paceWeek
+	paceMinutes = int64(paceLearns / time.Minute)
 )
 
 // spendMinute is one account's requests in one minute: their list price,
@@ -346,18 +343,52 @@ func (r *spendRing) merge(other *spendRing) {
 }
 
 // spending is an account's spend at a moment: the list price of its last
-// paceNow, and over its last paceLearns the quota its requests moved and
-// what they cost.
+// paceNow, and over its last week and this one the quota its requests moved
+// and what they cost.
 type spending struct {
 	now, moved, paid float64
 }
 
-func (r *spendRing) at(now time.Time) spending {
+// weekSpend is one week of an account's minutes, counted from its lowest
+// reading. A request that started before a reset carries the old week's
+// reading into the new one, and a week the log holds only part of starts
+// above 0, so the lowest reading is where the week's counted quota and
+// dollars start.
+type weekSpend struct {
+	low, latest  float64
+	read         bool
+	cost, before float64
+}
+
+func (w *weekSpend) add(m spendMinute) {
+	w.cost += m.cost
+	if m.readAt.IsZero() {
+		return
+	}
+	if !w.read || m.used < w.low {
+		w.low, w.before = m.used, w.cost
+	}
+	w.latest, w.read = m.used, true
+}
+
+// count adds the week's quota moved, up to end, and the dollars spent after
+// its lowest reading, as a reading counts the requests up to its own.
+func (w weekSpend) count(s *spending, end float64) {
+	if w.read && end > w.low {
+		s.moved += end - w.low
+		s.paid += w.cost - w.before
+	}
+}
+
+// at is the account's spending at now, for its week that resets at resets
+// and stands at used.
+func (r *spendRing) at(now, resets time.Time, used float64) spending {
 	var s spending
 	last := now.Unix() / 60
 	recent := last - int64(paceNow/time.Minute)
-	var before, pending float64
-	read := false
+	thisWeek := resets.Add(-paceWeek).Unix() / 60
+	lastWeek := resets.Add(-paceLearns).Unix() / 60
+	var before, current weekSpend
 	for minute := last - paceMinutes + 1; minute <= last; minute++ {
 		m := r[minute%paceMinutes]
 		if m.minute != minute {
@@ -366,16 +397,15 @@ func (r *spendRing) at(now time.Time) spending {
 		if minute > recent {
 			s.now += m.cost
 		}
-		pending += m.cost
-		if m.readAt.IsZero() {
-			continue
+		switch {
+		case minute >= thisWeek:
+			current.add(m)
+		case minute >= lastWeek:
+			before.add(m)
 		}
-		if read && before-m.used < resetDrop {
-			s.moved += m.used - before
-			s.paid += pending
-		}
-		before, read, pending = m.used, true, 0
 	}
+	before.count(&s, before.latest)
+	current.count(&s, used)
 	return s
 }
 
@@ -387,8 +417,8 @@ type paceShare struct {
 }
 
 // poolPace is how much faster than its quota lasts the pool spends now, 0 on
-// pace. It is unknown while no account has quota left, or one spends with no
-// quota per dollar learned.
+// pace. It is unknown while no account has quota left, or one spends while no
+// account moved quota in its last week or this one.
 func poolPace(shares []paceShare) *float64 {
 	var pool spending
 	var affordable float64
@@ -406,10 +436,10 @@ func poolPace(shares []paceShare) *float64 {
 			continue
 		}
 		learned := s.spending
-		if learned.moved < learnedEnough || learned.paid <= 0 {
+		if learned.moved <= 0 || learned.paid <= 0 {
 			learned = pool
 		}
-		if learned.moved < learnedEnough || learned.paid <= 0 {
+		if learned.moved <= 0 || learned.paid <= 0 {
 			return nil
 		}
 		perHour += s.now * learned.moved / learned.paid * float64(time.Hour/paceNow)
@@ -431,8 +461,9 @@ func (p *Plugin) Status() Status {
 	spent := map[string]spending{}
 	for _, a := range p.accounts {
 		accounts = append(accounts, *a)
-		if ring := p.history.spend[hashOf(p.salt, a.ID)]; ring != nil {
-			spent[a.ID] = ring.at(now)
+		if ring := p.history.spend[hashOf(p.salt, a.ID)]; ring != nil && a.known {
+			w, _ := a.weekly.Now(now)
+			spent[a.ID] = ring.at(now, w.ResetsAt, w.Used)
 		}
 	}
 	for _, c := range p.codex {
@@ -640,12 +671,12 @@ func (h requestHistory) add(line requestLine, withHour bool) {
 	if withHour && line.Account != "" {
 		h.bucket(line.Account, line.At.Truncate(time.Hour).UTC()).merge(&HourHistory{Requests: 1, Outcomes: map[string]int{line.Outcome: 1}, Tokens: line.Tokens})
 	}
-	agent := line.Agent
+	agent, cache := line.Agent, model.FiveMinuteCache
 	if !line.Subagent {
-		agent = "main"
+		agent, cache = "main", model.HourCache
 	}
 	modelID := model.ModelOf(line.Model, line.Family)
-	cost := model.CostOf(modelID, line.Tokens)
+	cost := model.CostOf(modelID, line.Tokens, cache)
 	at := line.At.In(time.Local)
 	h.day(dayKey{day: at.Format(dayLayout), hour: at.Hour(), account: line.Account, model: modelID, agent: agent, project: line.Project}).
 		merge(&dayUsage{tokens: line.Tokens, cost: cost})

@@ -35,39 +35,49 @@ func (c *Cost) Add(other Cost) {
 	c.CacheWrite += other.CacheWrite
 }
 
-// Price is a model's list price in dollars per million tokens. Cache writes
-// cost the 1-hour rate, the cache Claude Code writes. A model priced by
-// prompt length pays Long on every request whose prompt is over LongAbove.
+// Price is a model's list price in dollars per million tokens. A cache write
+// costs the input price times its cache's rate. A model priced by prompt
+// length pays Long on every request whose prompt is over LongAbove.
 type Price struct {
-	Input, Output, CacheRead, CacheWrite float64
-	LongAbove                            int64
-	Long                                 *Price
+	Input, Output, CacheRead float64
+	LongAbove                int64
+	Long                     *Price
 }
+
+// Cache is how long a request's cache writes last, which sets their rate:
+// Claude Code writes a main session's cache for an hour and a subagent's for
+// 5 minutes.
+type Cache float64
+
+const (
+	FiveMinuteCache Cache = 1.25
+	HourCache       Cache = 2
+)
 
 // prices are Anthropic's list prices, from
 // platform.claude.com/docs/en/about-claude/pricing.
 var prices = map[string]Price{
-	"claude-fable-5-1":  {Input: 10, Output: 50, CacheRead: 0.25, CacheWrite: 20},
-	"claude-mythos-5-1": {Input: 10, Output: 50, CacheRead: 0.25, CacheWrite: 20},
-	"claude-fable-5":    {Input: 10, Output: 50, CacheRead: 1, CacheWrite: 20},
-	"claude-mythos-5":   {Input: 10, Output: 50, CacheRead: 1, CacheWrite: 20},
-	"claude-opus-5-5":   {Input: 4, Output: 20, CacheRead: 0.2, CacheWrite: 8},
-	"claude-opus-5":     {Input: 5, Output: 25, CacheRead: 0.5, CacheWrite: 10},
-	"claude-opus-4-8":   {Input: 5, Output: 25, CacheRead: 0.5, CacheWrite: 10},
-	"claude-opus-4-7":   {Input: 5, Output: 25, CacheRead: 0.5, CacheWrite: 10},
-	"claude-opus-4-6":   {Input: 5, Output: 25, CacheRead: 0.5, CacheWrite: 10},
-	"claude-opus-4-5":   {Input: 5, Output: 25, CacheRead: 0.5, CacheWrite: 10},
-	"claude-opus-4-1":   {Input: 15, Output: 75, CacheRead: 1.5, CacheWrite: 30},
-	"claude-opus-4":     {Input: 15, Output: 75, CacheRead: 1.5, CacheWrite: 30},
-	"claude-sonnet-5-5": {Input: 2, Output: 10, CacheRead: 0.1, CacheWrite: 4},
-	"claude-sonnet-5":   {Input: 2, Output: 10, CacheRead: 0.2, CacheWrite: 4},
-	"claude-sonnet-4-6": {Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 6},
-	"claude-sonnet-4-5": {Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 6},
-	"claude-sonnet-4":   {Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 6},
-	"claude-haiku-5-5": {Input: 0.1, Output: 0.5, CacheRead: 0.01, CacheWrite: 0.2,
-		LongAbove: 100_000, Long: &Price{Input: 0.5, Output: 2.5, CacheRead: 0.05, CacheWrite: 1}},
-	"claude-haiku-4-5": {Input: 1, Output: 5, CacheRead: 0.1, CacheWrite: 2},
-	"claude-3-5-haiku": {Input: 0.8, Output: 4, CacheRead: 0.08, CacheWrite: 1.6},
+	"claude-fable-5-1":  {Input: 10, Output: 50, CacheRead: 0.25},
+	"claude-mythos-5-1": {Input: 10, Output: 50, CacheRead: 0.25},
+	"claude-fable-5":    {Input: 10, Output: 50, CacheRead: 1},
+	"claude-mythos-5":   {Input: 10, Output: 50, CacheRead: 1},
+	"claude-opus-5-5":   {Input: 4, Output: 20, CacheRead: 0.2},
+	"claude-opus-5":     {Input: 5, Output: 25, CacheRead: 0.5},
+	"claude-opus-4-8":   {Input: 5, Output: 25, CacheRead: 0.5},
+	"claude-opus-4-7":   {Input: 5, Output: 25, CacheRead: 0.5},
+	"claude-opus-4-6":   {Input: 5, Output: 25, CacheRead: 0.5},
+	"claude-opus-4-5":   {Input: 5, Output: 25, CacheRead: 0.5},
+	"claude-opus-4-1":   {Input: 15, Output: 75, CacheRead: 1.5},
+	"claude-opus-4":     {Input: 15, Output: 75, CacheRead: 1.5},
+	"claude-sonnet-5-5": {Input: 2, Output: 10, CacheRead: 0.1},
+	"claude-sonnet-5":   {Input: 2, Output: 10, CacheRead: 0.2},
+	"claude-sonnet-4-6": {Input: 3, Output: 15, CacheRead: 0.3},
+	"claude-sonnet-4-5": {Input: 3, Output: 15, CacheRead: 0.3},
+	"claude-sonnet-4":   {Input: 3, Output: 15, CacheRead: 0.3},
+	"claude-haiku-5-5": {Input: 0.1, Output: 0.5, CacheRead: 0.01,
+		LongAbove: 100_000, Long: &Price{Input: 0.5, Output: 2.5, CacheRead: 0.05}},
+	"claude-haiku-4-5": {Input: 1, Output: 5, CacheRead: 0.1},
+	"claude-3-5-haiku": {Input: 0.8, Output: 4, CacheRead: 0.08},
 }
 
 // newest is each family's newest model, which prices a request logged before
@@ -117,9 +127,9 @@ func ModelOf(modelID string, family Family) string {
 	return newest[family]
 }
 
-// CostOf prices one request's tokens. A model with no list price costs
-// nothing.
-func CostOf(modelID string, t Tokens) Cost {
+// CostOf prices one request's tokens, its cache writes at the rate of the
+// cache they go to. A model with no list price costs nothing.
+func CostOf(modelID string, t Tokens, cache Cache) Cost {
 	p, ok := prices[Canonical(modelID)]
 	if !ok {
 		return Cost{}
@@ -132,6 +142,6 @@ func CostOf(modelID string, t Tokens) Cost {
 		Input:      float64(t.Input) * p.Input * perMillion,
 		Output:     float64(t.Output) * p.Output * perMillion,
 		CacheRead:  float64(t.CacheRead) * p.CacheRead * perMillion,
-		CacheWrite: float64(t.CacheWrite) * p.CacheWrite * perMillion,
+		CacheWrite: float64(t.CacheWrite) * p.Input * float64(cache) * perMillion,
 	}
 }

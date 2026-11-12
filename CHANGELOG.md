@@ -2,6 +2,15 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.10.2]
+
+### Changed
+- The pool's pace learns each account's quota per dollar from its last week and this one, where it took the last 3 days. Anthropic fills accounts on the same plan at different rates, up to half again as fast for the same requests, so each account counts at its own. A pace shows from the first request after days idle or after every week reset, where it needed a tenth of a week's quota moved in the last 3 days, and a week the log holds only part of counts from its first reading.
+- oneclaude runs on cmod 6.0.2. `[Open dashboard]`, `[Add account]` and `[Sign in]` are buttons that open their page on your own device, and over ssh copy the link.
+
+### Fixed
+- Usage prices a subagent's cache writes at the 5-minute rate, the cache Claude Code writes them to, where it charged the 1-hour rate. Subagents spend most of each account's dollars, so Usage, `[Optimize usage]` and the pace overstated them.
+
 ## [0.10.1]
 
 ### Changed
