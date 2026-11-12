@@ -311,6 +311,34 @@ test('/accounts puts each account\'s trouble on its row in a word or two, with t
   expect(pane).toContain('throttled 12m ago')
 })
 
+// ranOn answers uname with system and records each program the mod runs.
+const ranOn = (system: string, ran: (readonly string[])[]) => async (argv: readonly string[]) => (ran.push(argv), { exitCode: 0, stdout: argv[0] === 'uname' ? `${system}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
+
+test('[Sign in], [Add account] and [Open dashboard] open the proxy\'s pages in the browser', async () => {
+  const tested = answering({ text: JSON.stringify({ ...status, accounts: status.accounts.map((account) => (account.name === 'jarvis' ? { ...account, signed_out: true } : account)) }) })
+  const ran: (readonly string[])[] = []
+  tested.fakes.process.run = ranOn('Darwin', ran)
+  await tested.type('/accounts')
+  await tested.shown.page.press('sign-in-jarvis')
+  await tested.shown.page.press('add-account')
+  await tested.shown.page.press('open-dashboard')
+  await tested.settle()
+  expect(ran.filter((argv) => argv[0] === 'open')).toEqual([
+    ['open', `${LOCAL_POOL}/management.html#/oauth`],
+    ['open', `${LOCAL_POOL}/management.html#/oauth`],
+    ['open', `${LOCAL_POOL}/management.html#/plugin-pages/oneclaude/0`],
+  ])
+})
+
+test('[Sign in] copies the login page\'s link where the computer has no browser to open', async () => {
+  const tested = answering({ text: JSON.stringify({ ...status, accounts: status.accounts.map((account) => (account.name === 'jarvis' ? { ...account, signed_out: true } : account)) }) })
+  tested.fakes.process.run = ranOn('Linux', [])
+  await tested.type('/accounts')
+  await tested.shown.page.press('sign-in-jarvis')
+  await tested.settle()
+  expect(tested.calls.filter((call) => call.call === 'ui.copy').map((call) => call.args)).toEqual([[{ text: `${LOCAL_POOL}/management.html#/oauth`, surface: 'terminal' }]])
+})
+
 test('[Retry] asks the plugin to retry the account, with oneclaude\'s key, and the row clears at the blocks change it counts', async () => {
   const asked: { url: string; method?: string; key?: string; body?: string }[] = []
   const { tested, pool } = pooled({ ...following, reads_blocks: true }, {

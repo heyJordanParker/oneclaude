@@ -121,6 +121,8 @@ A refill time reads in days from 2 days out, such as `4d`, in days and hours und
 
 In a narrow Sidebar, each row puts its details on a second line under the bar, as above. A wide Sidebar keeps each row on one line.
 
+`[Sign in]`, `[Add account]` and `[Open dashboard]` open their page in your browser, in every terminal. In a session over ssh, or on a Linux machine with no display, they copy the page's link instead and say so, because no browser there can show it. Paste the link in your own browser.
+
 ## Usage
 
 The Usage table adds up every request the pool answered, from oneclaude's request log. The first time oneclaude loads, it adds the requests to Claude that Claude Code's transcripts record from the 90 days before, so the table covers the time before you installed it, as far back as Claude Code keeps transcripts. Claude Code deletes them after 30 days unless its `cleanupPeriodDays` setting says otherwise. The import counts each response once, though Claude Code writes a line for each of its content blocks, and leaves out requests to other models, such as GPT. An import by oneclaude 0.9.2 or earlier counted a response once per content block and kept those requests, so the first load of a later version takes them out of the request log, once.
