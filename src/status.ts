@@ -1,5 +1,5 @@
-import type { Color, HttpResponse } from 'claude-code'
-import { fs, http, settings, type Mod } from '../node_modules/@cmodjs/core/mod.js'
+import { fs, http, settings, type HttpResponse, type Mod } from '../node_modules/@cmodjs/core/mod.js'
+import type { Color } from '../node_modules/@cmodjs/core/ui/elements.js'
 import type { OneclaudeState } from './state.js'
 
 // LOCAL_POOL is the pool oneclaude installs on this machine, where it points

@@ -1,6 +1,5 @@
-import type { RenderElement } from 'claude-code'
 import { Prompt, sessions, type Mod, type PageInit } from '../../node_modules/@cmodjs/core/mod.js'
-import { Box, Button, Link, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
+import { Box, Button, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
@@ -28,7 +27,7 @@ export async function showUsage(mod: Mod<OneclaudeState>, change: Partial<UsageV
 // how full it is, then what needs the person on it. A Sidebar too narrow for
 // every row on one line puts each row's facts but the first on a second line,
 // under the bar.
-type Row = { readonly key?: string; readonly name: string; readonly shown?: Shown; readonly facts: readonly Fact[]; readonly color?: string; readonly trouble?: RenderElement }
+type Row = { readonly key?: string; readonly name: string; readonly shown?: Shown; readonly facts: readonly Fact[]; readonly color?: string; readonly trouble?: JSX.Element }
 
 const LOG_SHOWN = 10
 
@@ -46,7 +45,7 @@ export const accountsPage: PageInit<OneclaudeState> = {
     const rows = [combined, ...claude, ...codex]
     const width = Math.max(...rows.map((row) => row.name.length))
     const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_CELLS + 2 + GAP + factText(row.facts).length > columns)
-    const draw = (row: Row): RenderElement => <RowView row={row} width={width} isNarrow={isNarrow} />
+    const draw = (row: Row): JSX.Element => <RowView row={row} width={width} isNarrow={isNarrow} />
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
         {problem === null ? null : <Box paddingX={2}><Text color="warning">{warningOf(problem, status)}</Text></Box>}
@@ -60,8 +59,8 @@ export const accountsPage: PageInit<OneclaudeState> = {
         {mod.state.memory.table === null ? null : <ChartSection table={mod.state.memory.table} view={mod.state.memory.usage} />}
         {status.log.length === 0 ? null : <LogSection log={status.log} />}
         <Box paddingX={2} gap={2}>
-          <Text dimColor>[<Link href={dashboardUrl(mod.state.memory.pool)}>Open dashboard</Link>]</Text>
-          <Text dimColor>[<Link href={addAccountUrl(mod.state.memory.pool)}>Add account</Link>]</Text>
+          <Button key="open-dashboard" plain dimColor href={dashboardUrl(mod.state.memory.pool)}>[Open dashboard]</Button>
+          <Button key="add-account" plain dimColor href={addAccountUrl(mod.state.memory.pool)}>[Add account]</Button>
         </Box>
       </Box>
     )
@@ -70,7 +69,7 @@ export const accountsPage: PageInit<OneclaudeState> = {
 
 // A Section is a bold title, an empty line, then its rows, one empty line
 // apart, because full-height bars on adjoining lines touch.
-function Section({ key, title, children }: { readonly key?: string; readonly title: string; readonly children: readonly RenderElement[] }): RenderElement {
+function Section({ key, title, children }: { readonly key?: string; readonly title: string; readonly children: readonly JSX.Element[] }): JSX.Element {
   return (
     <Box key={key} flexDirection="column" gap={1} paddingX={2}>
       <Text bold>{title}</Text>
@@ -79,7 +78,7 @@ function Section({ key, title, children }: { readonly key?: string; readonly tit
   )
 }
 
-function ResetsSection({ accounts, now, width, columns }: { readonly accounts: readonly Account[]; readonly now: string; readonly width: number; readonly columns: number }): RenderElement | null {
+function ResetsSection({ accounts, now, width, columns }: { readonly accounts: readonly Account[]; readonly now: string; readonly width: number; readonly columns: number }): JSX.Element | null {
   const calendar = calendarOf(accounts, now, columns - width - GAP)
   if (calendar.lanes.length === 0) return null
   return <Section title="Weekly resets">{[<WeeklyResets calendar={calendar} width={width} />]}</Section>
@@ -87,7 +86,7 @@ function ResetsSection({ accounts, now, width, columns }: { readonly accounts: r
 
 // RowView draws a row, and its trouble on a line of its own under the bar,
 // or after the name of a row with no bar.
-function RowView({ row, width, isNarrow }: { readonly row: Row; readonly width: number; readonly isNarrow: boolean }): RenderElement {
+function RowView({ row, width, isNarrow }: { readonly row: Row; readonly width: number; readonly isNarrow: boolean }): JSX.Element {
   const name = <Box flexShrink={0}><Text>{row.name.padEnd(width)}</Text></Box>
   const trouble = row.trouble === undefined ? null : <Box paddingLeft={width + GAP}>{row.trouble}</Box>
   if (row.shown === undefined) {
@@ -153,7 +152,7 @@ function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, n
     return { key, name: account.name, facts: [], trouble: <TroubleView text="refused"><RetryButton mod={mod} account={account} /></TroubleView> }
   }
   if (isSignedOut(account, blocks, now)) {
-    return { key, name: account.name, facts: [], trouble: <TroubleView text="signed out"><Text dimColor>[<Link href={addAccountUrl(mod.state.memory.pool)}>Sign in</Link>]</Text></TroubleView> }
+    return { key, name: account.name, facts: [], trouble: <TroubleView text="signed out"><Button key={`sign-in-${account.name}`} plain dimColor href={addAccountUrl(mod.state.memory.pool)}>[Sign in]</Button></TroubleView> }
   }
   const last = blocksOf(account, blocks, now).map((block) => block.until).sort().at(-1)
   const trouble = last === undefined ? undefined : <TroubleView text={`blocked until ${momentOf(last, now)}`}><RetryButton mod={mod} account={account} /></TroubleView>
@@ -174,7 +173,7 @@ function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, n
   }
 }
 
-function TroubleView({ text, children }: { readonly text: string; readonly children: RenderElement }): RenderElement {
+function TroubleView({ text, children }: { readonly text: string; readonly children: JSX.Element }): JSX.Element {
   return (
     <Box gap={2}>
       <Text color="warning">{text}</Text>
@@ -183,7 +182,7 @@ function TroubleView({ text, children }: { readonly text: string; readonly child
   )
 }
 
-function RetryButton({ mod, account }: { readonly mod: Mod<OneclaudeState>; readonly account: Account }): RenderElement {
+function RetryButton({ mod, account }: { readonly mod: Mod<OneclaudeState>; readonly account: Account }): JSX.Element {
   const press = async (): Promise<void> => {
     const key = await keyOf(mod)
     if (key === undefined || !(await retry(mod, account, key))) mod.toast.error(`oneclaude could not retry ${account.name}`)
@@ -215,7 +214,7 @@ function usageFacts(account: Account | Codex, now: string): Fact[] {
 
 // Choices is one row of the Usage controls: its name, then a button per
 // choice, the chosen one bright in brackets.
-function Choices<Choice extends string>({ name, choices, chosen, onChoose }: { readonly name: string; readonly choices: readonly (readonly [Choice, string])[]; readonly chosen: Choice; readonly onChoose: (choice: Choice) => void }): RenderElement {
+function Choices<Choice extends string>({ name, choices, chosen, onChoose }: { readonly name: string; readonly choices: readonly (readonly [Choice, string])[]; readonly chosen: Choice; readonly onChoose: (choice: Choice) => void }): JSX.Element {
   return (
     <Box>
       <Box flexShrink={0}><Text dimColor>{name.padEnd(CONTROL)}</Text></Box>
@@ -233,7 +232,7 @@ function Choices<Choice extends string>({ name, choices, chosen, onChoose }: { r
 // TableRow draws one line of the Usage table. Total, the last column, is in
 // Claude's color, and a cache share under 90% in the warning color, so the
 // eye lands on what each row costs and on where it starts cold.
-function TableRow({ line, isHeader = false, isTotal = false }: { readonly line: TableLine; readonly isHeader?: boolean; readonly isTotal?: boolean }): RenderElement {
+function TableRow({ line, isHeader = false, isTotal = false }: { readonly line: TableLine; readonly isHeader?: boolean; readonly isTotal?: boolean }): JSX.Element {
   const last = line.cells.length - 1
   const cached = last - 2
   const cells = line.cells.map((cell, index) => {
@@ -246,7 +245,7 @@ function TableRow({ line, isHeader = false, isTotal = false }: { readonly line: 
   return <Text dimColor={isHeader} bold={isTotal}>{cells}</Text>
 }
 
-function UsageSection({ mod, table, view, columns }: { readonly mod: Mod<OneclaudeState>; readonly table: UsageTable | null; readonly view: UsageView; readonly columns: number }): RenderElement {
+function UsageSection({ mod, table, view, columns }: { readonly mod: Mod<OneclaudeState>; readonly table: UsageTable | null; readonly view: UsageView; readonly columns: number }): JSX.Element {
   if (table === null) return <Section title="Usage">{[<Text dimColor>Reading the request log</Text>]}</Section>
   const wide = usageLayout(table, view.units, true)
   const layout = wide.width <= columns ? wide : usageLayout(table, view.units, false)
@@ -274,7 +273,7 @@ function UsageSection({ mod, table, view, columns }: { readonly mod: Mod<Oneclau
 // Optimize asks the person's agent to optimize their usage. It asks first,
 // in its own place, because the prompt becomes a turn in the conversation
 // they are in.
-function Optimize({ mod }: { readonly mod: Mod<OneclaudeState> }): RenderElement {
+function Optimize({ mod }: { readonly mod: Mod<OneclaudeState> }): JSX.Element {
   if (!mod.state.memory.isConfirming) {
     return <Box><Button key="optimize" plain dimColor onPress={() => { mod.state.memory.isConfirming = true }}>[Optimize usage]</Button></Box>
   }
@@ -299,7 +298,7 @@ function Optimize({ mod }: { readonly mod: Mod<OneclaudeState> }): RenderElement
   )
 }
 
-function ChartSection({ table, view }: { readonly table: UsageTable; readonly view: UsageView }): RenderElement {
+function ChartSection({ table, view }: { readonly table: UsageTable; readonly view: UsageView }): JSX.Element {
   const chart = dailyChart(table, view.units)
   const pad = ' '.repeat(chart.peak.length)
   const span = chart.rows[0]!.length * 2 - 1
@@ -327,7 +326,7 @@ function ChartSection({ table, view }: { readonly table: UsageTable; readonly vi
 
 // LogSection is the last 24 hours of the log, newest first: the time, the
 // level, and what happened. The dashboard holds the rest of the week.
-function LogSection({ log }: { readonly log: readonly LogEntry[] }): RenderElement {
+function LogSection({ log }: { readonly log: readonly LogEntry[] }): JSX.Element {
   const shown = [...log].reverse().slice(0, LOG_SHOWN)
   return (
     <Section key="log" title="Log">
