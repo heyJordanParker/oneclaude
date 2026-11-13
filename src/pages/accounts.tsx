@@ -4,7 +4,7 @@ import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
-import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, isSignedOut, keyOf, momentOf, paceOf, percent, plural, POOL, PROBLEMS, retry, rowKey, until, warningOf, type Account, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
+import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, isSignedOut, momentOf, paceOf, percent, plural, POOL, PROBLEMS, retry, rowKey, until, warningOf, type Account, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
 import { BREAKDOWNS, dailyChart, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
@@ -184,8 +184,8 @@ function TroubleView({ text, children }: { readonly text: string; readonly child
 
 function RetryButton({ mod, account }: { readonly mod: Mod<OneclaudeState>; readonly account: Account }): JSX.Element {
   const press = async (): Promise<void> => {
-    const key = await keyOf(mod)
-    if (key === undefined || !(await retry(mod, account, key))) mod.toast.error(`oneclaude could not retry ${account.name}`)
+    const failure = await retry(mod, account)
+    if (failure !== undefined) mod.toast.error(`Could not clear ${account.name}'s blocks`, { description: failure })
   }
   return <Button key={`retry-${account.name}`} plain dimColor onPress={press}>[Retry]</Button>
 }

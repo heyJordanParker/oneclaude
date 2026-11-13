@@ -2,6 +2,11 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.10.3]
+
+### Fixed
+- When the pool clears nothing, `[Retry]` shows `Could not clear <account>'s blocks` with the cause, where it said only `oneclaude could not retry <account>`: no response from the pool, `401 Unauthorized` for a rejected management key, `404 Not Found` with the pool's oneclaude version when the session runs another version, or the proxy's status and error. A session open since before 0.10.1 still shows `[Unblock]`, which the pool no longer answers, until you press Reload on cmod's `Plugins changed` toast.
+
 ## [0.10.2]
 
 ### Changed
