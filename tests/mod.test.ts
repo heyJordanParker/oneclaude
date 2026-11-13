@@ -361,6 +361,28 @@ test('[Retry] asks the plugin to retry the account, with oneclaude\'s key, and t
   expect((await tested.shown.page.lines()).join('\n')).not.toContain('[Retry]')
 })
 
+test('[Retry] names the cause when the pool clears no blocks: another oneclaude version, no answer, or the proxy\'s error', async () => {
+  const troubled = { ...status, version: '0.10.0', accounts: status.accounts.map((account) => (account.name === 'turing' ? { ...account, refused: 'OAuth authentication is currently not allowed for this organization.' } : account)) }
+  const pressed = async (answer: HttpResponse | Error) => {
+    const tested = testMod(oneclaude, { files: stored('oneclaude') })
+    tested.fakes.http.fetch = async (url) => {
+      if (url.endsWith('/retry')) {
+        if (answer instanceof Error) throw answer
+        return answer
+      }
+      return { status: 200, ok: true, headers: {}, text: url.endsWith('/auth-files') ? '{"files":[]}' : JSON.stringify(troubled) }
+    }
+    await tested.type('/accounts')
+    await tested.shown.page.press('retry-turing')
+    await tested.settle()
+    return tested.shown.toasts.filter((toast) => toast.type === 'error').map(({ message, description }) => ({ message, description }))
+  }
+  const message = "Could not clear turing's blocks"
+  expect(await pressed({ status: 404, ok: false, headers: {}, text: '' })).toEqual([{ message, description: '404 Not Found: the pool runs oneclaude 0.10.0. Reload this session.' }])
+  expect(await pressed(new Error('connection refused'))).toEqual([{ message, description: `${LOCAL_POOL} did not respond.` }])
+  expect(await pressed({ status: 502, ok: false, headers: {}, text: '{"error":"auth not found"}' })).toEqual([{ message, description: '502: auth not found' }])
+})
+
 // sentKeys starts the mod holding the stored key, if any, against a pool
 // that answers the management API with answer, and answers the keys the mod
 // sent to the management API, then what the key file holds.

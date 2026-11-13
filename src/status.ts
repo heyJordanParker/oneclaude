@@ -225,10 +225,30 @@ export async function sharedBlocks(mod: Mod<OneclaudeState>, change: number | un
 }
 
 // retry asks the plugin to clear every block on the account and ask Anthropic
-// about it once, and says whether it did.
-export async function retry(mod: Mod<OneclaudeState>, account: Account, key: string): Promise<boolean> {
+// about it once, and returns the cause when the pool cleared nothing, or
+// undefined once it did. The proxy answers a route no plugin serves with an
+// empty 404, as when the pool and this session run oneclaude versions that
+// name the route differently.
+export async function retry(mod: Mod<OneclaudeState>, account: Account): Promise<string | undefined> {
+  const pool = mod.state.memory.pool
+  const key = await keyOf(mod)
+  if (key === undefined) return 'No management key. Enter it in the Install oneclaude tab.'
   const response = await manage(mod, key, '/plugins/oneclaude/retry', { method: 'POST', body: JSON.stringify({ auth_index: account.auth_index }) })
-  return response?.ok === true
+  if (response === undefined) return `${pool} did not respond.`
+  if (response.ok) return undefined
+  if (response.status === 401) return '401 Unauthorized: the pool rejected the management key. Enter it in the Install oneclaude tab.'
+  if (response.status === 404 && response.text.trim() === '') return `404 Not Found: the pool runs oneclaude ${mod.state.memory.reading?.status.version ?? 'of another version'}. Reload this session.`
+  return `${response.status}: ${errorOf(response.text)}`
+}
+
+// errorOf is the error a management answer holds, or its whole text.
+function errorOf(text: string): string {
+  try {
+    const error = (JSON.parse(text) as { readonly error?: unknown }).error
+    return typeof error === 'string' ? error : text
+  } catch {
+    return text
+  }
 }
 
 // A rate limit's block is a throttle, or a spent week, which the account's row
