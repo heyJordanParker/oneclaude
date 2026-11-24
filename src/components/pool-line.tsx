@@ -60,7 +60,7 @@ export function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble 
           </Box>
         ))}
         <Box flexShrink={0}>
-          <Button key="accounts" plain dimColor onPress={onToggle}>{isOpen ? '[-]' : '[+]'}</Button>
+          <Button key="accounts" dimColor onPress={onToggle} label={isOpen ? '-' : '+'} />
         </Box>
       </Box>
     </Box>

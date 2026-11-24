@@ -1,49 +1,9771 @@
-var Wc=/^[A-Za-z][A-Za-z0-9_]{0,63}$/;var Hc=/^(?:(?:ctrl|alt|shift|meta)\+){1,2}(?:[a-z0-9]|f(?:[1-9]|1[0-2])|tab|enter|escape|space|backspace|delete|up|down|left|right|home|end|pageup|pagedown|[`\-=[\]\\;',./])$/;var ds=["ctrl","alt","shift","meta"];function zc(e){if(typeof e!=="string"||!Hc.test(e))return false;const t=e.split("+").slice(0,-1);return t.every((n,o)=>o===0||ds.indexOf(n)>ds.indexOf(t[o-1]))}function En(e,t){const n=new Map;for(const[o,s]of Object.entries(t)){const r=`${e}: hotkeys.${o}`;if(!Wc.test(o))throw new Error(`${r} is not a hotkey name. Use letters, digits, and _, starting with a letter.`);if(s.title.trim()==="")throw new Error(`${r} needs a title, the label Settings shows beside its combo.`);if(s.default===undefined)continue;if(!zc(s.default))throw new Error(`${r} defaults to "${String(s.default)}", which is not a combo. Give one or two of ctrl, alt, shift, meta in that order, then a key, such as "ctrl+q" or "ctrl+shift+k".`);const i=n.get(s.default);if(i!==undefined)throw new Error(`${r} defaults to ${s.default}, which hotkeys.${i} has too. Give each hotkey its own combo.`);n.set(s.default,o)}return t}function lt(e){if(e.length<=1)return e.join("");return`${e.slice(0,-1).join(", ")} and ${e.at(-1)}`}function _n(e){return e.split(`
-`).find((t)=>t.trim()!=="")?.trim()??""}function re(e){return e instanceof Error?e.message:String(e)}function Je(e,t){const n=e===null?"was stopped by a signal":`exited ${e}`;const o=t.trim().replace(/[.!?]+$/,"");return o?`${n}: ${o}`:n}var Gc=["network","run","files","config"];var ps=["conversation","prompt","model","tasks","tools","approve"];var ls=[...Gc,...ps];var Jc=/^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$/;var Kc=/^[A-Za-z0-9][A-Za-z0-9._+-]*$/;var Xc=/^\d+\.\d+\.\d+$/;var Vc=/^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z0-9_@-]+)*$/;var qc={network:'a host alone, such as "api.github.com", or a socket path, such as "/var/run/docker.sock"',run:`a program's command, such as "gh"`,files:'a path that starts with ~/ or /, such as "~/.zshrc"',config:`a Claude Code setting's name, or a key path inside one, such as "cleanupPeriodDays" or "env.ANTHROPIC_BASE_URL"`};var Pn=/^[A-Za-z0-9][A-Za-z0-9._-]*$/;function nn(e){const t=e["XDG_DATA_HOME"];const n=e["HOME"];if(t)return`${t}/cmod`;if(!n)throw new Error("Neither XDG_DATA_HOME nor HOME is set, so the cmod store has no folder. Set HOME.");return`${n}/.local/share/cmod`}function Rn(e,t){return`${e}/records/${$t(t)}.json`}function _o(e,t,n){return`${e}/bin/${$t(t)}/${n}/${t}`}function ms(e,t){return e.program!==null&&(t===undefined||t>Date.parse(e.installedAt))}async function hs(e,t){if(!await e.exists(`${t}/programs/cmod`))return;const n=(await e.list(`${t}/bin/cmod`)).filter((o)=>Xc.test(o)).toSorted((o,s)=>In(o,s)?-1:1);for(const o of n)if(await e.exists(_o(t,"cmod",o)))return o;return}function Po(e,t){return`${e}/data/${$t(t)}`}function Zc(e,t){const n=e["CLAUDE_CONFIG_DIR"];const o=e["HOME"];if(n)return`${n}/cmods/${$t(t)}`;if(!o)throw new Error(`Neither CLAUDE_CONFIG_DIR nor HOME is set, so ${t} has no config folder. Set HOME.`);return`${o}/.claude/cmods/${$t(t)}`}function Tn(e,t,n){return[{tier:"system",folder:Zc(e,t)},{tier:"project",folder:`${n}/.claude/cmods/${$t(t)}`}]}function $t(e){if(!Pn.test(e)||e.includes("..")){throw new Error(`"${e}" is not a plugin name: use letters, digits, ".", "_", and "-", starting with a letter or digit.`)}return e}async function gs(e,t,n){const o=Rn(t,n);const s=await e(o);if(s===undefined)return;return Qc(s,o)}function Qc(e,t){const n=`Delete ${t} and run cmod setup on the plugin again.`;let o;try{o=JSON.parse(e)}catch(l){throw new Error(`${t} is not JSON (${re(l)}). ${n}`)}if(!Te(o))throw new Error(`${t} is not a cmod install record. ${n}`);for(const l of["name","version","root","installedAt","scriptsSha256"]){if(typeof o[l]!=="string")throw new Error(`${t} has no "${l}" text. ${n}`)}const s=o["uninstall"];if(s!==null&&typeof s!=="string")throw new Error(`${t} has an "uninstall" that is neither a path nor null. ${n}`);const r=o["program"];if(r!==null&&typeof r!=="string")throw new Error(`${t} has a "program" that is neither a command name nor null. ${n}`);const i=o["keys"]??{};if(!Te(i)||Object.values(i).some((l)=>typeof l!=="string"))throw new Error(`${t} has "keys" that are not key bindings. ${n}`);const c=o["permissions"]??null;if(c!==null&&!fs(c))throw new Error(`${t} has "permissions" that are not a list of permissions. ${n}`);const d=o["grantedOnUpdate"]??[];if(!fs(d))throw new Error(`${t} has a "grantedOnUpdate" that is not a list of permissions. ${n}`);return{name:o["name"],version:o["version"],root:o["root"],installedAt:o["installedAt"],scriptsSha256:o["scriptsSha256"],uninstall:s,program:r,keys:i,permissions:c,grantedOnUpdate:d}}function ys(e){if(e===undefined)return;if(!Te(e))throw new Error("package.json is not a JSON object.");const t=e["cmod"];if(t===undefined)return;if(!Te(t))throw new Error('package.json has a "cmod" key that is not an object. Write "cmod": { "install": "./setup/install.sh", "uninstall": "./setup/uninstall.sh" }.');const n=t["program"];if(n!==undefined&&(typeof n!=="string"||!Pn.test(n)))throw new Error(`package.json "cmod.program" must be the program's command, such as "hello".`);const o=t["approve"];if(o!==undefined&&o!==true)throw new Error(`package.json "cmod.approve" is ${JSON.stringify(o)}. Write "approve": true, or leave it out.`);const s=Yc(t);return{...us(t,"install"),...us(t,"uninstall"),...n===undefined?{}:{program:n},...ed(t["hotkeys"]),...o===true||s.includes("approve")?{approve:true}:{},...s.length===0?{}:{permissions:s}}}function Yc(e){const t=e["permissions"];if(t===undefined)return[];const n='package.json "cmod.permissions"';if(!Te(t))throw new Error(`${n} must be an object, such as { "network": ["api.github.com"], "prompt": true }.`);const o=[];for(const[s,r]of Object.entries(t)){if(!ls.includes(s))throw new Error(`${n} names "${s}", which is not a permission. Use ${lt(ls.map((c)=>`"${c}"`))}.`);if(ps.includes(s)){if(r!==true)throw new Error(`${n} sets "${s}" to ${JSON.stringify(r)}. Write "${s}": true, or leave it out.`);o.push(s);continue}if(s==="run"&&r==="*"){o.push("run:*");continue}const i={network:'["api.github.com"]',run:'["gh"], or "*" for any program',files:'["~/.zshrc"]',config:'["cleanupPeriodDays"]'}[s];if(!Array.isArray(r)||r.length===0||!r.every((c)=>typeof c==="string"))throw new Error(`${n} sets "${s}" to ${JSON.stringify(r)}. Write a list, such as "${s}": ${i}.`);for(const c of r){const d=/^(~\/|\/)/.test(c)&&!c.split("/").includes("..");const l={network:Jc.test(c)||d,run:Kc.test(c),files:d,config:Vc.test(c)}[s];if(l!==true)throw new Error(`${n} lists "${c}" under "${s}". Write ${qc[s]}.`);o.push(`${s}:${c}`)}}return o}var Ro="Install it in Plugins.";var It="Set it in /config, where Claude Code keeps it in your keychain.";var ws="cmod:pendingSteps";var xs="cmod:finishSteps";function $s(e,t){return`${e}/services/${$t(t)}`}function bs(e,t){if(e.browser==="true")return;if(e.browser)return[e.browser,t];if(e.sshConnection)return;if(e.os==="darwin")return["open",t];return e.display||e.waylandDisplay?["xdg-open",t]:undefined}function ed(e){if(e===undefined)return{};const t="cmod check writes it from the hotkeys defineMod declares, so run cmod check.";if(!Te(e)||!Object.values(e).every((n)=>Te(n)&&typeof n["title"]==="string"&&(n["default"]===undefined||typeof n["default"]==="string")))throw new Error(`package.json "cmod.hotkeys" is not a map of hotkeys to their title and optional default combo. ${t}`);return{hotkeys:En('package.json "cmod"',e)}}var on="6.0.2";var Lt="6.0.0";function Mn(e,t){return`${e}--${t}`}function ks(e){const t=Te(e)&&Array.isArray(e["bindings"])?e["bindings"]:[];const n=new Map;for(const o of t){if(!Te(o)||o["context"]!=="Chat"||!Te(o["bindings"]))continue;for(const[s,r]of Object.entries(o["bindings"]))if(typeof r==="string"&&r.startsWith("command:"))n.set(r.slice("command:".length),s)}return n}function us(e,t){const n=e[t];if(n===undefined)return{};if(typeof n!=="string"||n.trim()==="")throw new Error(`package.json "cmod.${t}" must be a command, such as "./setup/${t}.sh".`);if(/[\n\t]/.test(n))throw new Error(`package.json "cmod.${t}" holds a line break or a tab. Write one command, such as "./setup/${t}.sh".`);const o=vs(n).find((s)=>Ss(s)===".");if(o!==undefined)throw new Error(`package.json "cmod.${t}" names ${o}, a script at the plugin root. Move it into a folder, such as ./setup/${t}.sh: cmod runs the steps again whenever anything in a script's folder changes.`);return{[t]:n}}function vs(e){const t=e.split(/[\s;&|()<>]+/).map((n)=>n.replace(/^['"]|['"]$/g,"")).filter((n)=>n.includes("/")&&!n.startsWith("-")&&!n.startsWith("/")&&!n.startsWith("~")&&!n.startsWith("$")&&!n.includes("=")&&!n.split("/").includes(".."));return[...new Set(t)]}function Ss(e){return e.slice(0,e.lastIndexOf("/"))}async function Os(e,t){const n=new Set;for(const r of["install","uninstall"]){const i=e[r];if(i===undefined)continue;const c=[];for(const d of vs(i)){if(await t.read(d)!==undefined)c.push(Ss(d))}if(c.length===0)throw new Error(`package.json "cmod.${r}" runs "${i}", which names no script file in the mod, so cmod cannot tell when what it runs changes. Put the commands in a script, such as ./setup/${r}.sh.`);for(const d of c)n.add(d)}let o=[e.install??"",e.uninstall??"",e.program??"",...e.hotkeys===undefined?[]:[JSON.stringify(Object.entries(e.hotkeys).sort())],...e.permissions===undefined?[]:[JSON.stringify([...e.permissions].sort())]].join("\x00");for(const r of[...n].sort()){for(const i of(await t.list(r)).sort()){const c=`${r}/${i}`;const d=await t.read(c);if(d===undefined)throw new Error(`${c} links to a folder or to nothing, so cmod cannot tell when it changes. Point the link at a file, or delete it.`);o+=`\x00${c}\x00${d}`}}const s=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(o));return[...new Uint8Array(s)].map((r)=>r.toString(16).padStart(2,"0")).join("")}function jn(e){const t=/^progress (\d+) (\d+)(?: (.*))?$/.exec(e);if(t!==null)return{type:"progress",done:Number(t[1]),total:Number(t[2]),label:t[3]??""};const n=/^needs-consent (\S+)\t([^\t]*)\t([^\t]*)(?:\t(.*))?$/.exec(e);if(n!==null){const[c="",...d]=(n[4]??"").split("\t");return{type:"needs-consent",sha256:n[1],install:n[2],uninstall:n[3],hotkeys:c,permissions:d.filter((l)=>l!=="")}}const o=/^done (\S+)(?: (\S+))?$/.exec(e);if(o!==null)return{type:"done",name:o[1],...o[2]===undefined?{}:{version:o[2]}};const s=/^missing (\S+)$/.exec(e);if(s!==null)return{type:"missing",name:s[1]};const r=/^failed (-?\d+)(?:\t(.*))?$/.exec(e);if(r!==null)return{type:"failed",code:Number(r[1]),message:r[2]??""};const i=/^retries (changed|later)$/.exec(e);if(i!==null)return{type:"retries",when:i[1]};return{type:"log",text:e.replace(/^log /,"")}}function In(e,t){const n=e.split(".").map(Number);const o=t.split(".").map(Number);for(let s=0;s<Math.max(n.length,o.length);s+=1){const r=(n[s]??0)-(o[s]??0);if(r!==0)return r>0}return true}function Te(e){return typeof e==="object"&&e!==null&&!Array.isArray(e)}function fs(e){return Array.isArray(e)&&e.every((t)=>typeof t==="string")}var ut="task";var Qe="taskStart";var Nt="taskEnd";var bt="note";var td=new RegExp(`<(${Pn.source.slice(1,-1)})_mod>\\n([\\s\\S]*?)\\n</\\1_mod>`,"g");function Ye(e,t){return`<${e}_mod>
-${t}
-</${e}_mod>`}var Bt="prompt";var ft="person";var Ln="mod";var Cs="schedule";var As="channel";var Es="sdk";var _s="engine";var nd=["human","composer","bridge","slack-ping"];var od=["peer","peer-send-message","coordinator","projects-relay","observer","observer-activity"];function Nn(e,t){const n=Te(e)?e:{};const o=typeof n["kind"]==="string"?n["kind"]:undefined;if(o===undefined)return{type:t?ut:ft};if(nd.includes(o))return{type:ft};if(od.includes(o))return{type:"session"};if(o==="auto-continuation")return{type:_s};if(o==="plugin"&&typeof n["name"]==="string")return{type:Ln,name:n["name"],...n["asUser"]===true?{as:ft}:{}};if(o==="scheduled-trigger")return{type:Cs};if(o==="channel"&&typeof n["server"]==="string")return{type:As,name:n["server"]};if(o==="sdk")return{type:Es};if(o==="task-notification")return{type:ut};return{type:t?ut:ft}}var kt="toolCall";var vt="toolResult";var Ge="message";var Bn="contextStart";var rn="contextEnd";var Dt="turnStart";var St="turnEnd";var Dn="goalChange";var Is="fork";var Ls=50;var Fn="session";var Ot={Message:"message",Prompt:"prompt",Note:"note",Reply:"reply",ToolCall:"toolCall",ToolResult:"toolResult",Skill:"skill",InstructionFile:"instructionFile",AttachedFile:"attachedFile",Notice:"notice",ContextStart:"contextStart",ContextEnd:"contextEnd",TurnStart:"turnStart",TurnEnd:"turnEnd",TaskStart:"taskStart",TaskEnd:"taskEnd",GoalChange:"goalChange",UsageChange:"usageChange"};var Ns=["Prompt","Note","Skill","InstructionFile","AttachedFile","Reply","ToolCall","ToolResult","Notice","TaskStart","TurnEnd","ContextEnd"];var To={ProjectSetup:{on:"Setup",before:"Setup"},SessionStart:{on:"SessionStart",before:"SessionStart"},SessionEnd:{on:"SessionEnd"},ModelChange:{on:"PostModelSwitch",before:"PreModelSwitch"},CwdChange:{on:"CwdChanged"},DirectoryAdd:{on:"DirectoryAdded"},WorktreeCreate:{on:"WorktreeCreate",before:"WorktreeCreate"},WorktreeRemove:{on:"WorktreeRemove"},Notification:{on:"Notification"},Elicitation:{on:"Elicitation",before:"Elicitation"},ElicitationResponse:{on:"ElicitationResult",before:"ElicitationResult"},PermissionCheck:{on:"tool.check",before:"tool.check"},PermissionRequest:{on:"PermissionRequest",before:"PermissionRequest"},PermissionDenial:{on:"PermissionDenied",before:"PermissionDenied"},ToolBatch:{on:"PostToolBatch",before:"PostToolBatch"},TodoCreate:{on:"TaskCreated",before:"TaskCreated"},TodoComplete:{on:"TaskCompleted",before:"TaskCompleted"},ReplyDisplay:{on:"MessageDisplay",before:"MessageDisplay"}};function et(e,t){if(t instanceof RegExp)return e!==undefined&&e!==null&&t.test(String(e));if(Array.isArray(t))return t.some((n)=>et(e,n));if(typeof t!=="object"||t===null)return e===t;if(Array.isArray(e))return e.some((n)=>et(n,t));if(typeof e!=="object"||e===null)return false;return Object.entries(t).every(([n,o])=>o===undefined||et(e[n],o))}function Un(e){if(e instanceof RegExp)return{regexp:e.source,flags:e.flags};if(Array.isArray(e))return e.map(Un);if(typeof e!=="object"||e===null)return e;return Object.fromEntries(Object.entries(e).filter(([,t])=>t!==undefined).map(([t,n])=>[t,Un(n)]))}var cd=Object.create;var{getPrototypeOf:dd,defineProperty:Bs,getOwnPropertyNames:ld}=Object;var Ds=Object.prototype.hasOwnProperty;function ud(e){return this[e]}var fd;var pd;var md=(e,t,n)=>{var o=e!=null&&typeof e==="object";if(o){var s=t?fd??=new WeakMap:pd??=new WeakMap,r=s.get(e);if(r)return r}n=e!=null?cd(dd(e)):{};let i=t||!e||!e.__esModule||!Ds.call(e,"default")?Bs(n,"default",{value:e,enumerable:true}):n;if(e&&typeof e==="object"||typeof e==="function"){for(let c of ld(e))if(!Ds.call(i,c))Bs(i,c,{get:ud.bind(e,c),enumerable:true})}if(o)s.set(e,i);return i};var Ct=(e,t)=>()=>(t||e((t={exports:{}}).exports,t),t.exports);var Wn=Ct(function(e,t){var n={DOT_LITERAL:"\\.",PLUS_LITERAL:"\\+",QMARK_LITERAL:"\\?",SLASH_LITERAL:"\\/",ONE_CHAR:"(?=.)",QMARK:"[^/]",END_ANCHOR:"(?:\\/|$)",DOTS_SLASH:"\\.{1,2}(?:\\/|$)",NO_DOT:"(?!\\.)",NO_DOTS:"(?!(?:^|\\/)\\.{1,2}(?:\\/|$))",NO_DOT_SLASH:"(?!\\.{0,1}(?:\\/|$))",NO_DOTS_SLASH:"(?!\\.{1,2}(?:\\/|$))",QMARK_NO_DOT:"[^.\\/]",STAR:"[^/]*?",START_ANCHOR:"(?:^|\\/)",SEP:"/"},o={...n,SLASH_LITERAL:"[\\\\/]",QMARK:"[^\\\\/]",STAR:"[^\\\\/]*?",DOTS_SLASH:"\\.{1,2}(?:[\\\\/]|$)",NO_DOT:"(?!\\.)",NO_DOTS:"(?!(?:^|[\\\\/])\\.{1,2}(?:[\\\\/]|$))",NO_DOT_SLASH:"(?!\\.{0,1}(?:[\\\\/]|$))",NO_DOTS_SLASH:"(?!\\.{1,2}(?:[\\\\/]|$))",QMARK_NO_DOT:"[^.\\\\/]",START_ANCHOR:"(?:^|[\\\\/])",END_ANCHOR:"(?:[\\\\/]|$)",SEP:"\\"},s={__proto__:null,alnum:"a-zA-Z0-9",alpha:"a-zA-Z",ascii:"\\x00-\\x7F",blank:" \\t",cntrl:"\\x00-\\x1F\\x7F",digit:"0-9",graph:"\\x21-\\x7E",lower:"a-z",print:"\\x20-\\x7E ",punct:"\\-!\"#$%&'()\\*+,./:;<=>?@[\\]^_`{|}~",space:" \\t\\r\\n\\v\\f",upper:"A-Z",word:"A-Za-z0-9_",xdigit:"A-Fa-f0-9"};t.exports={DEFAULT_MAX_EXTGLOB_RECURSION:0,MAX_LENGTH:65536,POSIX_REGEX_SOURCE:s,REGEX_BACKSLASH:/\\(?![*+?^${}(|)[\]])/g,REGEX_NON_SPECIAL_CHARS:/^[^@![\].,$*+?^{}()|\\/]+/,REGEX_SPECIAL_CHARS:/[-*+?.^${}(|)[\]]/,REGEX_SPECIAL_CHARS_BACKREF:/(\\?)((\W)(\3*))/g,REGEX_SPECIAL_CHARS_GLOBAL:/([-*+?.^${}(|)[\]])/g,REGEX_REMOVE_BACKSLASH:/(?:\[.*?[^\\]\]|\\(?=.))/g,REPLACEMENTS:{__proto__:null,"***":"*","**/**":"**","**/**/**":"**"},CHAR_0:48,CHAR_9:57,CHAR_UPPERCASE_A:65,CHAR_LOWERCASE_A:97,CHAR_UPPERCASE_Z:90,CHAR_LOWERCASE_Z:122,CHAR_LEFT_PARENTHESES:40,CHAR_RIGHT_PARENTHESES:41,CHAR_ASTERISK:42,CHAR_AMPERSAND:38,CHAR_AT:64,CHAR_BACKWARD_SLASH:92,CHAR_CARRIAGE_RETURN:13,CHAR_CIRCUMFLEX_ACCENT:94,CHAR_COLON:58,CHAR_COMMA:44,CHAR_DOT:46,CHAR_DOUBLE_QUOTE:34,CHAR_EQUAL:61,CHAR_EXCLAMATION_MARK:33,CHAR_FORM_FEED:12,CHAR_FORWARD_SLASH:47,CHAR_GRAVE_ACCENT:96,CHAR_HASH:35,CHAR_HYPHEN_MINUS:45,CHAR_LEFT_ANGLE_BRACKET:60,CHAR_LEFT_CURLY_BRACE:123,CHAR_LEFT_SQUARE_BRACKET:91,CHAR_LINE_FEED:10,CHAR_NO_BREAK_SPACE:160,CHAR_PERCENT:37,CHAR_PLUS:43,CHAR_QUESTION_MARK:63,CHAR_RIGHT_ANGLE_BRACKET:62,CHAR_RIGHT_CURLY_BRACE:125,CHAR_RIGHT_SQUARE_BRACKET:93,CHAR_SEMICOLON:59,CHAR_SINGLE_QUOTE:39,CHAR_SPACE:32,CHAR_TAB:9,CHAR_UNDERSCORE:95,CHAR_VERTICAL_LINE:124,CHAR_ZERO_WIDTH_NOBREAK_SPACE:65279,extglobChars(r){return{"!":{type:"negate",open:"(?:(?!(?:",close:`))${r.STAR})`},"?":{type:"qmark",open:"(?:",close:")?"},"+":{type:"plus",open:"(?:",close:")+"},"*":{type:"star",open:"(?:",close:")*"},"@":{type:"at",open:"(?:",close:")"}}},globChars(r){return r===true?o:n}}});var Mo=Ct(function(e){var{REGEX_BACKSLASH:t,REGEX_REMOVE_BACKSLASH:n,REGEX_SPECIAL_CHARS:o,REGEX_SPECIAL_CHARS_GLOBAL:s}=Wn();e.isObject=(r)=>r!==null&&typeof r==="object"&&!Array.isArray(r);e.hasRegexChars=(r)=>o.test(r);e.isRegexChar=(r)=>r.length===1&&e.hasRegexChars(r);e.escapeRegex=(r)=>r.replace(s,"\\$1");e.toPosixSlashes=(r)=>r.replace(t,"/");e.isWindows=()=>{if(typeof navigator<"u"&&navigator.platform){let r=navigator.platform.toLowerCase();return r==="win32"||r==="windows"}return false};e.removeBackslashes=(r)=>r.replace(n,(i)=>i==="\\"?"":i);e.escapeLast=(r,i,c)=>{let d=r.lastIndexOf(i,c);if(d===-1)return r;if(r[d-1]==="\\")return e.escapeLast(r,i,d-1);return`${r.slice(0,d)}\\${r.slice(d)}`};e.removePrefix=(r,i={})=>{let c=r;if(c.startsWith("./"))c=c.slice(2),i.prefix="./";return c};e.wrapOutput=(r,i={},c={})=>{let d=c.contains?"":"^",l=c.contains?"":"$",m=`${d}(?:${r})${l}`;if(i.negated===true)m=`(?:^(?!${m}).*$)`;return m};e.basename=(r,{windows:i}={})=>{let c=r.split(i?/[\\/]/:"/"),d=c[c.length-1];if(d==="")return c[c.length-2];return d}});var hd=Ct(function(e,t){var n=Mo(),{CHAR_ASTERISK:o,CHAR_AT:s,CHAR_BACKWARD_SLASH:r,CHAR_COMMA:i,CHAR_DOT:c,CHAR_EXCLAMATION_MARK:d,CHAR_FORWARD_SLASH:l,CHAR_LEFT_CURLY_BRACE:m,CHAR_LEFT_PARENTHESES:y,CHAR_LEFT_SQUARE_BRACKET:v,CHAR_PLUS:x,CHAR_QUESTION_MARK:b,CHAR_RIGHT_CURLY_BRACE:N,CHAR_RIGHT_PARENTHESES:U,CHAR_RIGHT_SQUARE_BRACKET:K}=Wn(),q=(E)=>E===l||E===r,se=(E)=>{if(E.isPrefix!==true)E.depth=E.isGlobstar?1/0:1},Z=(E,R)=>{let k=R||{},H=E.length-1,W=k.parts===true||k.tokens===true||k.scanToEnd===true,A=[],T=[],j=[],G=E,ee=-1,J=0,pe=0,$e=false,O=false,D=false,z=false,V=false,ne=false,ae=false,de=false,ue=false,ke=false,we=0,Pe,Y,le={value:"",depth:0,isGlob:false},I=()=>ee>=H,me=()=>G.charCodeAt(ee+1),Se=()=>(Pe=Y,G.charCodeAt(++ee));while(ee<H){Y=Se();let fe;if(Y===r){if(ae=le.backslashes=true,Y=Se(),Y===m)ne=true;continue}if(ne===true||Y===m){we++;while(I()!==true&&(Y=Se())){if(Y===r){ae=le.backslashes=true,Se();continue}if(Y===m){we++;continue}if(ne!==true&&Y===c&&(Y=Se())===c){if($e=le.isBrace=true,D=le.isGlob=true,ke=true,W===true)continue;break}if(ne!==true&&Y===i){if($e=le.isBrace=true,D=le.isGlob=true,ke=true,W===true)continue;break}if(Y===N){if(we--,we===0){ne=false,$e=le.isBrace=true,ke=true;break}}}if(W===true)continue;break}if(Y===l){if(A.push(ee),T.push(le),le={value:"",depth:0,isGlob:false},ke===true)continue;if(Pe===c&&ee===J+1){J+=2;continue}pe=ee+1;continue}if(k.noext!==true){if((Y===x||Y===s||Y===o||Y===b||Y===d)===true&&me()===y){if(D=le.isGlob=true,z=le.isExtglob=true,ke=true,Y===d&&ee===J)ue=true;if(W===true){let be=0;while(I()!==true&&(Y=Se())){if(Y===r){ae=le.backslashes=true,Se();continue}if(Y===y){be++;continue}if(Y===U&&--be===0){ke=true;break}}continue}break}}if(Y===o){if(Pe===o)V=le.isGlobstar=true;if(D=le.isGlob=true,ke=true,W===true)continue;break}if(Y===b){if(D=le.isGlob=true,ke=true,W===true)continue;break}if(Y===v){while(I()!==true&&(fe=Se())){if(fe===r){ae=le.backslashes=true,Se();continue}if(fe===K){O=le.isBracket=true,D=le.isGlob=true,ke=true;break}}if(W===true)continue;break}if(k.nonegate!==true&&Y===d&&ee===J){de=le.negated=true,J++;continue}if(k.noparen!==true&&Y===y){if(D=le.isGlob=true,W===true){let be=1;while(I()!==true&&(Y=Se())){if(Y===r){ae=le.backslashes=true,Se();continue}if(Y===y){be++;continue}if(Y===U&&--be===0){ke=true;break}}continue}break}if(D===true){if(ke=true,W===true)continue;break}}if(k.noext===true)z=false,D=false;let ye=G,P="",M="";if(J>0)P=G.slice(0,J),G=G.slice(J),pe-=J;if(ye&&D===true&&pe>0)ye=G.slice(0,pe),M=G.slice(pe);else if(D===true)ye="",M=G;else ye=G;if(ye&&ye!==""&&ye!=="/"&&ye!==G){if(q(ye.charCodeAt(ye.length-1)))ye=ye.slice(0,-1)}if(k.unescape===true){if(M)M=n.removeBackslashes(M);if(ye&&ae===true)ye=n.removeBackslashes(ye)}let Ae={prefix:P,input:E,start:J,base:ye,glob:M,isBrace:$e,isBracket:O,isGlob:D,isExtglob:z,isGlobstar:V,negated:de,negatedExtglob:ue};if(k.tokens===true){if(Ae.maxDepth=0,!q(Y))T.push(le);Ae.tokens=T}if(k.parts===true||k.tokens===true){let fe;for(let _e=0;_e<A.length;_e++){let je=fe!==undefined?fe+1:J,Ue=A[_e],We=E.slice(je,Ue);if(k.tokens){if(_e===0&&J!==0)T[_e].isPrefix=true,T[_e].value=P;else T[_e].value=We;se(T[_e]),Ae.maxDepth+=T[_e].depth}if(Ue>=J)j.push(We),fe=Ue}let be=fe!==undefined?fe+1:J,Me=E.slice(be);if(j.push(Me),k.tokens&&fe&&fe+1<E.length)T[T.length-1].value=Me,se(T[T.length-1]),Ae.maxDepth+=T[T.length-1].depth;Ae.slashes=A,Ae.parts=j}return Ae};t.exports=Z});var gd=Ct(function(e,t){var n=Wn(),o=Mo(),{MAX_LENGTH:s,POSIX_REGEX_SOURCE:r,REGEX_NON_SPECIAL_CHARS:i,REGEX_SPECIAL_CHARS_BACKREF:c,REPLACEMENTS:d}=n,l=(E,R)=>{if(typeof R.expandRange==="function")return R.expandRange(...E,R);E.sort();let k=`[${E.join("-")}]`;try{new RegExp(k)}catch(H){return E.map((W)=>o.escapeRegex(W)).join("..")}return k},m=(E,R)=>`Missing ${E}: "${R}" - use "\\\\${R}" to match literal characters`,y=(E)=>{let R=[],k=0,H=0,W=0,A="",T=false;for(let j of E){if(T===true){A+=j,T=false;continue}if(j==="\\"){A+=j,T=true;continue}if(j==='"'){W=W===1?0:1,A+=j;continue}if(W===0){if(j==="[")k++;else if(j==="]"&&k>0)k--;else if(k===0){if(j==="(")H++;else if(j===")"&&H>0)H--;else if(j==="|"&&H===0){R.push(A),A="";continue}}}A+=j}return R.push(A),R},v=(E)=>{let R=false;for(let k of E){if(R===true){R=false;continue}if(k==="\\"){R=true;continue}if(/[?*+@!()[\]{}]/.test(k))return false}return true},x=(E)=>{let R=E.trim(),k=true;while(k===true)if(k=false,/^@\([^\\()[\]{}|]+\)$/.test(R))R=R.slice(2,-1),k=true;if(!v(R))return;return R.replace(/\\(.)/g,"$1")},b=(E)=>{let R=E.map(x).filter(Boolean);for(let k=0;k<R.length;k++)for(let H=k+1;H<R.length;H++){let W=R[k],A=R[H],T=W[0];if(!T||W!==T.repeat(W.length)||A!==T.repeat(A.length))continue;if(W===A||W.startsWith(A)||A.startsWith(W))return true}return false},N=(E,R=true)=>{if(E[0]!=="+"&&E[0]!=="*"||E[1]!=="(")return;let k=0,H=0,W=0,A=false;for(let T=1;T<E.length;T++){let j=E[T];if(A===true){A=false;continue}if(j==="\\"){A=true;continue}if(j==='"'){W=W===1?0:1;continue}if(W===1)continue;if(j==="["){k++;continue}if(j==="]"&&k>0){k--;continue}if(k>0)continue;if(j==="("){H++;continue}if(j===")"){if(H--,H===0){if(R===true&&T!==E.length-1)return;return{type:E[0],body:E.slice(2,T),end:T}}}}},U=(E)=>`${E.length===1?o.escapeRegex(E[0]):`[${E.map((R)=>o.escapeRegex(R)).join("")}]`}*`,K=(E)=>{let R=0,k=[];while(R<E.length){let H=N(E.slice(R),false);if(!H||H.type!=="*")return;let W=y(H.body).map((T)=>T.trim());if(W.length!==1)return;let A=x(W[0]);if(!A||A.length!==1)return;k.push(A),R+=H.end+1}if(k.length<1)return;return k},q=(E)=>{let R=0,k=E.trim(),H=N(k);while(H)R++,k=H.body.trim(),H=N(k);return R},se=(E,R)=>{if(R.maxExtglobRecursion===false)return{risky:false};let k=typeof R.maxExtglobRecursion==="number"?R.maxExtglobRecursion:n.DEFAULT_MAX_EXTGLOB_RECURSION,H=y(E).map((j)=>j.trim());if(H.length>1){if(H.some((j)=>j==="")||H.some((j)=>/^[*?]+$/.test(j))||b(H))return{risky:true}}let W=[],A=false,T=true;for(let j of H){let G=K(j);if(G){A=true,W.push(...G);continue}let ee=x(j);if(ee&&ee.length===1){W.push(ee);continue}if(T=false,q(j)>k)return{risky:true}}if(A)return T?{risky:true,safeOutput:U([...new Set(W)])}:{risky:true};return{risky:false}},Z=(E,R)=>{if(typeof E!=="string")throw TypeError("Expected a string");E=d[E]||E;let k={...R},H=typeof k.maxLength==="number"?Math.min(s,k.maxLength):s,W=E.length;if(W>H)throw SyntaxError(`Input length: ${W}, exceeds maximum allowed length: ${H}`);let A={type:"bos",value:"",output:k.prepend||""},T=[A],j=k.capture?"":"?:",G=n.globChars(k.windows),ee=n.extglobChars(G),{DOT_LITERAL:J,PLUS_LITERAL:pe,SLASH_LITERAL:$e,ONE_CHAR:O,DOTS_SLASH:D,NO_DOT:z,NO_DOT_SLASH:V,NO_DOTS_SLASH:ne,QMARK:ae,QMARK_NO_DOT:de,STAR:ue,START_ANCHOR:ke}=G,we=(a)=>`(${j}(?:(?!${ke}${a.dot?D:J}).)*?)`,Pe=k.dot?"":z,Y=k.dot?ae:de,le=k.bash===true?we(k):ue;if(k.capture)le=`(${le})`;if(typeof k.noext==="boolean")k.noextglob=k.noext;let I={input:E,index:-1,start:0,dot:k.dot===true,consumed:"",output:"",prefix:"",backtrack:false,negated:false,brackets:0,braces:0,parens:0,quotes:0,globstar:false,tokens:T};E=o.removePrefix(E,I),W=E.length;let me=[],Se=[],ye=[],P=A,M,Ae=()=>I.index===W-1,fe=I.peek=(a=1)=>E[I.index+a],be=I.advance=()=>E[++I.index]||"",Me=()=>E.slice(I.index+1),_e=(a="",p=0)=>{I.consumed+=a,I.index+=p},je=(a)=>{I.output+=a.output!=null?a.output:a.value,_e(a.value)},Ue=()=>{let a=1;while(fe()==="!"&&(fe(2)!=="("||fe(3)==="?"))be(),I.start++,a++;if(a%2===0)return false;return I.negated=true,I.start++,true},We=(a)=>{I[a]++,ye.push(a)},w=(a)=>{I[a]--,ye.pop()},g=(a)=>{if(P.type==="globstar"){let p=I.braces>0&&(a.type==="comma"||a.type==="brace"),f=a.extglob===true||me.length&&(a.type==="pipe"||a.type==="paren");if(a.type!=="slash"&&a.type!=="paren"&&!p&&!f)I.output=I.output.slice(0,-P.output.length),P.type="star",P.value="*",P.output=le,I.output+=P.output}if(me.length&&a.type!=="paren")me[me.length-1].inner+=a.value;if(a.value||a.output)je(a);if(P&&P.type==="text"&&a.type==="text"){P.output=(P.output||P.value)+a.value,P.value+=a.value;return}a.prev=P,T.push(a),P=a},L=(a,p)=>{let f={...ee[p],conditions:1,inner:""};f.prev=P,f.parens=I.parens,f.output=I.output,f.startIndex=I.index,f.tokensIndex=T.length;let S=(k.capture?"(":"")+f.open;We("parens"),g({type:a,value:p,output:I.output?"":O}),g({type:"paren",extglob:true,value:be(),output:S}),me.push(f)},u=(a)=>{let p=E.slice(a.startIndex,I.index+1),f=E.slice(a.startIndex+2,I.index),S=se(f,k);if((a.type==="plus"||a.type==="star")&&S.risky){let X=S.safeOutput?(a.output?"":O)+(k.capture?`(${S.safeOutput})`:S.safeOutput):undefined,oe=T[a.tokensIndex];oe.type="text",oe.value=p,oe.output=X||o.escapeRegex(p);for(let he=a.tokensIndex+1;he<T.length;he++)T[he].value="",T[he].output="",delete T[he].suffix;I.output=a.output+oe.output,I.backtrack=true,g({type:"paren",extglob:true,value:M,output:""}),w("parens");return}let C=a.close+(k.capture?")":""),F;if(a.type==="negate"){let X=le;if(a.inner&&a.inner.length>1&&a.inner.includes("/"))X=we(k);if(X!==le||Ae()||/^\)+$/.test(Me()))C=a.close=`)$))${X}`;if(a.inner.includes("*")&&(F=Me())&&/^\.[^\\/.]+$/.test(F)){let oe=Z(F,{...R,fastpaths:false}).output;C=a.close=`)${oe})${X})`}if(a.prev.type==="bos")I.negatedExtglob=true}g({type:"paren",extglob:true,value:M,output:C}),w("parens")};if(k.fastpaths!==false&&!/(^[*!]|[/()[\]{}"])/.test(E)){let a=false,p=E.replace(c,(f,S,C,F,X,oe)=>{if(F==="\\")return a=true,f;if(F==="?"){if(S)return S+F+(X?ae.repeat(X.length):"");if(oe===0)return Y+(X?ae.repeat(X.length):"");return ae.repeat(C.length)}if(F===".")return J.repeat(C.length);if(F==="*"){if(S)return S+F+(X?le:"");return le}return S?f:`\\${f}`});if(a===true)if(k.unescape===true)p=p.replace(/\\/g,"");else p=p.replace(/\\+/g,(f)=>f.length%2===0?"\\\\":f?"\\":"");if(p===E&&k.contains===true)return I.output=E,I;return I.output=o.wrapOutput(p,I,R),I}while(!Ae()){if(M=be(),M==="\x00")continue;if(M==="\\"){let f=fe();if(f==="/"&&k.bash!==true)continue;if(f==="."||f===";")continue;if(!f){M+="\\",g({type:"text",value:M});continue}let S=/^\\+/.exec(Me()),C=0;if(S&&S[0].length>2){if(C=S[0].length,I.index+=C,C%2!==0)M+="\\"}if(k.unescape===true)M=be();else M+=be();if(I.brackets===0){g({type:"text",value:M});continue}}if(I.brackets>0&&(M!=="]"||P.value==="["||P.value==="[^")){if(k.posix!==false&&M===":"){let f=P.value.slice(1);if(f.includes("[")){if(P.posix=true,f.includes(":")){let S=P.value.lastIndexOf("["),C=P.value.slice(0,S),F=P.value.slice(S+2),X=r[F];if(X){if(P.value=C+X,I.backtrack=true,be(),!A.output&&T.indexOf(P)===1)A.output=O;continue}}}}if(M==="["&&fe()!==":"||M==="-"&&fe()==="]")M=`\\${M}`;if(M==="]"&&(P.value==="["||P.value==="[^"))M=`\\${M}`;if(k.posix===true&&M==="!"&&P.value==="[")M="^";P.value+=M,je({value:M});continue}if(I.quotes===1&&M!=='"'){M=o.escapeRegex(M),P.value+=M,je({value:M});continue}if(M==='"'){if(I.quotes=I.quotes===1?0:1,k.keepQuotes===true)g({type:"text",value:M});continue}if(M==="("){We("parens"),g({type:"paren",value:M});continue}if(M===")"){if(I.parens===0&&k.strictBrackets===true)throw SyntaxError(m("opening","("));let f=me[me.length-1];if(f&&I.parens===f.parens+1){u(me.pop());continue}g({type:"paren",value:M,output:I.parens?")":"\\)"}),w("parens");continue}if(M==="["){if(k.nobracket===true||!Me().includes("]")){if(k.nobracket!==true&&k.strictBrackets===true)throw SyntaxError(m("closing","]"));M=`\\${M}`}else We("brackets");g({type:"bracket",value:M});continue}if(M==="]"){if(k.nobracket===true||P&&P.type==="bracket"&&P.value.length===1){g({type:"text",value:M,output:`\\${M}`});continue}if(I.brackets===0){if(k.strictBrackets===true)throw SyntaxError(m("opening","["));g({type:"text",value:M,output:`\\${M}`});continue}w("brackets");let f=P.value.slice(1);if(P.posix!==true&&f[0]==="^"&&!f.includes("/"))M=`/${M}`;if(P.value+=M,je({value:M}),k.literalBrackets===false||o.hasRegexChars(f))continue;let S=o.escapeRegex(P.value);if(I.output=I.output.slice(0,-P.value.length),k.literalBrackets===true){I.output+=S,P.value=S;continue}P.value=`(${j}${S}|${P.value})`,I.output+=P.value;continue}if(M==="{"&&k.nobrace!==true){We("braces");let f={type:"brace",value:M,output:"(",outputIndex:I.output.length,tokensIndex:I.tokens.length};Se.push(f),g(f);continue}if(M==="}"){let f=Se[Se.length-1];if(k.nobrace===true||!f){g({type:"text",value:M,output:M});continue}let S=")";if(f.dots===true){let C=T.slice(),F=[];for(let X=C.length-1;X>=0;X--){if(T.pop(),C[X].type==="brace")break;if(C[X].type!=="dots")F.unshift(C[X].value)}S=l(F,k),I.backtrack=true}if(f.comma!==true&&f.dots!==true){let C=I.output.slice(0,f.outputIndex),F=I.tokens.slice(f.tokensIndex);f.value=f.output="\\{",M=S="\\}",I.output=C;for(let X of F)I.output+=X.output||X.value}g({type:"brace",value:M,output:S}),w("braces"),Se.pop();continue}if(M==="|"){if(me.length>0)me[me.length-1].conditions++;g({type:"text",value:M});continue}if(M===","){let f=M,S=Se[Se.length-1];if(S&&ye[ye.length-1]==="braces")S.comma=true,f="|";g({type:"comma",value:M,output:f});continue}if(M==="/"){if(P.type==="dot"&&I.index===I.start+1){I.start=I.index+1,I.consumed="",I.output="",T.pop(),P=A;continue}g({type:"slash",value:M,output:$e});continue}if(M==="."){if(I.braces>0&&P.type==="dot"){if(P.value===".")P.output=J;let f=Se[Se.length-1];P.type="dots",P.output+=M,P.value+=M,f.dots=true;continue}if(I.braces+I.parens===0&&P.type!=="bos"&&P.type!=="slash"){g({type:"text",value:M,output:J});continue}g({type:"dot",value:M,output:J});continue}if(M==="?"){if(!(P&&P.value==="(")&&k.noextglob!==true&&fe()==="("&&fe(2)!=="?"){L("qmark",M);continue}if(P&&P.type==="paren"){let f=fe(),S=M;if(P.value==="("&&!/[!=<:]/.test(f)||f==="<"&&!/<([!=]|\w+>)/.test(Me()))S=`\\${M}`;g({type:"text",value:M,output:S});continue}if(k.dot!==true&&(P.type==="slash"||P.type==="bos")){g({type:"qmark",value:M,output:de});continue}g({type:"qmark",value:M,output:ae});continue}if(M==="!"){if(k.noextglob!==true&&fe()==="("){if(fe(2)!=="?"||!/[!=<:]/.test(fe(3))){L("negate",M);continue}}if(k.nonegate!==true&&I.index===0){Ue();continue}}if(M==="+"){if(k.noextglob!==true&&fe()==="("&&fe(2)!=="?"){L("plus",M);continue}if(P&&P.value==="("||k.regex===false){g({type:"plus",value:M,output:pe});continue}if(P&&(P.type==="bracket"||P.type==="paren"||P.type==="brace")||I.parens>0){g({type:"plus",value:M});continue}g({type:"plus",value:pe});continue}if(M==="@"){if(k.noextglob!==true&&fe()==="("&&fe(2)!=="?"){g({type:"at",extglob:true,value:M,output:""});continue}g({type:"text",value:M});continue}if(M!=="*"){if(M==="$"||M==="^")M=`\\${M}`;let f=i.exec(Me());if(f)M+=f[0],I.index+=f[0].length;g({type:"text",value:M});continue}if(P&&(P.type==="globstar"||P.star===true)){P.type="star",P.star=true,P.value+=M,P.output=le,I.backtrack=true,I.globstar=true,_e(M);continue}let a=Me();if(k.noextglob!==true&&/^\([^?]/.test(a)){L("star",M);continue}if(P.type==="star"){if(k.noglobstar===true){_e(M);continue}let f=P.prev,S=f.prev,C=f.type==="slash"||f.type==="bos",F=S&&(S.type==="star"||S.type==="globstar");if(k.bash===true&&(!C||a[0]&&a[0]!=="/")){g({type:"star",value:M,output:""});continue}let X=I.braces>0&&(f.type==="comma"||f.type==="brace"),oe=me.length&&(f.type==="pipe"||f.type==="paren");if(!C&&f.type!=="paren"&&!X&&!oe){g({type:"star",value:M,output:""});continue}while(a.slice(0,3)==="/**"){let xe=E[I.index+4];if(xe&&xe!=="/")break;a=a.slice(3),_e("/**",3)}let he=Ae()||I.parens>0&&a===")".repeat(I.parens)&&!me.some((xe)=>xe.type==="negate");if(f.type==="bos"&&Ae()){P.type="globstar",P.value+=M,P.output=we(k),I.output=P.output,I.globstar=true,_e(M);continue}if(f.type==="slash"&&f.prev.type!=="bos"&&!F&&he){I.output=I.output.slice(0,-(f.output+P.output).length),f.output=`(?:${f.output}`,P.type="globstar",P.output=we(k)+(k.strictSlashes?")":"|$)"),P.value+=M,I.globstar=true,I.output+=f.output+P.output,_e(M);continue}if(f.type==="slash"&&f.prev.type!=="bos"&&a[0]==="/"){let xe=a[1]!==undefined?"|$":"";I.output=I.output.slice(0,-(f.output+P.output).length),f.output=`(?:${f.output}`,P.type="globstar",P.output=`${we(k)}${$e}|${$e}${xe})`,P.value+=M,I.output+=f.output+P.output,I.globstar=true,_e(M+be()),g({type:"slash",value:"/",output:""});continue}if(f.type==="bos"&&a[0]==="/"){P.type="globstar",P.value+=M,P.output=`(?:^|${$e}|${we(k)}${$e})`,I.output=P.output,I.globstar=true,_e(M+be()),g({type:"slash",value:"/",output:""});continue}I.output=I.output.slice(0,-P.output.length),P.type="globstar",P.output=we(k),P.value+=M,I.output+=P.output,I.globstar=true,_e(M);continue}let p={type:"star",value:M,output:le};if(k.bash===true){if(p.output=".*?",P.type==="bos"||P.type==="slash")p.output=Pe+p.output;g(p);continue}if(P&&(P.type==="bracket"||P.type==="paren")&&k.regex===true){p.output=M,g(p);continue}if(I.index===I.start||P.type==="slash"||P.type==="dot"){if(P.type==="dot")I.output+=V,P.output+=V;else if(k.dot===true)I.output+=ne,P.output+=ne;else I.output+=Pe,P.output+=Pe;if(fe()!=="*")I.output+=O,P.output+=O}g(p)}while(I.brackets>0){if(k.strictBrackets===true)throw SyntaxError(m("closing","]"));I.output=o.escapeLast(I.output,"["),w("brackets")}while(I.parens>0){if(k.strictBrackets===true)throw SyntaxError(m("closing",")"));I.output=o.escapeLast(I.output,"("),w("parens")}while(I.braces>0){if(k.strictBrackets===true)throw SyntaxError(m("closing","}"));I.output=o.escapeLast(I.output,"{"),w("braces")}if(k.strictSlashes!==true&&(P.type==="star"||P.type==="bracket"))g({type:"maybe_slash",value:"",output:`${$e}?`});if(I.backtrack===true){I.output="";for(let a of I.tokens)if(I.output+=a.output!=null?a.output:a.value,a.suffix)I.output+=a.suffix}return I};Z.fastpaths=(E,R)=>{let k={...R},H=typeof k.maxLength==="number"?Math.min(s,k.maxLength):s,W=E.length;if(W>H)throw SyntaxError(`Input length: ${W}, exceeds maximum allowed length: ${H}`);E=d[E]||E;let{DOT_LITERAL:A,SLASH_LITERAL:T,ONE_CHAR:j,DOTS_SLASH:G,NO_DOT:ee,NO_DOTS:J,NO_DOTS_SLASH:pe,STAR:$e,START_ANCHOR:O}=n.globChars(k.windows),D=k.dot?J:ee,z=k.dot?pe:ee,V=k.capture?"":"?:",ne={negated:false,prefix:""},ae=k.bash===true?".*?":$e;if(k.capture)ae=`(${ae})`;let de=(Pe)=>{if(Pe.noglobstar===true)return ae;return`(${V}(?:(?!${O}${Pe.dot?G:A}).)*?)`},ue=(Pe)=>{switch(Pe){case"*":return`${D}${j}${ae}`;case".*":return`${A}${j}${ae}`;case"*.*":return`${D}${ae}${A}${j}${ae}`;case"*/*":return`${D}${ae}${T}${j}${z}${ae}`;case"**":return D+de(k);case"**/*":return`(?:${D}${de(k)}${T})?${z}${j}${ae}`;case"**/*.*":return`(?:${D}${de(k)}${T})?${z}${ae}${A}${j}${ae}`;case"**/.*":return`(?:${D}${de(k)}${T})?${A}${j}${ae}`;default:{let Y=/^(.*?)\.(\w+)$/.exec(Pe);if(!Y)return;let le=ue(Y[1]);if(!le)return;return le+A+Y[2]}}},ke=o.removePrefix(E,ne),we=ue(ke);if(we&&k.strictSlashes!==true)we+=`${T}?`;return we};t.exports=Z});var yd=Ct(function(e,t){var n=hd(),o=gd(),s=Mo(),r=Wn(),i=(d)=>d&&typeof d==="object"&&!Array.isArray(d),c=(d,l,m=false)=>{if(Array.isArray(d)){let q=d.map((se)=>c(se,l,m));return(se)=>{for(let Z of q){let E=Z(se);if(E)return E}return false}}let y=i(d)&&d.tokens&&d.input;if(d===""||typeof d!=="string"&&!y)throw TypeError("Expected pattern to be a non-empty string");let v=l||{},x=v.windows,b=y?c.compileRe(d,l):c.makeRe(d,l,false,true),N=b.state;delete b.state;let U=()=>false;if(v.ignore){let q={...l,ignore:null,onMatch:null,onResult:null};U=c(v.ignore,q,m)}let K=(q,se=false)=>{let{isMatch:Z,match:E,output:R}=c.test(q,b,l,{glob:d,posix:x}),k={glob:d,state:N,regex:b,posix:x,input:q,output:R,match:E,isMatch:Z};if(typeof v.onResult==="function")v.onResult(k);if(Z===false)return k.isMatch=false,se?k:false;if(U(q)){if(typeof v.onIgnore==="function")v.onIgnore(k);return k.isMatch=false,se?k:false}if(typeof v.onMatch==="function")v.onMatch(k);return se?k:true};if(m)K.state=N;return K};c.test=(d,l,m,{glob:y,posix:v}={})=>{if(typeof d!=="string")throw TypeError("Expected input to be a string");if(d==="")return{isMatch:false,output:""};let x=m||{},b=x.format||(v?s.toPosixSlashes:null),N=d===y,U=N&&b?b(d):d;if(N===false)U=b?b(d):d,N=U===y;if(N===false||x.capture===true)if(x.matchBase===true||x.basename===true)N=c.matchBase(d,l,m,v);else N=l.exec(U);return{isMatch:Boolean(N),match:N,output:U}};c.matchBase=(d,l,m,y=m&&m.windows)=>(l instanceof RegExp?l:c.makeRe(l,m)).test(s.basename(d,{windows:y}));c.isMatch=(d,l,m)=>c(l,m)(d);c.parse=(d,l)=>{if(Array.isArray(d))return d.map((m)=>c.parse(m,l));return o(d,{...l,fastpaths:false})};c.scan=(d,l)=>n(d,l);c.compileRe=(d,l,m=false,y=false)=>{if(m===true)return d.output;let v=l||{},x=v.contains?"":"^",b=v.contains?"":"$",N=`${x}(?:${d.output})${b}`;if(d&&d.negated===true)N=`^(?!${N}).*$`;let U=c.toRegex(N,l);if(y===true)U.state=d;return U};c.makeRe=(d,l={},m=false,y=false)=>{if(!d||typeof d!=="string")throw TypeError("Expected a non-empty string");let v={negated:false,fastpaths:true};if(l.fastpaths!==false&&(d[0]==="."||d[0]==="*"))v.output=o.fastpaths(d,l);if(!v.output)v=o(d,l);return c.compileRe(v,l,m,y)};c.toRegex=(d,l)=>{try{let m=l||{};return new RegExp(d,m.flags||(m.nocase?"i":""))}catch(m){if(l&&l.debug===true)throw m;return/$^/}};c.constants=r;t.exports=c});var wd=Ct(function(e,t){var n=["||","&&",";;&",";;",";&","|&","<(",">(","<<<","<<-","<<",">>",">&",">|","&>>","&>","<&","<>","&",";","(",")","|","<",">"],o=/[\n\r\u2028\u2029]/,s=/[\s#!"$&'():;<=>@\\^`|~]/g;t.exports=function(r){var i=false;return r.map(function(c){if(i&&typeof c==="string"&&o.test(c))throw TypeError("a token after a `comment` must not contain line terminators");if(c==="")return"''";if(c&&typeof c==="object"){if("op"in c&&c.op==="glob"){if(typeof c.pattern!=="string")throw TypeError("glob token requires a string `pattern`");if(o.test(c.pattern))throw TypeError("glob `pattern` must not contain line terminators");if(c.pattern==="")return"''";return c.pattern.replace(s,"\\$&")}if("op"in c&&typeof c.op==="string"){if(n.indexOf(c.op)<0)throw TypeError("invalid `op` value: "+JSON.stringify(c.op));return c.op.replace(/[\s\S]/g,"\\$&")}if("comment"in c&&typeof c.comment==="string"){if(o.test(c.comment))throw TypeError("`comment` must not contain line terminators");return i=true,"#"+c.comment}throw TypeError("unrecognized object token shape")}if(/'/.test(c)&&/!/.test(c))return"'"+c.replace(/'/g,`'"'"'`)+"'";if(/["\s\\]/.test(c)&&!/'/.test(c))return"'"+c+"'";if(/["'\s]/.test(c))return'"'+c.replace(/(["\\$`])/g,"\\$1")+'"';return String(c).replace(/([A-Za-z]:)?([#!"$&'()*,:;<=>?@[\\\]^`{|}~])/g,"$1\\$2")}).join(" ")}});var xd=Ct(function(e,t){var n="(?:"+["\\|\\|","\\&(?:\\&|>>?)",";;\\&?","[;|]\\&","\\<\\(","\\<\\<\\<","\\<\\<-","\\<\\<(?!\\()",">>",">[&|(]","<[&>]","[&;()|<>]"].join("|")+")",o=new RegExp("^"+n+"$"),s="|&;()<> \\t",r="'([^']*?)'",i="(?:\\\\[\\s\\S]|[^\\\\'])*?",c="\\$'"+i+"'",d=new RegExp("\\$'"+i+"(?:(')|\\\\?$)","g"),l="abeEfnrtv",m=`\x07\b\x1B\x1B\f
-\r	\v`,y=/^#$/,v="'",x='"',b="$",N="",U=4294967296;for(K=0;K<4;K++)N+=(U*Math.random()).toString(16);var K,q=new RegExp("^"+N);function se(A,T){var j=T.lastIndex,G=[],ee;while(ee=T.exec(A))if(G[G.length]=ee,T.lastIndex===ee.index)T.lastIndex+=1;return T.lastIndex=j,G}function Z(A,T,j){var G=typeof A==="function"?A(j):A[j];if(typeof G>"u"&&j!="")G="";else if(typeof G>"u")G="$";if(typeof G==="object")return T+N+JSON.stringify(G)+N;return T+G}var E=/\\([0-7]{1,3}|x[\dA-Fa-f]{1,2}|u[\dA-Fa-f]{1,4}|U[\dA-Fa-f]{1,8}|c(?:\\\\|[\s\S])|[abeEfnrtv\\'"?])/g;function R(A,T){var j=T.charAt(0);if(j==="c"){var G=T.charAt(1);return G==="?"?"\u007f":String.fromCharCode(G.charCodeAt(0)&31)}if(j==="x"||j==="u"||j==="U"){var ee=parseInt(T.slice(1),16);if(ee>1114111)return A;return String.fromCharCode.apply(null,ee>65535?[55232+(ee>>10),56320+(ee&1023)]:[ee])}if(j>="0"&&j<="7")return String.fromCharCode(parseInt(T,8)&255);var J=l.indexOf(T);return J<0?T:m.charAt(J)}function k(A){return A.replace(E,R).split("\x00")[0]}function H(A,T){return d.lastIndex=T,!!d.exec(A)[1]}function W(A,T,j){if(!j)j={};var G=j.escape||"\\",ee=j.splitUnquoted===true?` 	
-`:typeof j.splitUnquoted==="string"?j.splitUnquoted:"",J="(\\"+G+`['"$\\`+G+s+"]|\\$\\$|\\$(?!"+c.slice(2)+`)|[^\\s'"$`+s+"])+",pe='"(?:\\'+G+'[\\s\\S]|[^"\\'+G+'])*"',$e=new RegExp(["("+n+")","("+c+"|"+J+"|"+pe+"|"+r+")+"].join("|"),"g"),O=se(A,$e);if(O.length===0)return[];if(!T)T={};var D=false;return O.map(function(z){var V=z[0];if(!V||D)return;if(o.test(V))return{op:V};var ne=false,ae=false,de="",ue=[],ke=false,we=null,Pe=false,Y;function le(){Y+=1;var fe,be,Me=V.charAt(Y);if(Me==="{"){if(Y+=1,V.charAt(Y)==="}")throw Error("Bad substitution: "+V.slice(Y-2,Y+1));var _e=1;fe=Y;while(_e>0&&fe<V.length){if(V.charAt(fe)==="{"&&V.charAt(fe-1)==="$")_e+=1;else if(V.charAt(fe)==="}")_e-=1;fe+=1}if(_e!==0)throw Error("Bad substitution: "+V.slice(Y));fe-=1,be=V.slice(Y,fe),Y=fe}else if(/[*@#?$!-]/.test(Me))be=Me;else{var je=V.slice(Y);if(fe=je.match(/[^\w\d_]/),!fe)be=je,Y=V.length;else be=je.slice(0,fe.index),Y+=fe.index-1}return Z(T,"",be)}function I(){if(we===null)return;if(we===0){if(de!=="")ue[ue.length]=de,de=""}else{ue[ue.length]=de,de="";for(var fe=1;fe<we;fe+=1)ue[ue.length]=""}we=null}for(Y=0;Y<V.length;Y++){var me=V.charAt(Y);if(ee&&me!==b)I();if(Pe=Pe||!ne&&(me==="*"||me==="?"),ae)de+=me,ae=false;else if(ne)if(me===ne)ne=false;else if(ne==v)de+=me;else if(me===G)if(Y+=1,me=V.charAt(Y),me===x||me===G||me===b)de+=me;else de+=G+me;else if(me===b)de+=le();else de+=me;else if(me===x||me===v)ne=me,ke=true;else if(o.test(me))return{op:V};else if(y.test(me)){D=true;var Se={comment:A.slice(z.index+Y+1)};if(de.length)return[de,Se];return[Se]}else if(me===G)ae=true;else if(me===b&&V.charAt(Y+1)===v&&H(V,Y))I(),ke=true,de+=k(V.slice(Y+2,d.lastIndex-1)),Y=d.lastIndex-1;else if(me===b){var ye=le();if(!ee)de+=ye;else for(var P=0;P<ye.length;P+=1){var M=ye.charAt(P);if(ee.indexOf(M)<0)I(),de+=M;else if(we===null)we=M===" "||M==="\t"||M===`
-`?0:1;else if(M!==" "&&M!=="\t"&&M!==`
-`)we+=1}}else de+=me}if(Pe)return{op:"glob",pattern:de};if(ee){if(we!==null&&we>0){ue[ue.length]=de,de="";for(var Ae=1;Ae<we;Ae+=1)ue[ue.length]=""}if(de!==""||ke&&ue.length===0)ue[ue.length]=de;return ue}return de}).reduce(function(z,V){if(typeof V>"u")return z;return[].concat(V).forEach(function(ne){z[z.length]=ne}),z},[])}t.exports=function(A,T,j){var G=W(A,T,j);if(typeof T!=="function")return G;return G.reduce(function(ee,J){if(typeof J==="object")return ee[ee.length]=J,ee;var pe=J.split(RegExp("("+N+".*?"+N+")","g"));if(pe.length===1)return ee[ee.length]=pe[0],ee;return pe.filter(Boolean).forEach(function($e){ee[ee.length]=q.test($e)?JSON.parse($e.split(N)[1]):$e}),ee},[])}});var nm=typeof self<"u"&&self.location&&self.location.origin!=="null"?new URL(self.location.origin+self.location.pathname+location.search):new URL("https://github.com/cfworker");var $d=/^(\d\d\d\d)-(\d\d)-(\d\d)$/;var bd=[0,31,28,31,30,31,30,31,31,30,31,30,31];var kd=/^(\d\d):(\d\d):(\d\d)(\.\d+)?(z|[+-]\d\d(?::?\d\d)?)?$/i;var vd=/^(?=.{1,253}\.?$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[-0-9a-z]{0,61}[0-9a-z])?)*\.?$/i;var Sd=/^(?:[a-z][a-z0-9+\-.]*:)?(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'"()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*)?(?:\?(?:[a-z0-9\-._~!$&'"()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'"()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;var Od=/^(?:(?:[^\x00-\x20"'<>%\\^`{|}]|%[0-9a-f]{2})|\{[+#./;?&=,!@|]?(?:[a-z0-9_]|%[0-9a-f]{2})+(?::[1-9][0-9]{0,3}|\*)?(?:,(?:[a-z0-9_]|%[0-9a-f]{2})+(?::[1-9][0-9]{0,3}|\*)?)*\})*$/i;var Cd=/^(?:(?:https?|ftp):\/\/)(?:\S+(?::\S*)?@)?(?:(?!10(?:\.\d{1,3}){3})(?!127(?:\.\d{1,3}){3})(?!169\.254(?:\.\d{1,3}){2})(?!192\.168(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\u{00a1}-\u{ffff}0-9]+-?)*[a-z\u{00a1}-\u{ffff}0-9]+)(?:\.(?:[a-z\u{00a1}-\u{ffff}0-9]+-?)*[a-z\u{00a1}-\u{ffff}0-9]+)*(?:\.(?:[a-z\u{00a1}-\u{ffff}]{2,})))(?::\d{2,5})?(?:\/[^\s]*)?$/iu;var Ad=/^(?:urn:uuid:)?[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;var Ed=/^(?:\/(?:[^~/]|~0|~1)*)*$/;var _d=/^#(?:\/(?:[a-z0-9_\-.!$&'()*+,;:=@]|%[0-9a-f]{2}|~0|~1)*)*$/i;var Pd=/^(?:0|[1-9][0-9]*)(?:#|(?:\/(?:[^~/]|~0|~1)*)*)$/;var Rd=(e)=>{if(e[0]==='"')return false;let[t,n,...o]=e.split("@");if(!t||!n||o.length!==0||t.length>64||n.length>253)return false;if(t[0]==="."||t.endsWith(".")||t.includes(".."))return false;if(!/^[a-z0-9.-]+$/i.test(n)||!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(t))return false;return n.split(".").every((s)=>/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i.test(s))};var Td=/^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/;var Md=/^((([0-9a-f]{1,4}:){7}([0-9a-f]{1,4}|:))|(([0-9a-f]{1,4}:){6}(:[0-9a-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){5}(((:[0-9a-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){4}(((:[0-9a-f]{1,4}){1,3})|((:[0-9a-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){3}(((:[0-9a-f]{1,4}){1,4})|((:[0-9a-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){2}(((:[0-9a-f]{1,4}){1,5})|((:[0-9a-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){1}(((:[0-9a-f]{1,4}){1,6})|((:[0-9a-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-f]{1,4}){1,7})|((:[0-9a-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))$/i;var jd=(e)=>e.length>1&&e.length<80&&(/^P\d+([.,]\d+)?W$/.test(e)||/^P[\dYMDTHS]*(\d[.,]\d+)?[YMDHS]$/.test(e)&&/^P([.,\d]+Y)?([.,\d]+M)?([.,\d]+D)?(T([.,\d]+H)?([.,\d]+M)?([.,\d]+S)?)?$/.test(e));function nt(e){return e.test.bind(e)}var om={date:Us,time:Ws.bind(undefined,false),"date-time":Nd,duration:jd,uri:Fd,"uri-reference":nt(Sd),"uri-template":nt(Od),url:nt(Cd),email:Rd,hostname:nt(vd),ipv4:nt(Td),ipv6:nt(Md),regex:Wd,uuid:nt(Ad),"json-pointer":nt(Ed),"json-pointer-uri-fragment":nt(_d),"relative-json-pointer":nt(Pd)};function Id(e){return e%4===0&&(e%100!==0||e%400===0)}function Us(e){let t=e.match($d);if(!t)return false;let n=+t[1],o=+t[2],s=+t[3];return o>=1&&o<=12&&s>=1&&s<=(o==2&&Id(n)?29:bd[o])}function Ws(e,t){let n=t.match(kd);if(!n)return false;let o=+n[1],s=+n[2],r=+n[3],i=!!n[5];return(o<=23&&s<=59&&r<=59||o==23&&s==59&&r==60)&&(!e||i)}var Ld=/t|\s/i;function Nd(e){let t=e.split(Ld);return t.length==2&&Us(t[0])&&Ws(true,t[1])}var Bd=/\/|:/;var Dd=/^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;function Fd(e){return Bd.test(e)&&Dd.test(e)}var Ud=/[^\\]\\Z/;function Wd(e){if(Ud.test(e))return false;try{return new RegExp(e,"u"),true}catch(t){return false}}var Hd=/^[A-Za-z]:\//;function Hs(e=""){if(!e)return e;return e.replace(/\\/g,"/").replace(Hd,(t)=>t.toUpperCase())}var zd=/^[/\\](?![/\\])|^[/\\]{2}(?!\.)|^[A-Za-z]:[/\\]/;function Gd(){return"/"}var tt=function(...e){e=e.map((o)=>Hs(o));let t="",n=false;for(let o=e.length-1;o>=-1&&!n;o--){let s=o>=0?e[o]:Gd();if(!s||s.length===0)continue;t=`${s}/${t}`,n=Fs(s)}if(t=Jd(t,!n),n&&!Fs(t))return`/${t}`;return t.length>0?t:"."};function Jd(e,t){let n="",o=0,s=-1,r=0,i=null;for(let c=0;c<=e.length;++c){if(c<e.length)i=e[c];else if(i==="/")break;else i="/";if(i==="/"){if(s===c-1||r===1);else if(r===2){if(n.length<2||o!==2||n[n.length-1]!=="."||n[n.length-2]!=="."){if(n.length>2){let d=n.lastIndexOf("/");if(d===-1)n="",o=0;else n=n.slice(0,d),o=n.length-1-n.lastIndexOf("/");s=c,r=0;continue}else if(n.length>0){n="",o=0,s=c,r=0;continue}}if(t)n+=n.length>0?"/..":"..",o=2}else{if(n.length>0)n+=`/${e.slice(s+1,c)}`;else n=e.slice(s+1,c);o=c-s-1}s=c,r=0}else if(i==="."&&r!==-1)++r;else r=-1}return n}var Fs=function(e){return zd.test(e)};var pt=function(e,t){let n=Hs(e).split("/"),o="";for(let s=n.length-1;s>=0;s--){let r=n[s];if(r){o=r;break}}return t&&o.endsWith(t)?o.slice(0,-t.length):o};var Kd=md(yd(),1);var rm=wd();var Hn=xd();var zn=Kd.default;var Vd=/(?:^|: )(?:ENOENT|ENOTDIR)\b/;function sn(e){return Vd.test(re(e))}function Le(e){return(t)=>{if(sn(t))return e;throw t}}var an=/^(~|\$HOME|\$CLAUDE_CONFIG_DIR)(?=\/|$)/;function Gn(e,t,n=`${t}/.claude`){const o=an.exec(e)?.[0];if(o===undefined)return e;return`${o==="$CLAUDE_CONFIG_DIR"?n:t}${e.slice(o.length)}`}function jo(e,t){if(t===e)return"";const n=e==="/"?"/":`${e}/`;return t.startsWith(n)?t.slice(n.length):undefined}var Io=600000;var qd=1e4;var Kn=1e4;class cn extends Error{}var Jn=globalThis;function Lo(e,t,n){const o=typeof n[1]==="function";const s=o?n[1]:n[0];const r=(o?n[2]:n[1])??{};if(typeof s!=="function")throw new Error(`${e}: ${t} takes a listener, or a matcher and then a listener.`);const{timeoutMs:i,onFailure:c}=r;if(i!==undefined&&(typeof i!=="number"||!Number.isInteger(i)||i<=0||i>Io))throw new Error(`${e}: ${t}'s timeoutMs is ${String(i)}. Give a whole number of milliseconds above 0 and at most ${Io}.`);if(c!==undefined&&c!=="pass"&&c!=="refuse")throw new Error(`${e}: ${t}'s onFailure is ${String(c)}. Give 'pass' or 'refuse'.`);return{matcher:o?n[0]:undefined,listener:s,options:r}}async function zs(e,t,{timeoutMs:n=qd},o,s){const r=new AbortController;const i=await e.now()+n;o.throwIfAborted();let c;let d=()=>{return};const l=new Promise((m,y)=>{c=Jn.setTimeout(()=>{r.abort();y(new cn(`${t} passed its ${n/1000} s timeout`))},n);d=()=>y(o.reason);o.addEventListener("abort",d,{once:true})});try{return await Promise.race([Promise.resolve().then(()=>s({deadline:i,signal:AbortSignal.any([r.signal,o])})),l])}finally{Jn.clearTimeout(c);o.removeEventListener("abort",d)}}var Zd=1000;function dn(e,t){if(t===undefined)return e;return new Promise((n,o)=>{let s;const r=()=>void(s=Jn.setTimeout(()=>o(t.reason),Zd));if(t.aborted)r();else t.addEventListener("abort",r,{once:true});e.then(n,o).finally(()=>{Jn.clearTimeout(s);t.removeEventListener("abort",r)})})}function Ft(e,{ms:t,job:n},o,s){return new Promise((r,i)=>{const c=n===undefined?`its ${t/1000} s deadline`:`the ${t/1000} s deadline of ${n}`;const d=e.clock.after(t,()=>i(new Error(`${o} passed ${c}`)));s.then((l)=>{d.cancel();r(l)},(l)=>{d.cancel();i(l)})})}var Re="cmod";var Gs="cmod:isLoaded";async function Js(e,t,n){const o=Object.hasOwn(t,n.method)?t[n.method]:undefined;if(o===undefined)return{deny:`${e} has no method ${n.method}.`};try{return{value:await o(n.input)}}catch(s){return{deny:`${e}: ${re(s)}`}}}function Ks(e,t){const n=(o)=>new Proxy({},{get:(s,r)=>typeof r==="string"&&r!=="then"?(i)=>t(`mod.dependencies.${o}.${r}`,e.cmod.call({to:o,method:r,input:i})):undefined});return new Proxy({},{get:(o,s)=>typeof s==="string"&&s!=="then"?n(s):undefined})}function Xn(e){const t=`${e.plugin.name}: $.cmod.call: `;const n=(o)=>e.cmod.call(o).catch((s)=>{const r=re(s);throw r.startsWith(t)?new Error(r.slice(t.length),{cause:s}):s});return{...e,cmod:{call:n}}}function No(e,t){const n=e.plugin.name;const o=async(s)=>{if(s.to!==n)return e.cmod.call(s);const r=await t.dispatch("cmod.call",{...s,caller:n},async()=>({deny:`${n} has no method ${s.method}.`}));if(r.deny!==undefined)throw new Error(r.deny);return r.value};return{...e,cmod:{call:o}}}function Vn(e){return`${e} is installing. Try again when it's ready.`}function ot(e,t){return re(t).endsWith(Vn(e))}function Qd(e){return`${e} did not answer in time, so Claude Code went on without it.`}var Bo=`it ran past the ${Kn/1000} s Claude Code gives a hook`;function Do(e){const t=[Vn(""),Qd(""),`: ${Bo}`];for(let n=e;n!==undefined;n=n instanceof Error?n.cause:undefined){const o=re(n);if(t.some((s)=>o.endsWith(s)))return true}return false}function Xs(e,t){let n;const o=new Map;const s=(r)=>{if(r.agent_id===undefined)n=r.agent_type};t.add("classic.SessionStart",(r,i)=>{s(r);return i(r)});t.add("classic.UserPromptSubmit",(r,i)=>{s(r);return i(r)});t.add("tool.call",async(r,i)=>{if(r.agentId===undefined)return i(r);o.set(r.tool_use_id,r.agentId);try{return await i(r)}finally{o.delete(r.tool_use_id)}});return{async agentOf(r){const i=r===undefined?undefined:o.get(r);const c=i===undefined?n:(await e.agent.list()).find((d)=>d.id===i)?.type;return{...i===undefined?{}:{agentId:i},...c===undefined?{}:{agentType:c}}}}}function ol(e,t){if(e.type===Ge&&t.output!==undefined&&e.message.type===vt)return{...e,message:{...e.message,output:t.output}};if(e.type===Ge&&t.text!==undefined)return{...e,message:{...e.message,text:t.text}};if(e.type===Ge&&t.input!==undefined&&e.message.type===kt)return{...e,message:{...e.message,input:t.input}};if(e.type===Qe){const{agentType:n,model:o}=t.owner??{};return{...e,task:{...e.task,...t.title===undefined?{}:{title:t.title},...n===undefined?{}:{agentType:n},...o===undefined?{}:{model:o}}}}return e}var qn=(e,t)=>`${e}${Object.entries(Ot).find(([,n])=>n===t)?.[0]??t}`;var Ut={prompt:["text","note","title","refuse"],note:["text"],skill:["text"],instructionFile:["text","refuse"],attachedFile:["text","refuse"],reply:["text"],toolCall:["input","result","refuse","note"],toolResult:["output","isError","note"],notice:["text"],taskStart:["prompt","title","owner","isAsync","refuse"],turnEnd:["refuse","note"],contextEnd:["refuse","summary"]};function Fo(e,t,n,o){return Uo(qn("before",e),Ut[e],["refuse","result"],t,n,o,ol)}function Zn(e,t,n){if(n===undefined||n===null||n===false)return;if(typeof n!=="object"||Array.isArray(n))throw new Error(`it answered ${JSON.stringify(n)}, but ${e} takes an object or nothing: ${t.map((s)=>`{ ${s} }`).join(", ")||"no answer"}.`);const o=Object.keys(n).filter((s)=>!t.includes(s));if(o.length>0)throw new Error(`it answered ${o.join(" and ")}, which ${e} does not take. It takes ${t.map((s)=>`{ ${s} }`).join(", ")||"no answer"}.`);return n}async function Uo(e,t,n,o,s,r,i=(c)=>c){let c=o;let d;for(const l of s){try{const m=Zn(e,t,await l(c));if(typeof m!=="object"||m===null)continue;const y=m;const v=[d?.["note"],y["note"]].filter((x)=>typeof x==="string");d={...d,...y,...v.length===0?{}:{note:v.join(`
+// node_modules/@cmodjs/core/hotkeys.js
+var hotkeyName = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+var comboShape = /^(?:(?:ctrl|alt|shift|meta)\+){1,2}(?:[a-z0-9]|f(?:[1-9]|1[0-2])|tab|enter|escape|space|backspace|delete|up|down|left|right|home|end|pageup|pagedown|[`\-=[\]\\;',./])$/;
+var order = ["ctrl", "alt", "shift", "meta"];
+function isCombo(value) {
+  if (typeof value !== "string" || !comboShape.test(value))
+    return false;
+  const modifiers = value.split("+").slice(0, -1);
+  return modifiers.every((each, index) => index === 0 || order.indexOf(each) > order.indexOf(modifiers[index - 1]));
+}
+function checkHotkeys(name, hotkeys) {
+  const combos = new Map;
+  for (const [key, declared] of Object.entries(hotkeys)) {
+    const at = `${name}: hotkeys.${key}`;
+    if (!hotkeyName.test(key))
+      throw new Error(`${at} is not a hotkey name. Use letters, digits, and _, starting with a letter.`);
+    if (declared.title.trim() === "")
+      throw new Error(`${at} needs a title, the label Settings shows beside its combo.`);
+    if (declared.default === undefined)
+      continue;
+    if (!isCombo(declared.default))
+      throw new Error(`${at} defaults to "${String(declared.default)}", which is not a combo. Give one or two of ctrl, alt, shift, meta in that order, then a key, such as "ctrl+q" or "ctrl+shift+k".`);
+    const taken = combos.get(declared.default);
+    if (taken !== undefined)
+      throw new Error(`${at} defaults to ${declared.default}, which hotkeys.${taken} has too. Give each hotkey its own combo.`);
+    combos.set(declared.default, key);
+  }
+  return hotkeys;
+}
 
-`)}};if(n.some((x)=>y[x]!==undefined))return d;c=i(c,m)}catch(m){r(m)}}return d}function Vs(e){const t=e.trim();return t===""?undefined:t.slice(t.lastIndexOf(`
-`)+1).trim()}function Qn(e,t){const n=Vs(e)??"";const o=`cmod ${t}: `;return n.startsWith(o)?n.slice(o.length):n}async function At(e,t){let n="";let o="";let s=await e.next();while(s.done!==true){if(s.value.stream==="stderr"){o=Vs(s.value.text)??o}else{const r=`${n}${s.value.text}`.split(`
-`);n=r.pop()??"";for(const i of r)t(i)}s=await e.next()}if(n!=="")t(n);return{code:s.value.code,lastError:o}}function Yn(e,t,n,o={}){return e.process.spawn({argv:["cmod",...t],env:{...o,CLAUDE_CODE_SESSION_ID:n}})}async function Wt(e){const t=nn({HOME:await e.env.home(),XDG_DATA_HOME:await e.env.dataHome()});return hs({list:async(n)=>(await e.fs.list(n).catch(Le([]))).map((o)=>o.name),exists:async(n)=>await e.fs.stat(n).catch(Le(undefined))!==undefined},t)}async function Wo(e,t,n){const o=[];const{code:s,lastError:r}=await At(Yn(e,t,n),(i)=>void o.push(i));if(s!==0)throw new Error(Qn(r,t[0])||`cmod ${t.slice(0,2).join(" ")} ${Je(s,"")}.`);return o.join(`
-`)}function qs(e){let t;let n=new Set;const o=(s)=>{const[r,...i]=s;return t!==undefined&&r!==undefined&&(r==="cmod"||n.has(r))?[`${t}/${r}`,...i]:s};return{claude:{...e,process:{run:(s,r)=>e.process.run(o(s),r),spawn:(s)=>e.process.spawn({...s,argv:o(s.argv)})}},async refresh(){const[s,r]=await Promise.all([e.env.home(),e.env.dataHome()]);const i=`${nn({HOME:s,XDG_DATA_HOME:r})}/programs`;n=new Set((await e.fs.list(i).catch(Le([]))).map((c)=>c.name));t=i}}}var Zs=/\u0001(\d+)\u0001/g;var Qs=/[0-9]+(?=[<>])/y;var Vo=/^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/;var qo=/[$`]/;var rl=/^\$HOME(?=\/|$)/;var sl=/^-[A-Za-z0-9]{2,}$/;var il=";&|()<>";var al=new Set([">",">>",">|","&>","&>>",">&","<","<>","<&","<<<"]);var cl=new Set([">",">>",">|","&>","&>>","<>"]);var dl=new Set([";","&","&&","||","|","|&"]);var ll=new Set([";;",";&",";;&"]);var ri=new Set(["if","then","else","elif","fi","do","done","while","until","esac","{","}","!"]);var ul=new Set(["sh","bash","zsh"]);var fl=new Set(["-exec","-execdir","-ok","-okdir"]);var pl=new Set(["-C","-c","--git-dir","--work-tree","--namespace","--config-env","--super-prefix","--attr-source"]);var ml=new Set(["find","java","javac","go","gcc","g++","clang","clang++","swift","swiftc","xcodebuild","xcrun","ffmpeg","ffprobe","openssl","plutil","defaults","security","codesign"]);var Ho={valued:"efmABCdD",longValued:["--regexp","--file","--max-count","--after-context","--before-context","--context","--directories","--devices","--binary-files","--label","--include","--exclude","--exclude-dir","--exclude-from"],scriptOptions:["-e","-f","--regexp","--file"]};var Ko={valued:"fFvi",longValued:["--file","--field-separator","--assign","--include","--source"],scriptOptions:["-f","--file","--source"],takesAssignments:true,inPlaceOptions:["-i","--include"]};var Xo={valued:"efl",optional:"iI",longValued:["--expression","--file","--line-length"],scriptOptions:["-e","-f","--expression","--file"],inPlaceOptions:["-i","-I","--in-place"]};var Ys={valued:"eEIMmF",optional:"ixdDC",scriptOptions:["-e","-E"],inPlaceOptions:["-i"]};var hl=new Map([["tee",{}],["rm",{}],["touch",{valued:"drt",longValued:["--date","--reference","--time"]}],["truncate",{valued:"sr",longValued:["--size","--reference"]}]]);var zo={valued:"tS",longValued:["--target-directory","--suffix"],targetOptions:["-t","--target-directory"]};var gl=new Map([["cp",{...zo,sources:"reads"}],["mv",{...zo,sources:"writes"}],["ln",{...zo,sources:undefined,linksHere:true}],["rsync",{valued:"efBTM",longValued:["--rsh","--rsync-path","--filter","--exclude","--include","--exclude-from","--include-from","--files-from","--temp-dir","--compare-dest","--copy-dest","--link-dest","--backup-dir","--suffix","--chmod","--chown","--usermap","--groupmap","--timeout","--contimeout","--bwlimit","--log-file","--log-file-format","--out-format","--password-file","--port","--sockopts","--max-size","--min-size","--max-delete","--partial-dir","--block-size","--modify-window","--iconv","--checksum-choice","--compress-choice","--compress-level","--remote-option","--info","--debug","--address","--write-batch","--only-write-batch","--read-batch","--protocol","--skip-compress"],sources:"reads",skipsRemote:true}]]);var yl=new Map([["curl",{valued:"AbcCdDeEFHKmoPQrTtuUwxXyYz",longValued:["--url","--data","--data-raw","--data-binary","--data-urlencode","--data-ascii","--json","--form","--form-string","--header","--proxy-header","--user","--user-agent","--referer","--output","--output-dir","--cookie","--cookie-jar","--request","--proxy","--proxy-user","--preproxy","--noproxy","--max-time","--connect-timeout","--retry","--retry-delay","--retry-max-time","--range","--continue-at","--upload-file","--write-out","--cert","--cert-type","--key","--key-type","--cacert","--capath","--ciphers","--config","--dump-header","--interface","--limit-rate","--max-filesize","--max-redirs","--resolve","--connect-to","--oauth2-bearer","--aws-sigv4","--unix-socket","--abstract-unix-socket","--variable","--url-query","--trace","--trace-ascii","--stderr","--keepalive-time","--local-port","--dns-servers","--doh-url","--quote","--telnet-option","--time-cond","--speed-limit","--speed-time","--etag-save","--etag-compare","--hsts","--alt-svc","--mail-from","--mail-rcpt","--mail-auth","--pass","--proto","--proto-redir","--pubkey","--socks4","--socks4a","--socks5","--socks5-hostname"]}],["wget",{valued:"aoeiBtOTwQPlARDIXU",longValued:["--output-file","--append-output","--execute","--input-file","--base","--tries","--output-document","--timeout","--dns-timeout","--connect-timeout","--read-timeout","--wait","--waitretry","--quota","--limit-rate","--directory-prefix","--level","--accept","--reject","--domains","--exclude-domains","--include-directories","--exclude-directories","--user-agent","--header","--user","--password","--http-user","--http-password","--post-data","--post-file","--body-data","--body-file","--method","--referer","--load-cookies","--save-cookies","--certificate","--private-key","--ca-certificate","--ca-directory","--bind-address","--cut-dirs","--default-page","--restrict-file-names","--local-encoding","--remote-encoding"]}]]);var wl={valued:"cgGsw",longValued:["--command","--session-command","--group","--supp-group","--shell","--whitelist-environment"]};var xl=["-c","--command","--session-command"];var si=new Map([["cat",{}],["head",{valued:"nc",longValued:["--lines","--bytes"]}],["tail",{valued:"ncbs",longValued:["--lines","--bytes","--pid","--sleep-interval","--max-unchanged-stats"]}],["less",{valued:"bhjkoOpPtTxyz"}],["grep",Ho],["egrep",Ho],["fgrep",Ho],["rg",{valued:"efgtTmABCjMrEd",longValued:["--regexp","--file","--glob","--iglob","--type","--type-not","--type-add","--max-count","--after-context","--before-context","--context","--threads","--max-columns","--replace","--encoding","--max-depth","--max-filesize","--sort","--sortr","--pre","--pre-glob","--engine","--ignore-file","--path-separator","--context-separator","--field-match-separator","--field-context-separator"],scriptOptions:["-e","-f","--regexp","--file"]}],["awk",Ko],["gawk",Ko],["sed",Xo],["gsed",Xo]]);var Zo=new Map([["sudo",{valued:"CDghpRrTtUu",longValued:["--close-from","--chdir","--group","--host","--prompt","--chroot","--role","--type","--command-timeout","--other-user","--user"],stops:["-e","--edit","-l","--list","-v","--validate","-V","--version","-K","--remove-timestamp"],folderOptions:["-D","--chdir"],takesAssignments:true}],["env",{valued:"aCPSu",longValued:["--argv0","--chdir","--split-string","--unset"],folderOptions:["-C","--chdir"],codeOptions:["-S","--split-string"],takesAssignments:true}],["doas",{valued:"aCu",stops:["-C","-L"]}],["timeout",{valued:"ks",longValued:["--kill-after","--signal"],leadingOperands:1}],["flock",{valued:"wEc",longValued:["--timeout","--wait","--conflict-exit-code","--command"],codeOptions:["-c","--command"],leadingOperands:1}],["stdbuf",{valued:"ioe",longValued:["--input","--output","--error"]}],["watch",{valued:"nq",optional:"d",longValued:["--interval","--equexit"],shellUnless:["-x","--exec"]}],["nohup",{}],["nice",{valued:"n",longValued:["--adjustment"]}],["time",{valued:"fo",longValued:["--format","--output"]}],["exec",{valued:"a"}],["command",{stops:["-v","-V"]}],["xargs",{valued:"aEdILnPs",optional:"eil",longValued:["--arg-file","--delimiter","--max-args","--max-chars","--max-procs","--process-slot-var"]}]]);var $l=new Map([["python",["-c"]],["python2",["-c"]],["python3",["-c"]],["node",["-e","--eval","-p","--print"]],["bun",["-e","--eval","-p","--print"]],["deno",["eval"]],["ruby",["-e"]],["perl",["-e","-E"]],["php",["-r"]],["lua",["-e"]],["osascript",["-e"]]]);function Qo(e){const t={commands:[],writes:[],reads:[],fetches:[],isFullyParsed:true};Et(e,"",t);return t}function Et(e,t,n){if(e.includes("\x01")){n.isFullyParsed=false;return}try{const{text:o,markers:s}=Yo(e,0,false);Sl(Hn(o,(r)=>r===""?undefined:`$${r}`),s,t,n)}catch(o){if(!(o instanceof SyntaxError)&&!(o instanceof Error&&o.message.startsWith("Bad substitution: ")))throw o;n.isFullyParsed=false}}function Yo(e,t,n){const o=[];const s=[];const r=(y)=>`\x01${o.push(y)-1}\x01`;let i="";let c=0;let d=0;let l=t;let m=true;while(l<e.length){const y=e.charAt(l);const v=e.charAt(l+1);if(y===`
-`){i+=" ; ";l=vl(e,l+1,s.splice(0));m=true;continue}if(y===" "||y==="\t"){i+=y;l+=1;m=true;continue}if(y==="#"){if(m)l=ai(e,l);else{i+="\\#";l+=1}continue}if(y==="\\"){if(v==="")throw new SyntaxError("The line ends with a backslash.");if(v!==`
-`){i+=y+v;m=false}l+=2;continue}if(y==="'"||y==="$"&&v==="'"){const b=nr(e,l+(y==="$"?2:1),"'",y==="$");i+=e.slice(l,b+1);l=b+1;m=false;continue}if(y==='"'){const b=bl(e,l,r);i+=b.text;l=b.end;m=false;continue}const x=er(e,l);if(x!==undefined){i+=r(x);l=x.end;m=false;continue}if((y==="<"||y===">")&&v==="("){const b=Yo(e,l+2,true).end;i+=r({raw:e.slice(l,b+1),code:[e.slice(l+2,b)]});l=b+1;m=false;continue}if(y==="("&&v==="("&&m){const b=ii(e,l+2);if(b!==undefined){if(tr(e.slice(l+2,b-2)).length>0)throw new SyntaxError("An arithmetic command runs a substitution.");l=b;continue}}if(e.startsWith("<<<",l)){i+="<<<";l+=3;m=true;continue}if(y==="<"&&v==="<"){const b=kl(e,l);s.push(b);i+=` <<< ${r(b.marker)} `;l=b.end;m=true;continue}if(m){Qs.lastIndex=l;const b=Qs.exec(e);if(b!==null){l+=b[0].length;continue}if(ei(e,l,"case"))d+=1;if(ei(e,l,"esac")&&d>0)d-=1}if(y==="(")c+=1;if(y===")"){if(c>0)c-=1;else if(d===0){if(!n)throw new SyntaxError("The line closes a parenthesis it never opened.");if(s.length>0)throw new SyntaxError("A heredoc inside a substitution has no body.");return{text:i,markers:o,end:l}}}i+=y;l+=1;m=il.includes(y)}if(n)throw new SyntaxError("A substitution is never closed.");if(c>0)throw new SyntaxError("A parenthesis is never closed.");if(s.length>0)throw new SyntaxError("A heredoc has no body.");return{text:i,markers:o,end:l}}function bl(e,t,n){let o='"';let s=t+1;while(s<e.length){const r=e.charAt(s);if(r==='"')return{text:`${o}"`,end:s+1};if(r==="\\"){if(e.charAt(s+1)!==`
-`)o+=e.slice(s,s+2);s+=2;continue}const i=er(e,s);if(i!==undefined){o+=n(i);s=i.end;continue}o+=r;s+=1}throw new SyntaxError("A double quote is never closed.")}function er(e,t){if(e.startsWith("$((",t)){const n=ii(e,t+3);if(n!==undefined)return{raw:e.slice(t,n),code:tr(e.slice(t+3,n-2)),end:n}}if(e.startsWith("$(",t)){const n=Yo(e,t+2,true).end;return{raw:e.slice(t,n+1),code:[e.slice(t+2,n)],end:n+1}}if(e.charAt(t)==="`"){const n=nr(e,t+1,"`",true);return{raw:e.slice(t,n+1),code:[e.slice(t+1,n).replace(/\\([\\`$])/g,"$1")],end:n+1}}return}function tr(e){const t=[];let n=0;while(n<e.length){if(e.charAt(n)==="\\"){n+=2;continue}const o=er(e,n);if(o===undefined)n+=1;else{t.push(...o.code);n=o.end}}return t}function ii(e,t){let n=0;for(let o=t;o<e.length;o+=1){const s=e.charAt(o);if(s==="(")n+=1;if(s!==")")continue;if(n>0)n-=1;else return e.charAt(o+1)===")"?o+2:undefined}throw new SyntaxError("An arithmetic expansion is never closed.")}function nr(e,t,n,o){for(let s=t;s<e.length;s+=1){const r=e.charAt(s);if(o&&r==="\\")s+=1;else if(r===n)return s}throw new SyntaxError(`A ${n} quote is never closed.`)}function ai(e,t){const n=e.indexOf(`
-`,t);return n<0?e.length:n}function ei(e,t,n){return e.startsWith(n,t)&&/^$|[\s;&|()<>]/.test(e.charAt(t+n.length))}function kl(e,t){let n=t+2;const o=e.charAt(n)==="-";if(o)n+=1;while(e.charAt(n)===" "||e.charAt(n)==="\t")n+=1;let s="";let r=false;while(n<e.length&&!/[\s;&|()<>]/.test(e.charAt(n))){const i=e.charAt(n);if(i==="'"||i==='"'){const c=nr(e,n+1,i,i==='"');s+=e.slice(n+1,c);r=true;n=c+1}else if(i==="\\"){s+=e.charAt(n+1);r=true;n+=2}else{s+=i;n+=1}}if(s==="")throw new SyntaxError("A heredoc has no delimiter.");return{delimiter:s,stripsTabs:o,isQuoted:r,marker:{raw:"",code:[]},end:n}}function vl(e,t,n){let o=t;for(const s of n){const r=[];for(;;){if(o>=e.length)throw new SyntaxError(`The heredoc ${s.delimiter} never ends.`);const i=ai(e,o);const c=s.stripsTabs?e.slice(o,i).replace(/^\t+/,""):e.slice(o,i);o=i+1;if(c===s.delimiter)break;r.push(c)}s.marker.raw=r.join(`
-`);s.marker.code=s.isQuoted?[]:tr(s.marker.raw)}return o}function Sl(e,t,n,o){let s=n;const r=[];let i=Go(undefined);let c;for(let d=0;d<e.length;d+=1){const l=e[d];if(typeof l!=="string"&&"comment"in l)throw new SyntaxError("The line holds a comment the scanner left.");if(Jo(l)){const b=ti(l,t,s,o);if(c==="header"){if(b.text==="in")c="pattern"}else if(c==="pattern"){if(b.text==="esac")c=undefined}else if(b.text==="case"&&i.words.every((N)=>ri.has(N.text))){c="header"}else i.words.push(b);continue}const m=l.op;if(al.has(m)){const b=e[d+1];if(b===undefined||!Jo(b))throw new SyntaxError(`The redirection ${m} has no target.`);d+=1;i.redirects.push({operator:m,target:ti(b,t,s,o)});continue}if(c!==undefined){if(c==="pattern"&&m===")")c=undefined;continue}const y=e[d+1];if(m==="("&&i.words.length===1&&y!==undefined&&!Jo(y)&&"op"in y&&y.op===")"){i=Go(undefined);d+=1;continue}const v=o.commands.length;s=ni(i,m,s,o);const x=o.commands.length>v?o.commands.length-1:undefined;i=Go(m==="|"||m==="|&"?{writer:x}:undefined);if(m==="(")r.push(s);else if(m===")"){const b=r.pop();if(b===undefined)throw new SyntaxError("The line closes a subshell it never opened.");s=b}else if(ll.has(m))c="pattern";else if(!dl.has(m))throw new SyntaxError(`The parser does not know the operator ${m}.`)}ni(i,";",s,o)}function Go(e){return{words:[],redirects:[],pipe:e}}function Jo(e){return typeof e==="string"||"op"in e&&e.op==="glob"}function ti(e,t,n,o){const s=typeof e==="string"?e:e.pattern;for(const r of s.matchAll(Zs)){for(const i of t[Number(r[1])].code)Et(i,n,o)}return{text:s.replace(Zs,(r,i)=>t[Number(i)].raw),isGlob:typeof e!=="string",isDynamic:/[$\u0001]/.test(pt(s))}}function ni(e,t,n,o){for(const b of e.redirects)Cl(b,n,o);const s=Ol(e.words);const[r,...i]=s;if(r===undefined||r.text==="for"||r.text==="select")return n;const c=e.redirects.findLast((b)=>b.operator==="<<<");const d=c!==undefined?{type:"text",text:c.target.text}:e.pipe!==undefined?{type:"pipe"}:undefined;const l=o.commands.length;const m=or(r,i,n,d,o);const y=o.commands[l];const v=e.pipe?.writer;if(y!==undefined&&v!==undefined&&c===undefined)o.commands[l]={...y,input:v};const x=e.pipe!==undefined||t==="|"||t==="|&"||t==="&";return m===undefined||x?n:m}function Ol(e){let t=0;for(;;){const n=e[t]?.text;if(n===undefined)break;if(n==="function")t+=2;else if(ri.has(n)||Vo.test(n))t+=1;else break}return e.slice(t)}function Cl({operator:e,target:t},n,o){if(e==="<"||e==="<>")st(o,"reads",t,n);if(cl.has(e)||e===">&"&&!/^([0-9]+|-)$/.test(t.text))st(o,"writes",t,n)}function or(e,t,n,o,s){if(e.isDynamic||e.isGlob)s.isFullyParsed=false;const r=pt(e.text);if(r==="git")Al(e,t,n,s);else if(r==="find")El(e,t,n,s);else if(Zo.has(r))Pl(e,r,t,n,o,s);else{const i=rr(r,t);s.commands.push({argv:[e.text,...i],folder:n});Rl(r,t,i,n,o,s);if(r==="cd")return Bl(t,n)}return}function Al(e,t,n,o){let s=0;let r=n;for(let i=t[0]?.text;i?.startsWith("-")===true;i=t[s]?.text){if(i==="-C")r=to(r,t[s+1]?.text??"");if(i==="-c"&&/^alias\.[^=]*=\s*!/i.test(t[s+1]?.text??""))o.isFullyParsed=false;s+=pl.has(i)?2:1}o.commands.push({argv:[e.text,...rr("git",t.slice(s))],folder:r})}function El(e,t,n,o){const s=[];const r=[];for(let i=0;i<t.length;i+=1){const c=t[i].text;if(!fl.has(c)){s.push(c);continue}const d=t.findIndex((l,m)=>m>i&&(l.text===";"||l.text==="+"));r.push(t.slice(i+1,d<0?t.length:d));i=d<0?t.length:d}o.commands.push({argv:[e.text,...s],folder:n});if(s.includes("-delete"))for(const i of _l(t))st(o,"writes",i,n);for(const[i,...c]of r){if(i!==undefined)or(i,c,n,undefined,o)}}function _l(e){let t=0;for(let s=e[0]?.text;s==="-D"||/^-([HLP]|O\d*)$/.test(s??"");s=e[t]?.text)t+=s==="-D"?2:1;const n=e.findIndex((s,r)=>r>=t&&/^[-(!),]/.test(s.text));const o=e.slice(t,n<0?e.length:n);return o.length>0?o:[eo(".")]}function Pl(e,t,n,o,s,r){const i=Zo.get(t);if(t==="xargs"&&s?.type!=="text")r.isFullyParsed=false;const{options:c,operands:d}=rt(n,i,true);let l=n.length-d.length;if(c.some((q)=>i.stops?.includes(q.name)===true))l=n.length;l+=i.leadingOperands??0;while(i.takesAssignments===true&&Vo.test(n[l]?.text??""))l+=1;const m=i.codeOptions?.includes(n[l]?.text??"")===true;r.commands.push({argv:[e.text,...rr(t,n.slice(0,l))],folder:o});const y=c.findLast((q)=>i.folderOptions?.includes(q.name)===true)?.value;const v=y===undefined?o:to(o,y.text);const x=m?n[l+1]:c.findLast((q)=>i.codeOptions?.includes(q.name)===true)?.value;const b=n.slice(m?l+2:l);const N=i.shellUnless!==undefined&&!c.some((q)=>i.shellUnless?.includes(q.name)===true);if(x!==undefined||N){Et([...x===undefined?[]:[x],...b].map((q)=>q.text).join(" "),v,r);return}const[U,...K]=b;if(U!==undefined)or(U,K,v,s,r)}function Rl(e,t,n,o,s,r){const i=si.get(e);const c=hl.get(e);const d=gl.get(e);const l=yl.get(e);const m=$l.get(e);if(e==="eval")r.isFullyParsed=false;else if(ul.has(e))Tl(t,o,s,r);else if(e==="ssh")Ml(t,s,r);else if(e==="su")jl(t,o,r);else if(e==="source"||e===".")st(r,"reads",rt(t,{},true).operands[0],o);else if(e==="dd")for(const y of t.filter((v)=>v.text.startsWith("of=")))st(r,"writes",{...y,text:y.text.slice(3)},o);else if(c!==undefined)for(const y of rt(t,c,false).operands)st(r,"writes",y,o);else if(d!==undefined)Ll(d,t,o,r);else if(i!==undefined)oi(i,t,o,r);else if(l!==undefined)Il(l,t,r);else if(m!==undefined){if(e==="perl"&&rt(t,Ys,false).options.some((x)=>x.name==="-i"))oi(Ys,t,o,r);const y=t.find((x)=>!x.text.startsWith("-")||x.text==="-");const v=s?.type==="pipe"&&(y===undefined||y.text==="-");if(n.some((x)=>m.includes(x))||s?.type==="text"||v)r.isFullyParsed=false}}function Tl(e,t,n,o){const{options:s,operands:r}=rt(e,{valued:"oO",longValued:["--rcfile","--init-file"]},true);const i=r[0];if(s.some((c)=>c.name==="-c")){if(i!==undefined)Et(i.text,t,o)}else if(i===undefined||s.some((c)=>c.name==="-s"))ci(n,t,o)}function Ml(e,t,n){const{operands:o}=rt(e,{valued:"BbcDEeFIiJLlmOoPpQRSWw"},true);const s=o.slice(1);if(s.length>0)Et(s.map((r)=>r.text).join(" "),"~",n);else if(o.length>0)ci(t,"~",n)}function jl(e,t,n){const o=rt(e,wl,false).options.findLast((s)=>xl.includes(s.name))?.value;if(o!==undefined)Et(o.text,t,n)}function Il(e,t,n){const{options:o,operands:s}=rt(t,e,false);const r=[...o.filter((i)=>i.name==="--url").flatMap((i)=>i.value===undefined?[]:[i.value]),...s];for(const i of r)n.fetches.push(/^[a-z][a-z0-9+.-]*:\/\//i.test(i.text)?i.text:`http://${i.text}`)}function ci(e,t,n){if(e?.type==="text")Et(e.text,t,n);if(e?.type==="pipe")n.isFullyParsed=false}function Ll(e,t,n,o){const{options:s,operands:r}=rt(t,e,false);const i=s.findLast((y)=>e.targetOptions?.includes(y.name)===true)?.value;const c=r[0];if(e.linksHere===true&&i===undefined&&r.length===1&&c!==undefined){st(o,"writes",{...c,text:pt(c.text)},n);return}const d=i??r.at(-1);const l=i===undefined?r.slice(0,-1):r;if(d===undefined||l.length===0)return;const m=(y)=>e.skipsRemote!==true||!/^[^/]*:/.test(y.text);for(const y of l.filter(m)){if(e.sources!==undefined)st(o,e.sources,y,n);if(m(d)&&!y.isGlob&&!d.isGlob)di(o,"writes",`${d.text.replace(/\/+$/,"")}/${pt(y.text)}`,n)}if(m(d))st(o,"writes",d,n)}function oi(e,t,n,o){const{options:s,operands:r}=rt(t,e,false);const i=s.find((d)=>e.inPlaceOptions?.includes(d.name)===true&&(e!==Ko||d.value?.text==="inplace"));let c=r;if(e===Xo&&i!==undefined&&i.value===undefined){const d=c[0]?.text;const l=s.some((m)=>e.scriptOptions?.includes(m.name)===true);if(d===""||!l&&d!==undefined&&/^\.[\w.-]*$/.test(d))c=c.slice(1)}if(e.scriptOptions!==undefined&&!s.some((d)=>e.scriptOptions?.includes(d.name)===true))c=c.slice(1);if(e.takesAssignments===true)c=c.filter((d)=>!Vo.test(d.text));for(const d of c)st(o,i===undefined?"reads":"writes",d,n)}function rt(e,t,n){const o=[];const s=[];for(let r=0;r<e.length;r+=1){const i=e[r];const c=i.text;if(c==="--"){s.push(...e.slice(r+1));break}if(i.isGlob||c==="-"||!c.startsWith("-")){if(n){s.push(...e.slice(r));break}s.push(i);continue}if(c.startsWith("--")){const d=c.indexOf("=");if(d>=0)o.push({name:c.slice(0,d),value:eo(c.slice(d+1))});else if(t.longValued?.includes(c)===true){o.push({name:c,value:e[r+1]});r+=1}else o.push({name:c,value:undefined});continue}for(let d=1;d<c.length;d+=1){const l=c.charAt(d);const m=c.slice(d+1);if(t.optional?.includes(l)===true){o.push({name:`-${l}`,value:m===""?undefined:eo(m)});break}if(t.valued?.includes(l)===true){if(m!=="")o.push({name:`-${l}`,value:eo(m)});else{o.push({name:`-${l}`,value:e[r+1]});r+=1}break}o.push({name:`-${l}`,value:undefined})}}return{options:o,operands:s}}function rr(e,t){const n=t.map((i)=>i.text);if(ml.has(e))return n;const o=si.get(e)??Zo.get(e);const s=`${o?.valued??""}${o?.optional??""}`;const r=n.indexOf("--");return n.flatMap((i,c)=>r>=0&&c>r||!sl.test(i)?[i]:Nl(i,s))}function Nl(e,t){const n=[];for(let o=1;o<e.length;o+=1){const s=e.charAt(o);if(t.includes(s)&&o<e.length-1)return[...n,`-${e.slice(o)}`];n.push(`-${s}`)}return n}function Bl(e,t){const n=e.find((o)=>!o.text.startsWith("-")||o.text==="-");if(n===undefined)return"~";return to(t,n.text==="-"?"$OLDPWD":n.text)}function st(e,t,n,o){if(n!==undefined&&!n.isGlob)di(e,t,n.text,o)}function di(e,t,n,o){if(n===""||n.startsWith("/dev/"))return;const s=to(o,n);if(qo.test(s.replace(rl,"")))e.isFullyParsed=false;e[t].push(s)}function to(e,t){return e===""||/^(\/|~|\$HOME(\/|$))/.test(t)?t:`${e}/${t}`}function eo(e){return{text:e,isGlob:false,isDynamic:false}}function li(e,t){const{fs:n}=t;const o=(i,c=t.cwd)=>tt(c,Gn(i,t.home,t.configRoot));const s=(i)=>({path:o(i),contents:undefined});const r={shell:undefined,reads:[],writes:[],urls:[],subagent:undefined};if(e.tool==="Bash"){const i=Ke(e,"command");const c=Qo(i);const d=c.commands.map(({argv:l,folder:m})=>({argv:l,folder:o(m)}));r.shell={line:i,commands:d,isFullyParsed:c.isFullyParsed};r.reads=c.reads.map(s);r.writes=c.writes.map(s);r.urls=c.fetches}else if(e.tool==="PowerShell"){r.shell={line:Ke(e,"command"),commands:[],isFullyParsed:false}}else if(e.tool==="Edit"){const i=o(Ke(e,"file_path"));r.writes=[{path:i,contents:sr(()=>Dl(e,i,n))}]}else if(e.tool==="Write"){const i=o(Ke(e,"file_path"));const c=Ke(e,"content");r.writes=[{path:i,contents:sr(async()=>ln(c,await ar(i,n)))}]}else if(e.tool==="NotebookEdit"){const i=o(Ke(e,"notebook_path"));r.writes=[{path:i,contents:sr(async()=>ln(undefined,await ar(i,n)))}]}else if(e.tool==="Read"){r.reads=[s(Ke(e,"file_path"))]}else if(e.tool==="Grep"){r.reads=[s(ir(e,"path")??"")]}else if(e.tool==="Glob"){const i=o(ir(e,"path")??"");r.reads=[{path:o(Ke(e,"pattern"),i),contents:undefined}]}else if(e.tool==="WebFetch"){r.urls=[Ke(e,"url")]}else if(e.tool==="Agent"){r.subagent=ir(e,"subagent_type")??"general-purpose"}return r}async function Dl(e,t,n){const o=await ar(t,n);const s=Ke(e,"old_string");const r=Ke(e,"new_string");if(s==="")return ln(o===undefined||o===""?r:undefined,o);if(o===undefined||!o.includes(s))return ln(undefined,o);const i=cr(e,"replace_all")===true?o.split(s).join(r):o.replace(s,()=>r);return ln(i,o)}async function ar(e,t){const n=await t.stat(e).catch(Le(undefined));return n?.kind==="file"?t.read(e):undefined}function ln(e,t){return{...e===undefined?{}:{content:e},...t===undefined?{}:{previousContent:t}}}function sr(e){let t;return()=>t??=e()}function cr(e,t){return e.input[t]}class no extends Error{}function Ke(e,t){const n=cr(e,t);if(typeof n!=="string")throw new no(`The ${e.tool} call has no text field ${t}.`);return n}function ir(e,t){return cr(e,t)===undefined?undefined:Ke(e,t)}function ui(e,t,n){const o=async(s,r)=>{const i=await Promise.resolve().then(()=>t(s,r.signal)).catch((c)=>{n({id:`hook:${e}`,message:`The ${e} listener failed`,error:c});return});if(i===undefined)return r(s);return hi(await r(s),i)};return o}function fi(e){const t=async(n,o,s)=>{const r=await e(n,o);return r===undefined?undefined:hi(await s(n),r)};return t}var Fl=/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;var Ul=/^Base directory for this skill: [^\n]*\n\n/;function pi(e){return async(t,n)=>{const{name:o,root:s}=e.plugin;if(!t.skill.startsWith(`${o}:`))return n(t);const r=t.skill.slice(o.length+1);const i=`${s}/skills`;if(!await e.fs.exists(i)||!(await e.fs.list(i)).some((d)=>d.name===r))return n(t);if((await e.fs.stat(`${i}/${r}`)).kind!=="dir")return n(t);const c={HOME:await e.env.home(),CLAUDE_CONFIG_DIR:await e.env.configHome()};for(const{folder:d}of Tn(c,o,await e.session.root()).toReversed()){const l=`${d}/skills/${r}/SKILL.md`;if(await e.fs.exists(l))return{text:`${Ul.exec(t.text)?.[0]??""}${(await e.fs.read(l)).replace(Fl,"")}`}}return n(t)}}async function mi(e,t,n,o,s){try{const{home:r,configRoot:i}=await n;if(r===undefined)throw new Error("HOME is not set, so ~ in a path has no meaning.");const{shell:c,reads:d,writes:l}=li(o,{cwd:s,home:r,...i===undefined?{}:{configRoot:i},fs:t.fs});const m=(x)=>x.map(({path:b})=>b).filter((b)=>c===undefined||!qo.test(b));const y=(x)=>(b)=>{if(!sn(b))t.ui.warn("call:files",`${e}: the ${o.tool} call reads ${x}, which could not be checked: ${re(b)}`);return};const v=await Promise.all(m(d).map(async(x)=>(await t.fs.stat(x).catch(y(x)))?.kind==="file"?[x]:[]));return{read:v.flat(),changed:m(l)}}catch(r){if(!(r instanceof no))t.ui.warn("call:files",`${e}: the ${o.tool} call lists no files: ${re(r)}`);return{read:[],changed:[]}}}function hi(e,t){const n={...e,...t};const o=[...e["additionalContext"]??[],...t["additionalContext"]??[]];if(o.length>0)n["additionalContext"]=o;return n}var Ht="*";var Be={sessions:"cmod:sessions",search:"cmod:search",messages:"cmod:messages",turns:"cmod:turns",contexts:"cmod:contexts",tasks:"cmod:tasks",goal:"cmod:goal",updateGoal:"cmod:updateGoal",subscribe:"cmod:subscribe",watchBefore:"cmod:watchBefore",act:"cmod:act",changed:"cmod:changed",before:"cmod:before",sessionColor:"cmod:sessionColor"};async function wi(e){const[t,n]=await Promise.all([e.session.model(),e.session.usage()]);const{tokens:o,window:s,percent:r}=n.context;const i=n.rateLimits.map(({kind:c,percentUsed:d,resetsAt:l})=>({type:c,percent:d,...l===undefined?{}:{resetsAt:l}}));return{model:t,contextWindow:{...o===undefined?{}:{tokenCount:o},size:s,...r===undefined?{}:{percent:r}},rateLimits:i,...n.cost===undefined?{}:{cost:{usd:n.cost.usd}}}}function lr(e){if(e.type===Ge)return e.message;if("turn"in e)return e.turn;if("context"in e)return e.context;if("task"in e){const{id:t,title:n,agentType:o,model:s,openedBy:r,openedAt:i,closedAt:c,isBackground:d,forkedFrom:l}=e.task;const m={id:t,title:n,...o===undefined?{}:{agentType:o},...s===undefined?{}:{model:s},...l===undefined?{}:{forkedFrom:l},startedAt:i};return{id:t,title:n,openedBy:r,openedAt:i,...c===undefined?{}:{closedAt:c},...d===true?{isBackground:d}:{},owner:m}}if("usage"in e)return e.usage;return e.goal}function xi(e,t,n){const o=n.type===Ge?e===Ge||e===n.message.type:e===n.type;return o&&(t===undefined||et(lr(n),t))}function $i(e){if(e.type===Ge)return e.message.task;if(e.type===Qe||e.type===Nt)return e.task.id===""?e.task.parent:e.task.id;if(e.type===Dt||e.type===St)return e.turn.prompt.task;if(e.type===Bn||e.type===rn)return e.context.task;if(e.type===Dn)return e.goal.task;return}function Wl(e){if(e.type===Qe||e.type===Nt)return e.task.parent;return $i(e)}function Hl(e){if(e.type===Ge)return e.message.context;if(e.type===Dt||e.type===St)return e.turn.context;if(e.type===Bn||e.type===rn)return e.context.number;if(e.type===Qe||e.type===Nt)return e.task.context;return}function un(e,t,n,o){if(e.session!==undefined&&e.session!==t)return false;const s=$i(n);if(e.isAgent===true)return(n.type===Qe||n.type===Nt?n.task.parent:s)===e.task;if(e.task!==undefined&&(s===undefined||!o(s,e.task)))return false;if(e.context!==undefined&&(Hl(n)!==e.context||Wl(n)!==e.task))return false;if(e.turn===undefined)return true;if(n.type===Ge)return n.message.turn===e.turn;return(n.type===Dt||n.type===St)&&n.turn.prompt.id===e.turn}function zl(e,t){return`${e}: ${t} hears Claude Code's permission check, so hooks/register.ts must call registerPermissionCheck(addHook) after registerMod.`}function bi({name:e,claude:t,report:n,hookOn:o,routeOn:s,permissionRoutes:r}){const i=(w,g)=>t.cmod.call({to:Re,method:w,input:g});const c=new Map;const d=new Map;const l=new Set;const m=new Map;const y=new Map;const v=new Map;let x={id:"",title:"",project:"",cwd:"",model:"",startedAt:"",lastAt:"",isRunning:true};let b={session:""};const N=({color:w,...g})=>b.session===g.id&&b.color!==undefined?{...g,color:b.color}:g;const U=(w)=>w.session??Ht;const K=(w)=>{if(l.has(w))return;l.add(w);Promise.resolve().then(async()=>{l.delete(w);const g=(a)=>[...a.get(w)??[]].map(({event:p,matcher:f,options:S,scope:C})=>({event:p,matcher:f===undefined?undefined:Un(f),...S.onFailure==="refuse"?{onFailure:"refuse",scope:C}:{}}));const L=[...c.get(w)??[],...d.get(w)??[]].some(({scope:a})=>a.task!==undefined||a.isGoal===true);const u=[...g(c),...L?[{event:Qe}]:[]];await i(Be.subscribe,{session:w,subscriptions:u}).catch((a)=>n(`sessions:${w}`,`Hears nothing from ${w===Ht?"the other sessions":`session ${w}`}`,a));await i(Be.watchBefore,{session:w,subscriptions:g(d)}).catch((a)=>n(`before:${w}`,`Changes nothing in ${w===Ht?"the other sessions":`session ${w}`}`,a))})};const q=(w)=>{const g=m.get(w);if(g!==undefined)return g;const L=y.get(w);if(L!==undefined)return L;const u=i(Be.tasks,{session:w,all:true}).then((a)=>{const p=new Map(a.map((f)=>[f.id,f.parent]));m.set(w,p);return p}).finally(()=>y.delete(w));y.set(w,u);return u};const se=(w)=>(g,L)=>{for(let u=g,a=0;u!==undefined&&a<64;u=w?.get(u),a+=1)if(u===L)return true;return false};const Z=({scope:w},g,L)=>{if(w.task===undefined||w.isAgent===true)return un(w,g,L,se(undefined));const u=q(g);if(u instanceof Map)return un(w,g,L,se(u));return u.then((a)=>un(w,g,L,se(a)),(a)=>{if(!ot(Re,a))n(`tasks:${g}`,"Could not read the tasks it listens under",a);return false})};const E=(w,g)=>{if(g.type!==Qe)return;m.get(w)?.set(g.task.id,g.task.parent);y.get(w)?.then((L)=>L.set(g.task.id,g.task.parent),(L)=>t.ui.warn("tasks:read",`${e}: the tasks of ${w} stay unread until the next change: ${re(L)}`))};const R=(w,g,L,u,a,p)=>{const f=U(g);const S={scope:g,event:L,method:u,...Lo(e,u,a)};const C=w.get(f)??new Set;C.add(S);w.set(f,C);p(f);return{remove(){for(const[F,X]of w){if(!X.delete(S))continue;if(X.size===0)w.delete(F);p(F);return}}}};const k=(w,g,L)=>w.onFailure==="refuse"&&g.includes("refuse")?{refuse:`${e}: ${re(L)}`}:undefined;const H=(w,g,L,u,a=[])=>zs(t.clock,w,g,L,u).catch((p)=>{if(L.aborted||p instanceof cn&&!w.startsWith("before"))return;n(`session:${w}`,`The ${w} listener failed`,p);return k(g,a,p)});const W=(w,g,L)=>[...d.get(w)??[],...L?d.get(Ht)??[]:[]].filter((u)=>u.event===g);const A=async(w,g,L)=>(w.matcher===undefined||et(lr(L),w.matcher))&&await Z(w,g,L);const T=async(w,g,L,u,a)=>{const p=W(w,g,u).map((S)=>async(C)=>{if(!await A(S,w,C))return;const F=await ne(w,C);return H(S.method,S.options,a,async(X)=>Zn(S.method,Ut[g],await S.listener(F,X)),Ut[g])});const f=await Fo(g,L,p,(S)=>n(`session:${qn("before",g)}`,`The ${qn("before",g)} listener failed`,S));return f?.note===undefined?f:{...f,note:Ye(e,f.note)}};const j=(w,g,L)=>{const u=(a,p,f)=>(...S)=>{if(L!==undefined)throw new Error(`${e}: ${L} has ended, so its ${p} never fires. Listen on its Session.`);return R(a,w(),f,p,S,K)};return Object.fromEntries([...Object.entries(Ot).map(([a,p])=>[`on${a}`,u(c,`on${a}`,p)]),...g?Ns.map((a)=>[`before${a}`,u(d,`before${a}`,Ot[a])]):[]])};let G;const ee=async(w)=>{if(w.type!==kt&&w.type!==vt)return w;G??=Promise.all([t.env.home(),t.env.configHome()]).then(([g,L])=>({home:g,configRoot:L}));return{...w,files:await mi(e,t,G,{tool:w.name,input:w.input},w.cwd)}};const J=async(w,g)=>Promise.all((await i(w,g)).map(ee));const pe=(w,g)=>({async*[Symbol.asyncIterator](){let L=w["before"];for(;;){const u=await J(Be.search,{...w,...L===undefined?{}:{before:L}});for(const p of u)if(g===undefined||et(p,g))yield p;const a=u.at(-1);if(a===undefined||u.length<Ls)return;L={session:a.session,id:a.id}}}});const $e=(w,g)=>({search:(L,u)=>pe({text:L,...w},u),...j(()=>w,true,g)});const O=(w,g)=>{const L=g.prompt.task??w.task;return{...g,...$e({...w,...L===undefined?{}:{task:L},turn:g.prompt.id},g.closedAt===undefined?undefined:`turn ${g.prompt.id}`),messages:()=>J(Be.messages,{session:w.session,turn:g.prompt.id,...L===undefined?{}:{task:L}}),abort:async()=>{if(g.closedAt!==undefined)throw new Error(`${e}: turn ${g.prompt.id} has ended, so there is nothing to abort.`);const u=w.session??x.id;await ae(u,"abort",{turn:g.prompt.id},L===undefined?undefined:{session:u,task:L})}}};const D=(w,g)=>{const L={...w.session===undefined?{}:{session:w.session},...g.task===undefined?{}:{task:g.task}};return{...g,...$e({...L,context:g.number},g.closedAt===undefined?undefined:`context ${g.number}`),turns:async()=>(await i(Be.turns,{...L,context:g.number})).map((u)=>O(L,u))}};const z=(w,g)=>{const L=g.isBackground===true?{session:g.id}:{session:w,task:g.id};return{id:g.id,title:g.title,openedBy:g.openedBy,openedAt:g.openedAt,...g.closedAt===undefined?{}:{closedAt:g.closedAt},...g.status===undefined?{}:{status:g.status},...g.name===undefined?{}:{name:g.name},...g.spawnedBy===undefined?{}:{spawnedBy:g.spawnedBy},...g.isBackground===true?{isBackground:true}:{},owner:we(w,g),...$e({session:w,task:g.id}),search:(u,a)=>pe({text:u,...L},a),tasks:async()=>(await i(Be.tasks,L)).map((u)=>z(L.session,u)),messages:()=>J(Be.messages,L)}};const V=(w)=>({search:(g,L)=>pe({text:g,...w()},L),...j(()=>({...w(),isGoal:true}),true),text:async()=>(await i(Be.goal,w())).text,tasks:async()=>{const{session:g=x.id,task:L}=w();return(await i(Be.tasks,{session:g,...L===undefined?{}:{task:L}})).map((u)=>z(g,u))},update:async({text:g})=>{if(g.trim()==="")throw new Error(`${e}: a goal needs text.`);const{session:L=x.id,task:u}=w();await i(Be.updateGoal,{session:L,...u===undefined?{}:{task:u},text:g})}});const ne=async(w,g)=>{const L={session:w};if(g.type===Ge)return ee(g.message);if("turn"in g)return O(L,g.turn);if("context"in g)return D(L,g.context);if("task"in g)return z(w,g.task);if("usage"in g)return g.usage;const{task:u}=g.goal;return V(()=>({session:w,...u===undefined?{}:{task:u}}))};const ae=(w,g,L,u)=>i(Be.act,{session:u?.session??w,action:g,input:L,...u===undefined?{}:{task:u.task}});const de=async({type:w,text:g,as:L})=>{if(w===bt){if(L!==undefined)throw new Error(`${e}: a Note is always from this mod, so it takes no as.`);const a=await t.session.append({message:{type:"user",content:[{type:"text",text:Ye(e,g)}]}});if(a.deny!==undefined)throw new Error(`${e}: Claude Code refused the note: ${a.deny}`);return}const u=await t.prompt.submit({text:g,...L===ft?{asUser:true}:{}});if("drop"in u&&typeof u.drop==="string")throw new Error(`${e}: Claude Code dropped the prompt: ${u.drop}`)};const ue=async()=>[...await t.session.surfaces()];const ke=(w,g,L=g!==undefined)=>{const u=()=>w().id;const a=()=>g===undefined&&u()===x.id;const p=()=>g===undefined?{session:u(),isAgent:true}:{session:g.session,task:g.task,isAgent:true};const f=()=>g===undefined?{session:u()}:{session:g.session,task:g.task};const S=async(oe={})=>(await i(Be.turns,{...f(),...oe})).map((he)=>O(f(),he));const C=async()=>(await i(Be.contexts,f())).map((oe)=>D(f(),oe));const F={get id(){return w().id},get title(){return w().title},get color(){return w().color},get project(){return w().project},get agentType(){return w().agentType},get model(){return w().model},get cwd(){return w().cwd},get isRunning(){return w().isRunning},get startedAt(){return w().startedAt},get lastAt(){return w().lastAt},get forkedFrom(){return w().forkedFrom},search:(oe,he)=>$e(p()).search(oe,he),...j(p,true),goal:V(f),context:async()=>{const oe=await C();const he=oe.at(-1);if(he===undefined)throw new Error(`${e}: session ${u()} has no context yet.`);return he},contexts:C,turn:async()=>{const[oe]=await S({last:1});return oe?.closedAt===undefined?oe:undefined},turns:S,messages:(oe={})=>J(Be.messages,{...f(),...oe}),usage:async()=>a()?wi(t):ae(u(),"usage",null,g),surfaces:async()=>a()?ue():ae(u(),"surfaces",null,g),async send(oe){if(oe.text.trim()==="")throw new Error(`${e}: send needs text.`);if(a()&&oe.as!==Fn)return de(oe);await ae(u(),"send",oe,g)}};if(L)return F;const X=async(oe)=>z(u(),await oe.catch((he)=>Promise.reject(new Error(`${e}: ${re(he)}`))));return Object.assign(F,{startTask:(oe)=>X(oe.isBackground===true?ae(u(),"startBackgroundTask",oe):a()?ur(t,oe):ae(u(),"startTask",oe)),fork:(oe)=>X(a()?ur(t,oe,x.id):ae(u(),"fork",oe)),clone:(oe)=>X(ae(u(),"clone",oe)),callTool:async(oe)=>await ee(await ae(u(),"callTool",oe))})};const we=(w,g)=>{const L=w===x.id?x:v.get(w);const u=g.isBackground===true;return ke(()=>({id:g.id,title:g.title,project:L?.project??"",...g.agentType===undefined?{}:{agentType:g.agentType},model:g.model??"",cwd:L?.cwd??"",isRunning:g.closedAt===undefined&&(u||(L?.isRunning??true)),startedAt:g.openedAt,lastAt:g.closedAt??g.openedAt,...g.forkedFrom===undefined?{}:{forkedFrom:g.forkedFrom}}),u?undefined:{session:w,task:g.id},true)};const Pe=new Map;const Y=(w,g)=>[...Pe.get(w)??[]].filter(({matcher:L,isEveryAgent:u})=>(g["task"]===undefined||u)&&(L===undefined||et(g,L)));const le=async(w,g,L)=>{const u=Y(w,g);if(!w.startsWith("before")){await Promise.all(u.map(({listener:f,options:S})=>H(w,S,L,(C)=>f(g,C))));return}const a=I(w);const p=u.map(({listener:f,options:S})=>()=>H(w,S,L,async(C)=>Zn(w,a,await f(g,C)),a));return Uo(w,a,["refuse"],undefined,p,(f)=>n(`session:${w}`,`The ${w} listener failed`,f))};const I=(w)=>Kl[w.slice("before".length)]??[];const me=(w,g,L)=>Y(w,g).map((u)=>k(u.options,I(w),L)).find((u)=>u!==undefined);const Se=async(w)=>{const g=(await t.command.list()).find((L)=>L.name===w.command)?.source;return{session:x.id,cwd:x.cwd,name:w.command,args:w.args,...Xe({source:g}),from:Nn(w.origin,false)}};const ye={beforeRun:new Set,onRun:new Set};for(const[w,g]of Object.entries(ye))Pe.set(w,g);s?.("command.run",async(w,g)=>{if(ye.beforeRun.size===0&&ye.onRun.size===0)return g(w);const L=await Se(w);const u=ye.beforeRun.size===0?undefined:await le("beforeRun",L,g.signal);if(typeof u?.["refuse"]==="string")return{text:u["refuse"]};if(typeof u?.["result"]==="string")return{text:u["result"],...typeof u["exitCode"]==="number"?{exitCode:u["exitCode"]}:{}};const a=typeof u?.["args"]==="string"?u["args"]:w.args;const p=await g(a===w.args?w:{...w,args:a});le("onRun",{...L,args:a},g.signal);return typeof u?.["note"]==="string"?{...p,context:[...p.context??[],Ye(e,u["note"])]}:p},async(w,g)=>{const L=ye.beforeRun.size===0?undefined:me("beforeRun",await Se(w),g);return L===undefined?undefined:{text:L.refuse}});const P=(w,g)=>{if(o===undefined||s===undefined)throw new Error(`${e}: ${w} works only in a mod's own session.`);const L=w.startsWith("before");if(g==="PermissionCheck"||g==="PermissionRequest"){const f=r?.();if(f===undefined)throw new Error(zl(e,w));return f(w,{raise:le,refusalFor:me,hookOn:o,routeOn:s,current:()=>x})}const u=To[g];const a=(L?u.before:undefined)??u.on;if(w==="beforeSessionStart")s("session.compact",fe);if(w==="beforeModelChange")o(u.on,()=>{const f=M.splice(0);return f.length===0?undefined:{additionalContext:f}});const p=(f,S)=>{const C=me(w,fr(g,f),S);return C===undefined?undefined:dr(e,g,C)};return o(a,async(f,S)=>{const C=fr(g,f);if(g==="SessionStart"&&C["source"]==="compact"){if(!L)return;const X=Ae?.agentId;const oe=X===undefined?await t.session.model():undefined;const he=await le(w,{...C,...Xe({task:X,model:oe,title:x.title||undefined})},S);if(he===undefined)return;return dr(e,g,X===undefined?he:Xe({note:he["note"]}))}if(!L){le(w,C,S);return}if(g==="ModelChange")M.splice(0);const F=await le(w,C,S);if(F===undefined)return;if(g==="ModelChange"&&typeof F["note"]==="string"&&F["refuse"]===undefined)M.push(Ye(e,F["note"]));return dr(e,g,F)},L?p:undefined)};const M=[];let Ae;const fe=async(w,g)=>{Ae=w;try{return await g(w)}finally{if(Ae===w)Ae=undefined}};const be=(w,g,L=false)=>{const u=Lo(e,w,g);const a={...u,options:w==="beforePermissionRequest"?{...u.options,onFailure:"refuse"}:u.options,isEveryAgent:L};const p=Pe.get(w)??new Set;if(!Pe.has(w)){P(w,w.replace(/^(on|before)/,""));Pe.set(w,p)}p.add(a);return{remove:()=>void p.delete(a)}};const Me=()=>Object.fromEntries(Object.entries(To).flatMap(([w,g])=>[`on${w}`,..."before"in g?[`before${w}`]:[]]).map((w)=>[w,(...g)=>be(w,g)]));const _e=ke(()=>x);const je=Object.assign(_e,Me(),{goal:Object.assign(_e.goal,{beforeSessionStart:(...w)=>be("beforeSessionStart",w,true)}),async scrollTo(w,g){const{deny:L}=await t.ui.scroll({to:{requestId:w.id},...g?.block===undefined?{}:{block:g.block}});if(L!==undefined)throw new Error(`${e}: Claude Code did not scroll to the message: ${L}`)},caption:(w,g)=>t.ui.notice(w.callId,g)});const Ue=j(()=>({}),false);const We=(w,g,L,u,a)=>{const p=W(w,g,u).filter((f)=>un(f.scope,w,L,se(m.get(w)))&&(f.matcher===undefined||et(lr(L),f.matcher)));return p.map((f)=>k(f.options,Ut[g],a)).find((f)=>f!==undefined)};return{sessions:{get current(){return je},list:async(w={})=>(await i(Be.sessions,w)).map((g)=>{if(g.id!==x.id){v.set(g.id,g);return ke(()=>v.get(g.id)??g)}if(x.title==="")x={...x,title:g.title};return je}),search:(w,g,L={})=>pe({text:w,...Vl(L)},g),...Ue},changed(w,g,L,u){E(w,g);let a;for(const p of L?[w,Ht]:[w]){for(const f of c.get(p)??[]){const{event:S,method:C,matcher:F,listener:X,options:oe}=f;const he=()=>{a??=ne(w,g);a.then((_)=>H(C,oe,u,(B)=>X(_,B))).catch((_)=>n(`session:${C}`,`The ${C} listener failed`,_))};const xe=xi(S,F,g)&&Z(f,w,g);if(xe===true)he();else if(xe!==false)xe.then((_)=>_&&he())}}},answerBefore:T,failedBefore:We,raise:le,listen:be,turn:(w)=>O({session:x.id},w),follow(w){const g=w.id!==x.id&&x.id!=="";const L=x.id;x=N({...w,title:w.title||(w.id===x.id?x.title:""),isRunning:true,lastAt:new Date().toISOString()});if(!g)return;for(const u of[c,d]){const a=u.get(L);if(a===undefined)continue;u.delete(L);for(const p of a)if(p.scope.session===L)p.scope={...p.scope,session:x.id};u.set(x.id,new Set([...u.get(x.id)??[],...a]))}m.delete(L);K(L);K(x.id)},recolor(w){b=w;x=N(x)}}}var mt=(e)=>typeof e==="object"&&e!==null&&!Array.isArray(e)?e:{};var Xe=(e)=>Object.fromEntries(Object.entries(e).filter(([,t])=>t!==undefined));var Gl=(e)=>Xe({session:e["session_id"],task:e["agent_id"],agentType:e["agent_type"],cwd:e["cwd"],permissionMode:e["permission_mode"]});var gi=(e)=>e===undefined?undefined:{name:String(mt(e)["name"]),source:String(mt(e)["source"])};var Jl=(e)=>({model:e["to_model"],previous:e["from_model"],requested:e["requested_model"]??undefined,source:e["source"],contextTokenCount:e["context_tokens"],isCacheWarm:e["prompt_cache_warm"],cacheTtl:e["cache_ttl"],cacheWriteUsd:e["estimated_cache_write_usd"],pricing:e["pricing"]});var Kl={Run:["args","note","result","exitCode","refuse"],ProjectSetup:["note"],SessionStart:["note","title","reloadSkills","firstPrompt"],ModelChange:["ask","refuse","note"],WorktreeCreate:["result"],Elicitation:["refuse"],ElicitationResponse:["refuse"],PermissionCheck:["allow","ask","refuse"],PermissionRequest:["allow","input","updates","refuse","interrupt"],PermissionDenial:["retry"],ToolBatch:["note"],TodoCreate:["refuse"],TodoComplete:["refuse"],ReplyDisplay:["text"]};var yi=(e)=>({id:e["task_id"],subject:e["task_subject"],description:e["task_description"],teammate:e["teammate_name"]});var Xl={ProjectSetup:(e)=>({trigger:e["trigger"]}),SessionStart:(e)=>({source:e["source"],model:e["model"],title:e["session_title"]||undefined,idleSeconds:e["seconds_since_last_response"],contextTokenCount:e["context_tokens"],isCacheWarm:e["prompt_cache_likely_expired"]===undefined?undefined:e["prompt_cache_likely_expired"]!==true,cacheWriteUsd:e["estimated_cache_write_usd"]}),SessionEnd:(e)=>({reason:e["reason"]==="prompt_input_exit"?"exit":e["reason"]}),ModelChange:Jl,CwdChange:(e)=>({cwd:e["new_cwd"]??e["cwd"],previous:e["old_cwd"]}),DirectoryAdd:(e)=>({directory:e["directory"],source:e["source"]==="slash_command"?"command":"sdk"}),WorktreeCreate:(e)=>({name:e["name"]}),WorktreeRemove:(e)=>({path:e["worktree_path"]}),Notification:(e)=>({text:e["message"],title:e["title"],type:e["notification_type"]}),Elicitation:(e)=>({id:e["elicitation_id"],server:e["mcp_server_name"],text:e["message"],mode:e["mode"],url:e["url"],schema:e["requested_schema"]}),ElicitationResponse:(e)=>({id:e["elicitation_id"],server:e["mcp_server_name"],mode:e["mode"],action:e["action"],content:e["content"]}),PermissionRequest:(e)=>({name:e["tool_name"],input:mt(e["tool_input"]),suggestions:e["permission_suggestions"]??[],mcpServer:gi(e["mcp_server"])}),PermissionDenial:(e)=>({name:e["tool_name"],input:mt(e["tool_input"]),callId:e["tool_use_id"],reason:e["reason"],mcpServer:gi(e["mcp_server"])}),ToolBatch:(e)=>({calls:(Array.isArray(e["tool_calls"])?e["tool_calls"]:[]).map((t)=>{const n=mt(t);return Xe({callId:n["tool_use_id"],name:n["tool_name"],input:mt(n["tool_input"]),output:n["tool_response"]})})}),TodoCreate:yi,TodoComplete:yi,ReplyDisplay:(e)=>({replyId:e["message_id"],index:e["index"],isLast:e["final"],text:e["delta"]})};async function ur(e,t,n){if(t.title.trim()==="")throw new Error("a task needs a title.");const{name:o,agentType:s,model:r,cwd:i}=n===undefined?t:{prompt:t.prompt,title:t.title,agentType:Is};const c=await e.agent.spawn({prompt:t.prompt,description:t.title,...o===undefined?{}:{name:o},...s===undefined?{}:{subagentType:s},...r===undefined?{}:{model:r},...i===undefined?{}:{cwd:i}});if(c.deny!==undefined)throw new Error(`Claude Code refused the task: ${c.deny}`);if(c.agentId===undefined)throw new Error("Claude Code answered without starting a task.");return{id:c.agentId,title:t.title,...n===undefined?{agentType:s??"general-purpose"}:{forkedFrom:n},model:c.model,openedBy:"",openedAt:new Date().toISOString()}}function fr(e,t){const n=mt(t);return{...Gl(n),...Xe(Xl[e](n))}}function dr(e,t,n){const o=typeof n["refuse"]==="string"?n["refuse"]:undefined;const s=typeof n["note"]==="string"?[Ye(e,n["note"])]:undefined;if(t==="SessionStart")return Xe({additionalContext:s,sessionTitle:n["title"],reloadSkills:n["reloadSkills"]===true?true:undefined,initialUserMessage:n["firstPrompt"]});if(t==="ModelChange"){if(o!==undefined)return{permissionDecision:"deny",permissionDecisionReason:o};return typeof n["ask"]==="string"?{permissionDecision:"ask",permissionDecisionReason:n["ask"]}:undefined}if(t==="ProjectSetup")return Xe({additionalContext:s});if(t==="WorktreeCreate")return Xe({worktreePath:n["result"]});if(t==="PermissionDenial")return n["retry"]===true?{retry:true}:undefined;if(t==="ToolBatch")return Xe({additionalContext:s});if(t==="ReplyDisplay")return Xe({displayContent:n["text"]});return o===undefined?undefined:{block:o}}function Vl({running:e,since:t,everyProject:n,before:o}){return{...e===undefined?{}:{running:e},...t===undefined?{}:{since:t},...n===undefined?{}:{everyProject:n},...o===undefined?{}:{before:{session:o.session,id:o.id}}}}var Jh=new Set(["act","before","answer","watch","goal","taskEnd"]);var ql="1fd8a8ee972047c4a89640fd51048522";var Zl=64;var Ql={Darwin:"darwin",Linux:"linux"};var Yl={arm64:"arm64",aarch64:"arm64",x86_64:"x64",amd64:"x64"};var eu=/"IOPlatformUUID" = "([0-9A-Fa-f-]{36})"/;var Ci=/^[0-9a-f]{32}$/;var vi=["/etc/machine-id","/var/lib/dbus/machine-id"];class Ai extends Error{}async function Ei(e){const t=async(m)=>{const{exitCode:y,stdout:v,stderr:x}=await e.process.run(m);if(y!==0)throw new Error(`cmod could not read this computer: ${m.join(" ")} ${Je(y,x)}`);return v.trim()};const[n="",o="",s=""]=(await t(["uname","-snm"])).split(/\s+/);const r=Ql[n];const i=Yl[s];if(r===undefined)throw new Error(`cmod reads the device of macOS and Linux, and this computer runs ${n}.`);if(i===undefined)throw new Error(`cmod reads the device of arm64 and x64 computers, and this one is ${s}.`);if(r==="linux")return{id:await Si(await tu(e.fs)),name:o,os:r,arch:i};const[c,d]=await Promise.all([t(["ioreg","-rd1","-c","IOPlatformExpertDevice"]),t(["scutil","--get","LocalHostName"])]);const l=eu.exec(c)?.[1];if(l===undefined)throw new Error("cmod could not read this computer: ioreg -rd1 -c IOPlatformExpertDevice names no IOPlatformUUID.");return{id:await Si(l.replaceAll("-","").toLowerCase()),name:d,os:r,arch:i}}async function tu(e){for(const t of vi){const n=(await e.read(t).catch(Le(""))).trim();if(Ci.test(n))return n}throw new Ai(`cmod could not read this computer: neither ${vi.join(" nor ")} holds a machine id.`)}async function Si(e){if(!Ci.test(e))throw new Error("cmod could not read this computer: its machine id is not 32 hex digits.");const t=(await nu(Oi(e),Oi(ql))).slice(0,16);t[6]=(t[6]??0)&15|64;t[8]=(t[8]??0)&63|128;return[...t].map((n)=>n.toString(16).padStart(2,"0")).join("")}async function nu(e,t){const n=async(...s)=>new Uint8Array(await crypto.subtle.digest("SHA-256",Uint8Array.from(s.flatMap((r)=>[...r]))));const o=new Uint8Array(Zl);o.set(e);return n(o.map((s)=>s^92),await n(o.map((s)=>s^54),t))}function Oi(e){return Uint8Array.from(e.match(/../g)??[],(t)=>Number.parseInt(t,16))}var _i=1e4;async function Pi(e,t,n,o){const s=ou(await e.fs.read(`${t.root}/.claude-plugin/plugin.json`).catch(Le(undefined)));const{program:r,hotkeys:i}=t.steps;const c=(await e.fs.list(`${t.root}/rules`).catch(Le([]))).filter((l)=>l.kind==="file"&&l.name.endsWith(".md")).map((l)=>l.name.slice(0,-".md".length)).toSorted();const d=[Te(s)&&typeof s["description"]==="string"?s["description"]:undefined,n.length>0?`Adds ${lt(n)}.`:undefined,c.length>0?`Adds ${c.length} ${c.length===1?"rule":"rules"}: ${lt(c)}.`:undefined,r===undefined?undefined:`Installed the ${r} program.`,...Object.values(i??{}).flatMap(({title:l,default:m})=>m===undefined?[]:[`Binds ${m} to ${l}.`])].filter((l)=>l!==undefined);return{message:"Installed",...d.length===0?{}:{description:d.join(`
-`)},action:{label:"Settings",onClick:()=>o()}}}function ou(e){try{return e===undefined?undefined:JSON.parse(e)}catch(t){if(t instanceof SyntaxError)return;throw t}}var pr;function zt(e){pr=e}function Fe(){if(pr===undefined)throw new Error("A mod's imports work once its setup runs. Call them from setup or from a hook, never at the top of a module.");return pr}var Ri=new WeakMap;function Ti(e,t){Ri.set(e,t)}function oo(e){const t=Ri.get(e);if(t===undefined)throw new Error("This mod has not started, so it reaches no Claude Code calls yet.");return t}class ze extends Error{line;constructor(e,t){super(`line ${e}: ${t}`);this.line=e}}var ru=["md","markdown","mdx"];var su=["sh","bash","zsh","fish","py","rb","pl","r","yaml","yml","toml","ps1","nu","tcl","mk","conf","cfg","env"];var iu=["ts","tsx","mts","cts","js","jsx","mjs","cjs","go","rs","swift","kt","kts","java","c","h","cc","cpp","hpp","cs","scala","dart","zig","jsonc","json5"];var au=["lua","sql","hs","elm"];var cu=["Makefile","Dockerfile","Brewfile","Gemfile","Rakefile","Justfile","justfile"];var so=".meta";function ji(e,t){const n=e.slice(e.lastIndexOf("/")+1);const o=n.lastIndexOf(".");const s=o<=0?"":n.slice(o+1).toLowerCase();if(ru.includes(s))return{type:"frontmatter"};if(su.includes(s)||cu.includes(n))return{type:"comment",prefix:"#"};if(iu.includes(s))return{type:"comment",prefix:"//"};if(au.includes(s))return{type:"comment",prefix:"--"};if(s===""&&t?.startsWith("#!")===true)return{type:"comment",prefix:"#"};return{type:"sidecar"}}function gr(e,t){const n=e.split(`
-`);if(t.type==="comment"){const i=Ni(n,t.prefix);return{metadata:i===undefined?{}:Mi(Bi(i.lines,i.start+2,0))}}const o=t.type==="frontmatter"?Li(n):{start:-1,end:n.length,lines:n};if(o===undefined)return{metadata:{}};const s=mr(o);const r=t.type==="frontmatter"?uu(o,"name"):undefined;return{metadata:s===undefined?{}:Mi(s.entries),...r===undefined?{}:{name:r}}}function Ii(e,t,n){const o=e.split(`
-`);const s=Object.entries(n);if(t.type==="comment"){const{prefix:l}=t;const m=s.length===0?[]:[`${l} /// metadata`,...s.map(([x,b])=>`${l} ${ro(x)}: ${ro(b)}`),`${l} ///`];const y=Ni(o,l);if(y!==undefined)return[...o.slice(0,y.start),...m,...o.slice(y.end+1)].join(`
-`);if(m.length===0)return e;const v=o[0]?.startsWith("#!")===true?1:0;return[...o.slice(0,v),...m,...o.slice(v)].join(`
-`)}const r=s.length===0?[]:["metadata:",...s.map(([l,m])=>`  ${ro(l)}: ${ro(m)}`)];if(t.type==="sidecar"){const l=mr({start:-1,end:o.length,lines:o});const m=l===undefined?o:[...o.slice(0,l.start),...o.slice(l.end)];const y=m.join(`
-`).trim();return[...y===""?[]:[y],...r].join(`
-`)+(r.length===0&&y===""?"":`
-`)}const i=Li(o);if(i===undefined)return r.length===0?e:["---",...r,"---",...o].join(`
-`);const c=mr(i);const d=c===undefined?[...i.lines,...r]:[...o.slice(i.start+1,c.start),...r,...o.slice(c.end,i.end)];if(d.every((l)=>l.trim()===""))return o.slice(i.end+1).join(`
-`);return[...o.slice(0,i.start+1),...d,...o.slice(i.end)].join(`
-`)}function Li(e){if(e[0]?.replace(/^\uFEFF/,"").trimEnd()!=="---")return;const t=e.findIndex((n,o)=>o>0&&n.trimEnd()==="---");if(t===-1)throw new ze(1,"the frontmatter starts with --- and never ends. Close it with a --- line.");return{start:0,end:t,lines:e.slice(1,t)}}function Ni(e,t){const n=e.findIndex((s)=>s.trimEnd()===`${t} /// metadata`);if(n===-1)return;const o=[];for(let s=n+1;s<e.length;s+=1){const r=(e[s]??"").trimEnd();if(r===`${t} ///`)return{start:n,end:s,lines:o};if(r!==t&&!r.startsWith(`${t} `))break;o.push(r.slice(t.length+1))}throw new ze(n+1,`the metadata block never ends. Close it with a "${t} ///" line.`)}function mr(e){const t=e.lines.findIndex((c)=>/^metadata\s*:/.test(c));if(t===-1)return;const n=e.start+2+t;const o=yr((e.lines[t]??"").replace(/^metadata\s*:/,"")).trim();const s=e.start+1+t;if(o.startsWith("{"))return{start:s,end:s+1,entries:lu(o,n)};if(o!=="")throw new ze(n,"metadata holds a single value. Write a map of names to text, such as metadata: { mymod.key: value }.");let r=t+1;while(r<e.lines.length&&(/^\s/.test(e.lines[r]??"")||(e.lines[r]??"").trim()===""))r+=1;while(r>t+1&&(e.lines[r-1]??"").trim()==="")r-=1;const i=e.lines.slice(t+1,r);return{start:s,end:e.start+1+r,entries:Bi(i,n+1,du(i))}}function du(e){const t=e.find((n)=>n.trim()!==""&&!n.trim().startsWith("#"));return t===undefined?0:/^\s*/.exec(t)?.[0].length??0}function Bi(e,t,n){const o=[];e.forEach((s,r)=>{const i=t+r;const c=yr(s);if(c.trim()==="")return;const d=/^\s*/.exec(c)?.[0].length??0;if(d!==n)throw new ze(i,"a metadata value holds a list or a map. Each value is one line of text, and a list is one space-separated text.");const l=c.trim();if(l.startsWith("- "))throw new ze(i,"metadata holds a list. Write a map of names to text, and a list as one space-separated text.");o.push(Di(l,i))});return o}function lu(e,t){if(!e.endsWith("}"))throw new ze(t,"the metadata map starts with { and does not end on the same line. Close it with }, or write one entry per line.");const n=e.slice(1,-1).trim();if(n==="")return[];return Fi(n,",",t).map((o)=>o.trim()).filter((o)=>o!=="").map((o)=>Di(o,t))}function Di(e,t){const[n,...o]=Fi(e,":",t,true);if(n===undefined||o.length===0)throw new ze(t,`"${e}" has no ":". Write each entry as name: value.`);const s=o.join(":").trim();if(s.startsWith("{")||s.startsWith("[")||s==="|"||s===">")throw new ze(t,`${n.trim()} holds a list or a map. Each value is one line of text, and a list is one space-separated text.`);return{key:hr(n.trim(),t),value:hr(s,t)}}function Fi(e,t,n,o=false){const s=[];let r;let i="";for(let c=0;c<e.length;c+=1){const d=e[c];if(r!==undefined){i+=d;if(d==="\\"&&r==='"'){i+=e[c+1]??"";c+=1}else if(d===r)r=undefined;continue}const l=i.trimEnd().at(-1);if((d==='"'||d==="'")&&(l===undefined||l===":"))r=d;const m=e[c+1];if(d===t&&(!o||m===undefined||m===" "||m==="\t")){s.push(i);i="";if(o){s.push(e.slice(c+1));return s}continue}i+=d}if(r!==undefined)throw new ze(n,`a ${r==='"'?"double":"single"} quote never closes.`);s.push(i);return s}function yr(e){let t;for(let n=0;n<e.length;n+=1){const o=e[n];if(t!==undefined){if(o==="\\"&&t==='"')n+=1;else if(o===t)t=undefined;continue}if(o==='"'||o==="'")t=o;if(o==="#"&&(n===0||/\s/.test(e[n-1]??"")))return e.slice(0,n)}return e}function hr(e,t){if(e.startsWith('"')){if(!e.endsWith('"')||e.length<2)throw new ze(t,`${e} opens a double quote that never closes.`);try{return JSON.parse(e)}catch(n){if(!(n instanceof SyntaxError))throw n;throw new ze(t,`${e} is not a double-quoted text. Escape a " inside it as \\".`)}}if(e.startsWith("'")){if(!e.endsWith("'")||e.length<2)throw new ze(t,`${e} opens a single quote that never closes.`);return e.slice(1,-1).replaceAll("''","'")}return e}function uu(e,t){const n=e.lines.findIndex((s)=>s.startsWith(`${t}:`));if(n===-1)return;const o=yr((e.lines[n]??"").slice(t.length+1)).trim();if(o==="")return;try{return hr(o,e.start+2+n)}catch(s){if(s instanceof ze)return;throw s}}function Mi(e){return Object.freeze(Object.fromEntries(e.map(({key:t,value:n})=>[t,n])))}var fu=/^[A-Za-z0-9_./+~$%^()=\\][^#]*$/;var pu=/^(true|false|yes|no|on|off|null|~|[-+]?(\d[\d_]*)?\.?\d+([eE][-+]?\d+)?|0x[0-9a-fA-F]+|\.inf|\.nan)$/i;function ro(e){const t=fu.test(e)&&e===e.trim()&&!e.includes(": ")&&!e.endsWith(":")&&!e.includes(" #")&&!pu.test(e)&&!/["',{}[\]]/.test(e);return t?e:JSON.stringify(e)}var Ui=[".git","node_modules"];var mu=/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;function Gt(e,t){const n=/^~\/\.claude(?=\/|$)/.exec(e);if(n!==null&&t.configRoot!==undefined)return tt(`${t.configRoot}${e.slice(n[0].length)}`);const o=an.exec(e)?.[0];if(o!==undefined){if(t.home===undefined)throw new Error(`${e} starts with ${o}, and HOME is not set. Start Claude Code with HOME set.`);return tt(Gn(e,t.home,t.configRoot))}return e.startsWith("/")?tt(e):tt(t.projectRoot(),e)}function Wi({name:e,claude:t,places:n,report:o}){const s=`${e}.`;const r=new Map;const i=new Set;const c=(x)=>Object.freeze(Object.fromEntries(Object.entries(x).flatMap(([b,N])=>b.startsWith(s)?[[b.slice(s.length),N]]:[])));const d=async(x)=>{const b=await t.fs.stat(x,{resolve:true});if(b.kind!=="file")throw new Error(`${x} is not a file, so it holds no metadata.`);const N=b.realPath??x;const U=!N.slice(N.lastIndexOf("/")+1).includes(".");const K=U?(await t.fs.read(N)).split(`
-`,1)[0]:undefined;const q=ji(N,K);const se=q.type==="sidecar"?`${N}${so}`:N;const Z=q.type==="sidecar"?await t.fs.stat(se).catch(Le(undefined)):undefined;return{realPath:N,format:q,holder:se,signature:`${b.mtimeMs}:${b.size}:${Z?.kind==="file"?`${Z.mtimeMs}:${Z.size}`:""}`}};const l=async(x)=>(await t.fs.stat(x).catch(Le(undefined)))?.kind==="file"?t.fs.read(x):"";const m=(x,b)=>(N)=>{if(sn(N))return b;const U=`${e}: fs.find skipped ${x}: ${re(N)}`;if(!i.has(U))t.ui.warn("fs:find",U);i.add(U);return b};const y=async(x)=>{const b=await d(x);const N=r.get(x);if(N?.signature===b.signature)return N.read;let U;try{const{metadata:K,name:q}=gr(await l(b.holder),b.format);U={metadata:K,...q===undefined?{}:{name:q}}}catch(K){if(!(K instanceof ze))throw K;const q=`${b.holder} ${K.message}`;U={metadata:{},error:q};if(!i.has(q))o({id:`metadata:${b.holder}`,message:`Skips the metadata of ${b.holder}`,description:q});i.add(q)}r.set(x,{signature:b.signature,read:U});return U};const v=async(x)=>{const b=Gt(x,n);const N=zn.scan(b);if(!N.isGlob)return(await t.fs.stat(b).catch(m(b,undefined)))?.kind==="file"?[b]:[];const U=zn(b,{dot:true});const K=Ui.filter((k)=>N.glob.split("/").includes(k));const q=N.glob.includes("**")?Number.POSITIVE_INFINITY:N.glob.split("/").length;const se=[];const Z=new Set;const E=async(k,H)=>{const W=(await t.fs.stat(k,{resolve:true}).catch(m(k,undefined)))?.realPath??k;if(Z.has(W))return;Z.add(W);const A=await t.fs.list(k).catch(m(k,[]));await Promise.all(A.map(async(T)=>{const j=`${k}/${T.name}`;const G=T.isLink===true?(await t.fs.stat(j).catch(m(j,undefined)))?.kind:T.kind;if(G==="file"&&U(j))se.push(j);if(G!=="dir"||H+1>=q)return;if(Ui.includes(T.name)&&!K.includes(T.name))return;await E(j,H+1)}))};const R=N.base===""?"/":N.base;if((await t.fs.stat(R).catch(m(R,undefined)))?.kind==="dir")await E(R,0);return se};return{async find(x){const b=typeof x==="string"?[x]:x;const N=[...new Set((await Promise.all(b.map(v))).flat())].sort();const U=N.filter((K)=>!(K.endsWith(so)&&N.includes(K.slice(0,-so.length))));return Promise.all(U.map(async(K)=>{const q=await y(K).catch((se)=>({metadata:{},error:`${K} ${re(se)}`}));return{path:K,...q.name===undefined?{}:{name:q.name},metadata:c(q.metadata),...q.error===undefined?{}:{error:q.error}}}))},async read(x){const b=await y(Gt(x,n));if(b.error!==undefined)throw new Error(`${e}: ${b.error}`);return c(b.metadata)},async update(x,b){const N=Gt(x,n);const U=await d(N);const K=await l(U.holder);let q;try{q=gr(K,U.format).metadata}catch(E){throw new Error(`${e}: ${U.holder} ${re(E)}`,{cause:E})}const se={...c(q)};b(se);for(const[E,R]of Object.entries(se)){if(!mu.test(E))throw new Error(`${e}: the metadata key "${E}" is not a name. Use letters, digits, "_", ".", and "-".`);if(typeof R!=="string")throw new Error(`${e}: the metadata key "${E}" holds ${JSON.stringify(R)}. Each value is text, and a list is one space-separated text.`);if(R.includes(`
-`))throw new Error(`${e}: the metadata key "${E}" holds a line break. Each value is one line of text.`)}const Z={};for(const[E,R]of Object.entries(q)){if(!E.startsWith(s))Z[E]=R;else if(Object.hasOwn(se,E.slice(s.length)))Z[E]=se[E.slice(s.length)]}for(const[E,R]of Object.entries(se))Z[`${s}${E}`]=R;if(JSON.stringify(Z)===JSON.stringify(q))return;await t.fs.write(U.holder,Ii(K,U.format,Z));r.delete(N)}}}var hu=/^[A-Za-z_]\w*$/;function Hi(e,t){for(const[n,o]of Object.entries(t)){const s=`${e}: options.${n}`;if(!hu.test(n))throw new Error(`${s} is not an option name. Use letters, digits, and _, starting with a letter, as Claude Code passes each option on as CLAUDE_PLUGIN_OPTION_${n.toUpperCase()}.`);if(o.title.trim()==="")throw new Error(`${s} needs a title, the label /config shows.`);if(o.type==="choice"&&(o.choices??[]).length===0)throw new Error(`${s} is a choice with no choices. Give option.choice(['a', 'b'], { ... }).`);if(o.type==="choice"&&o.default!==undefined&&!(o.choices??[]).includes(o.default))throw new Error(`${s} defaults to ${String(o.default)}, which is not one of its choices: ${(o.choices??[]).join(", ")}.`)}return t}function zi(e,t,n){let o;try{o=JSON.parse(n)}catch(i){return{values:{},ignored:[`is not JSON (${re(i)}). Fix the file; ${e} uses its other options until then.`]}}if(!Te(o))return{values:{},ignored:['is not a JSON object. Write one, such as { "branch": "main" }.']};const s={};const r=[];for(const[i,c]of Object.entries(o)){const d=t[i];if(d===undefined)r.push(`sets ${i}, which ${e} does not declare. ${Object.keys(t).length===0?"Remove it.":`Remove it, or use one of: ${Object.keys(t).join(", ")}.`}`);else if(d.type==="secret")r.push(`sets ${i}, a secret, and a project file is committed for everyone to read. Remove it. ${It}`);else{const l=fn(d,c);if(l===undefined)s[i]=c;else r.push(`sets ${i} to ${JSON.stringify(c)}, and ${d.title} ${l}.`)}}return{values:s,ignored:r}}function wr(e){return e===undefined||e===""||Array.isArray(e)&&e.length===0}function fn(e,t){const n=e.type;if(n==="toggle")return typeof t==="boolean"?undefined:"takes true or false";if(n==="number"){if(typeof t!=="number"||!Number.isFinite(t))return"takes a number";if(e.min!==undefined&&t<e.min)return`takes ${e.min} or more`;if(e.max!==undefined&&t>e.max)return`takes ${e.max} or less`;return}if(n==="list")return Array.isArray(t)&&t.every((o)=>typeof o==="string")?undefined:"takes a list of text";if(typeof t!=="string")return"takes text";if(n==="choice"&&!(e.choices??[]).includes(t))return`takes one of: ${(e.choices??[]).join(", ")}`;return}var ht=Symbol("an element built outside a render");var gt;function Ve(e,t,n){const o=gt;const s={table:e,markdown:n};gt=s;try{return br(s,t())}finally{gt=o}}function qe(e){const t=(n)=>gt===undefined?{[ht]:{name:e,props:n}}:Ji(gt,e,n);return t}function Ji(e,t,n){const o="children"in n?{...n,children:br(e,n.children)}:n;if(t==="Markdown"&&e.markdown!==undefined)return e.markdown(o);return e.table[t](o)}function br(e,t){if(Array.isArray(t))return t.map((s)=>br(e,s));if(typeof t!=="object"||t===null||!(ht in t))return t;const{name:n,props:o}=t[ht];return Ji(e,n,o)}function kr(e,t){const n=gt;gt=undefined;try{return xr(t(),e)}finally{gt=n}}function xr(e,t){if(Array.isArray(e))return e.map((r)=>xr(r,t));if(typeof e!=="object"||e===null||!(ht in e))return e;const{name:n,props:o}=e[ht];const s=Object.fromEntries(Object.entries(o).map(([r,i])=>[r,r==="key"&&typeof i==="string"?`${t}${i}`:xr(i,t)]));return{[ht]:{name:n,props:s}}}var vr="$cmodElement";var $r="$cmodHandler";function _t(e,t){if(typeof e==="function")return{[$r]:t.push(e)-1};if(Array.isArray(e))return e.map((n)=>_t(n,t));if(typeof e!=="object"||e===null)return e;if(ht in e){const{name:n,props:o}=e[ht];if(n==="Client")throw new Error("Client draws only in panes and styles.");return{[vr]:n,props:_t(o,t)}}if(Object.getPrototypeOf(e)!==Object.prototype)throw new Error("a widget draws only the elements of ui/elements.js and ui/components.js, text, numbers, and plain objects.");return Object.fromEntries(Object.entries(e).map(([n,o])=>[n,_t(o,t)]))}function pn(e,t,n){if(Array.isArray(e))return e.map((i)=>pn(i,t,n));if(typeof e!=="object"||e===null)return e;const o=e;if(typeof o[$r]==="number"){const i=o[$r];return(...c)=>n(i,JSON.parse(JSON.stringify(c)))}const s=o[vr];if(s===undefined)return Object.fromEntries(Object.entries(o).map(([i,c])=>[i,pn(c,t,n)]));if(typeof s!=="string"||!Object.hasOwn(Gi,s))throw new Error(`a widget drew ${String(s)}, which is not an element of ui/elements.js.`);const r=pn(o["props"],t,n);return Gi[s](typeof r["key"]==="string"?{...r,key:`${t}${r["key"]}`}:r)}var gu=new Set(["Button","Input","Select"]);function io(e,t){if(typeof e!=="object"||e===null)return false;if(Array.isArray(e))return e.some((s)=>io(s,t));const n=e;const o=n["props"];if(gu.has(n[vr])&&o?.["key"]===t)return true;return Object.values(n).some((s)=>io(s,t))}function Ki(e,t,n){const{Button:o,Link:s}=e;const r=(i)=>{const{href:c,...d}=i;if(typeof c!=="string")return o(i);const{label:l,children:m}=d;const y=m!==undefined&&!(Array.isArray(m)&&m.length===0);if(t!=="terminal"&&c.startsWith("https:"))return s({href:c,...typeof l==="string"?{label:l}:{},...y?{children:m}:{}});return o({...d,onPress:(v)=>n(c,v)})};return{...e,Button:r}}var ie=qe("Box");var Q=qe("Text");var Ne=qe("Button");var yu=qe("Link");var wu=qe("Code");var ao=qe("Markdown");var mn=qe("Input");var xu=qe("Select");var $u=qe("Image");var bu=qe("Svg");var ku=qe("Raster");var fg=qe("Client");var Gi={Box:ie,Text:Q,Button:Ne,Link:yu,Code:wu,Markdown:ao,Input:mn,Select:xu,Image:$u,Svg:bu,Raster:ku};function Jt({key:e,label:t,hotkey:n,variant:o="secondary",onPress:s}){const r=o==="primary";return Ne({plain:true,key:e,label:t,...n===undefined?{}:{hotkey:n},onPress:s,children:Q({backgroundColor:r?"claude":"userMessageBackground",color:r?"inverseText":"text",bold:r,children:` ${t} `})})}var co="belowPrompt";var lo="working";var Kt="turnEnd";var Sr="dashboard";var vu=/^[A-Za-z0-9_-]{1,64}$/;var Or=["columns","rows"];function uo(e,t,n,o){if(!vu.test(n))throw new Error(`${e}: "${n}" is not a ${t} id. Use 1 to 64 letters, digits, "_", or "-".`);if(o.trim()==="")throw new Error(`${e}: the ${t} "${n}" needs a title, the label its tab shows.`)}function Xi(e,t){uo(e,"pane",t.id,t.title);for(const n of Or){const o=t[n];if(typeof o!=="function"&&o!==undefined&&(!Number.isInteger(o)||o<=0))throw new Error(`${e}: the pane "${t.id}" has ${n} ${o}. Use a whole number above 0, or leave it out.`)}}var qi="toolGroup";var Zi="toolProgress";var Qi="commandOutput";var Yi="askUserQuestion";var Vi={prompt:"UserMessage",reply:"AssistantMessage",toolCall:"ToolUse",toolResult:"ToolResult",notice:"InfoNotice",[qi]:"ToolGroup",[Zi]:"ToolProgress",[Qi]:"CommandOutput",[Yi]:"AskUserQuestion",[lo]:"Spinner",[Kt]:"TurnDuration"};function ea(e){return typeof e==="string"&&Object.hasOwn(Vi,e)?Vi[e]:undefined}function fo(e){return typeof e==="string"?`${e.charAt(0).toUpperCase()}${e.slice(1)}`:e.name}var De={list:"cmod:parts",draw:"cmod:draw",press:"cmod:press",shown:"cmod:shown",changed:"cmod:partsChanged",stylers:"cmod:markdownStylers"};var gn="that button drew before the last redraw. Press the one it shows now.";var Su=80;function ia(e){return e.viewport?.columns??Su}function mo(e,t=ia(e)){return{surface:e.surface,columns:Math.max(t,0)}}async function aa(e,t,n){if(n==="terminal"){const[s,r,i,c]=await Promise.all([e.env.browser(),e.env.sshConnection(),e.env.display(),e.env.waylandDisplay()]);const d=s||r?"":(await e.process.run(["uname","-s"])).stdout.trim().toLowerCase();const l=bs({os:d,browser:s,sshConnection:r,display:i,waylandDisplay:c},t);if(l!==undefined&&(await e.process.run(l)).exitCode===0)return"opened"}const o=await e.ui.copy({text:t,surface:n});if(!o.isCopied)throw new Error(`cmod could not open ${t} or copy it: ${o.reason}`);return"copied"}var Ou="⏺";function ta(e,t){const n={};for(const o of Or){const s=e[o];const r=typeof s==="function"?s(t):s;if(r===undefined)continue;if(!Number.isInteger(r)||r<=0)throw new Error(`the pane "${e.id}" gets ${o} ${r} from its state. Return a whole number above 0, or undefined for Claude Code's default.`);n[o]=r}return n}function na(e){return e===1?"1 time":`${e} times`}function oa(e,t,n){const o={...e,...t};return n||!("isFirstOfReply"in o)?o:{...o,isFirstOfReply:false}}function Cr(e){let t=0;return()=>e===undefined?undefined:`${e}:${t+=1}`}function ra(e,t,n=Cr(e.key)){const{dimColor:o,onLinkPress:s,pressableLinks:r}=e;const i={...o===undefined?{}:{dimColor:o},...s===undefined?{}:{onLinkPress:s},...r===undefined?{}:{pressableLinks:r}};let c=false;const d=(l)=>{if(l.key!==undefined)return l.key;if(c)return n();c=true;return e.key};return(l)=>{const m=d(l);return t({...i,...m===undefined?{}:{key:m},...l})}}function Ar(e){return`threw, so Claude Code draws its own: ${re(e)}`}async function sa(e,t,n){const o=[];let s;try{s=Ve(e,()=>t(({children:l,...m})=>{const y=e.Box({});o.push({given:m,drawing:y});return y}))}catch(l){return{failure:Ar(l)}}if(o.length===0)return{drawing:s,isClaudesRow:false};const r=o.findIndex((l)=>l.drawing===s);const i=await Promise.all(o.map(({given:l},m)=>n(l,m===r)));let c=0;let d;try{d=Ve(e,()=>t(()=>i[c++]??ie({})))}catch(l){return{failure:Ar(l)}}if(c!==i.length)return{failure:`used Default ${na(i.length)}, then ${na(c)}, so Claude Code draws its own. A render must draw the same for the same props.`};return{drawing:d,isClaudesRow:r>=0}}function po(e,t){const n=e.map(({drawing:i,isClaudesRow:c},d)=>(d>0||t==="inReply")&&!c?ie({marginTop:1,children:i}):i);const o=(i)=>ie({flexDirection:"column",children:i});const[s,...r]=n;if(t!=="opensReply"||s===undefined)return o(n);if(e[0]?.isClaudesRow!==true)return ie({children:[ie({minWidth:2,children:Q({color:"text",children:Ou})}),o(n)]});return o([s,ie({paddingLeft:2,children:o(r)})])}function hn(e){const t=e.findLast((r)=>r.parts!==undefined)?.parts;const n=e.flatMap((r)=>r.requests??[]);const o=e.some((r)=>r.redraw===true);const s=e.some((r)=>r.isStart===true);return{...t===undefined?{}:{parts:t},...o?{redraw:true}:{},...n.length===0?{}:{requests:n},...s?{isStart:s}:{}}}var Cu=200;function ca({name:e,claude:t,router:n,report:o,announce:s,mod:r,borrowed:i,nextDraw:c}){const d=new Map;const l=new Map;const m=new Set;const y=new Map;const v=async()=>{const a=new Map((await t.ui.panes()).map((p)=>[p.id,p]));for(const p of d.keys()){const f=a.get(p);if(f?.isPlaced===true)m.add(p);else m.delete(p);if(f===undefined)y.delete(p);else y.set(p,{isShown:f.isShown,isFocused:f.isFocused})}};const x=()=>v().catch((a)=>t.ui.warn("panes:read",`${e} keeps its panes' open, shown, and focused state from before: ${re(a)}`));const b=new Map;const N=new Set;const U=new Map;let K;let q=[];let se=0;let Z=false;let E=false;const R=new Map;const k=new Map;const H=new Map;let W={open:[],shown:null,isFocused:false};const A=new Map;const T=new Map;const j=new Set;let G=[];let ee=0;const J=new Set;let pe=0;let $e;let O=0;let D;const z=()=>({widgets:[...R.values()].map(({id:a,title:p,areas:f,place:S})=>({id:a,title:p,areas:f,...S===undefined?{}:{place:S}})),pages:[...H.values()].map(({init:{id:a,title:p},place:f})=>({id:a,title:p,place:f})),...U.size>0?{stylesMarkdown:true}:{}});const V=(a,p)=>{if(!Array.isArray(a))return;const f=a.filter((S)=>typeof S==="string"&&S!==e);if(!p&&f.join("\x00")===q.join("\x00"))return;q=f;se+=1;if(e===Re||d.size>0)t.ui.invalidate("ui.render")};const ne=(a,p)=>{const f=a();return f===undefined?null:_t(f,p)};const ae=()=>{for(const[a,p]of T){if(a==="markdown")continue;for(const f of p.values()){const S=[];try{if(JSON.stringify(ne(f.render,S))!==f.tree)return true}catch(F){t.ui.warn(`drawing:${a}`,`${e}: the ${a} drawing threw, so the cmod plugin asks for it again: ${re(F)}`);return true}const C=f.draws.at(-1);if(C!==undefined&&A.has(C))A.set(C,{id:a,handlers:S})}}return false};const de=({redraw:a,...p})=>a===true&&ae()?{...p,redraw:a}:p;const ue=(a)=>{if($e!==undefined)return void $e.push(a);if(G!==undefined)return void G.push(a);const p=ee>0;if(D!==undefined&&!p)return void D.push(a);const f=[a];if(!p)D=f;const S=async()=>{if(D===f)D=undefined;const F=de(hn(f));if(Object.keys(F).length===0)return;const X={...F,...p?{isAsked:true}:{}};return t.cmod.call({to:Re,method:De.changed,input:X}).then((oe)=>{if(p&&X.requests!==undefined&&!(Te(oe)&&oe["isHeld"]===true))pe+=1;if(Te(oe)&&e!==Re)V(oe["stylers"],false)},(oe)=>{if(!ot(Re,oe))t.ui.warn("parts:tell",`${e}: the cmod plugin did not hear about its pages and widgets: ${re(oe)}`)})};if(!p)return Promise.resolve().then(S);const C=S().finally(()=>J.delete(C));J.add(C);return C};const ke=async(a)=>{ee+=1;try{const p=await a();while(J.size>0)await Promise.allSettled(J);return p}finally{ee-=1}};const we=async(a)=>{O+=1;$e??=[];try{await a()}finally{O-=1}const p=$e;$e=O===0?undefined:[];return de(hn(p))};const Pe=(a)=>{let p=false;return(f)=>{if(!p)o({id:`draw:${a}`,message:`The ${a} failed`,description:f});p=true}};const Y=(a)=>U.get(a);const le=(a,p,f,S,C)=>{if("text"in a)return f({text:a.text});const{render:F,props:X}=a;const oe=()=>kr(S,()=>F.Component({...X,...p,Default:({source:he=X.source})=>f({text:he})}));try{return C===undefined?oe():Ve(C,oe,f)}catch(he){F.log(Ar(he));return f({text:X.source})}};const I=(a,p,f,S)=>(C,F=Cr(C.key))=>{if(f>=q.length)return a.Markdown(C);const X=C.key??S();for(const[oe,he]of q.entries()){if(oe<f)continue;const xe=`${se}\x00${p.surface}\x00${p.columns}\x00${C.text}`;const _=I(a,p,oe+1,S);const B=Ve(a,()=>i(he,xe,{markdown:C.text,...p},X),ra(C,(te)=>_(te,F),F));if(B!==undefined)return B}return a.Markdown(C)};const me=(a,p)=>{const f=K;let S=0;const C=()=>String(S++);const F=I(a,p,0,C);if(f===undefined)return q.length===0?undefined:F;return(X)=>{const oe=f(X.text,Y);if(oe.every((te)=>("text"in te)))return F(X);const he=X.key??C();const xe=Cr(X.key);const _=ra(X,(te)=>F(te,xe),xe);const B=oe.map((te,ce)=>le(te,p,_,`${he}:${ce}:`,a));return po(B.map((te)=>({drawing:te,isClaudesRow:false})),"pane")}};const Se=(a,p)=>{const f=K===undefined?[]:K(a,Y);if(f.every((S)=>("text"in S)))return ao({text:a});return po(f.map((S,C)=>({drawing:le(S,p,ao,`${C}:`),isClaudesRow:false})),"pane")};const ye=(a)=>{if(K!==undefined)return;const p=a();K=p;n.add("ui.render",async(f,S)=>{if(f.component!=="AssistantMessage")return S(f);const C=p(f.props.text,Y,f.requestId);if(C.every((he)=>("text"in he)))return S(f);const F=t.ui.resolve(f);const X=(he,xe)=>S({...f,props:oa(f.props,{text:he},xe)});const oe=await Promise.all(C.map(async(he,xe)=>{if("text"in he)return{drawing:await X(he.text,xe===0),isClaudesRow:true};const{render:_,props:B}=he;const te=await sa(F,(ce)=>kr(`${xe}:`,()=>_.Component({...B,...mo(f),id:f.requestId,Default:ce})),({source:ce=B.source},ge)=>X(ce,xe===0&&ge));if(!("failure"in te))return te;_.log(te.failure);return{drawing:await X(B.source,xe===0),isClaudesRow:true}}));return Ve(F,()=>po(oe,f.props.isFirstOfReply?"opensReply":"inReply"))})};const P=(a,p,f)=>{b.set(a.id,p);const{id:S,title:C,closeOnEscape:F,holdToasts:X}=a;return t.ui.open({id:S,title:C,...p,...F===true?{closeOnEscape:F}:{},...X===true?{holdToasts:X}:{},...f===true?{focus:f}:{}})};const M=async(a)=>{try{const p=ta(a,r().state);const f=b.get(a.id);if(f?.columns===p.columns&&f?.rows===p.rows)return;await P(a,p)}catch(p){t.ui.warn(`pane:resize:${a.id}`,`${e}: the ${a.title} pane kept its size: ${re(p)}`)}};const Ae=async(a,p,f)=>{try{await f()}catch(S){o({id:`pane:${a.id}:${p}`,message:`The ${a.title} pane's ${p} threw`,error:S})}};const fe=()=>{if(Z)return;Z=true;n.add("ui.render",(a,p)=>{const f=d.get(a.requestId);if(f===undefined||a.component!=="Pane")return p(a);const{init:S}=f;m.add(S.id);y.set(S.id,{isShown:true,isFocused:a.props.isFocused});x();const C=t.ui.resolve(a);try{return Ve(C,()=>S.render(r(),{...a.props,surface:a.surface,params:f.params}),me(C,mo(a,a.props.bodyColumns)))}catch(F){l.get(S.id)?.(`threw: ${re(F)}`);return Ve(C,()=>Q({color:"error",children:`The ${S.title} pane could not draw: ${re(F)}`}))}});n.add("ui.scroll",async(a,p)=>{const f=d.get(a.requestId)?.init;const S=await p(a);if(f?.onScroll===undefined||a.component!=="Pane"||S.deny!==undefined)return S;await Ae(f,"onScroll",()=>f.onScroll?.(r(),a));return S});n.add("ui.close",async(a,p)=>{m.delete(a.id);y.delete(a.id);const f=await p(a);await x();const S=d.get(a.id)?.init;if(S?.onClose!==undefined)await Ae(S,"onClose",()=>S.onClose?.(r(),a));return f})};const be=(a,p,f)=>t.ui.scroll({to:p,in:a,...f?.block===undefined?{}:{block:f.block}}).then(({deny:S})=>{if(S!==undefined)throw new Error(`${e}: Claude Code did not scroll ${a}: ${S}`)});const Me=(a)=>{Xi(e,a);if(d.has(a.id))throw new Error(`${e}: the pane "${a.id}" is already added. Give each pane its own id.`);const p={init:a,params:undefined};d.set(a.id,p);l.set(a.id,Pe(`${a.title} pane`));s(`the ${a.title} pane`);fe();const f=a;const S={id:a.id,get isOpen(){return m.has(a.id)},get isShown(){return y.get(a.id)?.isShown??false},get isFocused(){return y.get(a.id)?.isFocused??false},get params(){return p.params},async open(...[C]){if(C!==undefined&&"params"in C)p.params=C.params;const{isPlaced:F}=await P(f,ta(f,r().state),C?.focus);if(F)m.add(a.id);await v();t.ui.invalidate("ui.render")},async close(){await t.ui.close({id:a.id});m.delete(a.id);y.delete(a.id);await v()},toggle:(C)=>m.has(a.id)?S.close():S.open(C),scrollTo:(C,F)=>be(a.id,C,F),async focus(C){const{deny:F}=await t.ui.focus({requestId:a.id,key:C});if(F!==undefined)throw new Error(`${e}: Claude Code did not focus "${C}" in the ${a.title} pane: ${F}`)},remove(){if(d.get(a.id)!==p)return;d.delete(a.id);l.delete(a.id);if(m.has(a.id))t.ui.close({id:a.id}).catch((C)=>t.ui.warn(`pane:close:${a.id}`,`${e}: the ${a.title} pane stayed open: ${re(C)}`));m.delete(a.id);y.delete(a.id)}};return S};const _e=(a)=>W.open.find((p)=>p.id===a);const je=(a,p)=>{uo(e,"page",p.id,p.title);if(H.has(p.id))throw new Error(`${e}: the page "${p.id}" is already added. Give each page its own id.`);const f={init:p,place:a,params:undefined};H.set(p.id,f);s(a==="settings"?`the ${p.title} page in Settings`:`the ${p.title} page in the Sidebar`);ue({parts:z()});const S={id:p.id,get isOpen(){return a==="settings"?W.shown===p.id:_e(p.id)!==undefined},get isShown(){return W.shown===p.id},get isFocused(){return W.shown===p.id&&W.isFocused},get params(){return _e(p.id)?.params??f.params},async open(...[C]){if(C!==undefined&&"params"in C)f.params=C.params;await ue({requests:[{open:p.id,...f.params===undefined?{}:{params:f.params},...C?.focus===true?{focus:true}:{}}]})},toggle:(C)=>S.isOpen?S.close():S.open(C),close:async()=>{await ue({requests:[{close:p.id}]})},scrollTo:async(C,F)=>{await ue({requests:[{scroll:p.id,to:C,...F?.block===undefined?{}:{block:F.block}}]})},focus:async(C)=>{const F=[...T.get(`page:${p.id}`)?.values()??[]].at(-1);if(F===undefined||!io(ne(F.render,[]),C))throw new Error(`${e}: the ${p.title} page draws no Button, Input, or Select with the key "${C}".`);await ue({requests:[{focus:p.id,key:C}]})},remove(){if(H.get(p.id)!==f)return;H.delete(p.id);w(`page:${p.id}`);ue({parts:z(),requests:[{close:p.id}]})}};return S};const Ue=(a)=>{uo(e,"widget",a.id,a.title);if(R.has(a.id))throw new Error(`${e}: the widget "${a.id}" is already added. Give each widget its own id.`);R.set(a.id,a);s(`the ${a.title} widget`);ue({parts:z()});return{id:a.id,get area(){return k.get(a.id)},remove(){if(R.get(a.id)!==a)return;R.delete(a.id);k.delete(a.id);w(`widget:${a.id}`);ue({parts:z()})}}};const We=({kind:a,render:p})=>{const f=typeof a==="string"?undefined:a;const S=ea(a);if(f===undefined&&S===undefined)throw new Error(`${e}: ${String(a)} is not a kind styles.add draws, such as ToolCall or CodeBlock.`);const C=`the style of ${fo(a)}`;if(N.has(C))throw new Error(`${e}: ${C} is already added. Add one style per kind.`);N.add(C);s(C);const F=(xe)=>p(r(),xe);const X=(xe)=>()=>{xe?.remove();if(f!==undefined&&U.delete(f.markdown))ue({parts:z()});N.delete(C);t.ui.invalidate("ui.render")};if(f!==undefined){U.set(f.markdown,{Component:F,log:Pe(`${fo(a)} style`)});ye(f.createReader);ue({parts:z()});return{kind:a,remove:X()}}const oe=Pe(`${fo(a)} style`);const he=n.add("ui.render",async(xe,_)=>{if(xe.component!==S)return _(xe);const B=t.ui.resolve(xe);const te=await sa(B,(ce)=>F({...xe.props,...mo(xe),id:xe.requestId,Default:ce}),(ce,ge)=>_({...xe,props:oa(xe.props,ce,ge)}));if("failure"in te){oe(te.failure);return _(xe)}if(xe.component!=="AssistantMessage")return te.drawing;return Ve(B,()=>po([te],xe.props.isFirstOfReply?"opensReply":"inReply"))});return{kind:a,remove:X(he)}};const w=(a)=>{for(const p of T.get(a)?.values()??[])for(const f of p.draws)A.delete(f);T.delete(a)};const g=(a,p,f,S,C=()=>{return})=>{let F=[];let X;try{X=ne(S,F);j.delete(a)}catch(ce){if(!j.has(a))o({id:a,message:`The ${p} could not draw`,error:ce});j.add(a);F=[];X=ne(()=>C(ce),F)}const oe=c();const he=T.get(a)??new Map;T.set(a,he);const xe=JSON.stringify("turn"in f?{...f,turn:f.turn.prompt.id}:f);const _=he.get(xe)?.draws??[];const B=[..._,oe].slice(-2);for(const ce of _)if(!B.includes(ce))A.delete(ce);he.delete(xe);he.set(xe,{draws:B,tree:JSON.stringify(X),render:S});const[te]=he;if(he.size>Cu&&te!==undefined){for(const ce of te[1].draws)A.delete(ce);he.delete(te[0])}A.set(oe,{id:a,handlers:F});return{draw:oe,tree:X}};const L=(a)=>{if("markdown"in a)return g("markdown","markdown style",a,()=>Se(a.markdown,{surface:a.surface,columns:a.columns}));if("page"in a){const S=H.get(a.page);if(S===undefined)throw new Error(`${e} has no ${a.page} page.`);const C=`${S.init.title} page`;return g(`page:${a.page}`,C,a,()=>S.init.render(r(),{params:a.params,isFocused:a.isFocused,columns:a.columns}),(F)=>Q({color:"error",children:`The ${C} could not draw: ${re(F)}`}))}const p=R.get(a.widget);if(p===undefined||!p.areas.includes(a.area))return null;k.set(p.id,a.area);const f=a.area===Kt&&a.turn!==undefined?{area:a.area,columns:a.columns,turn:a.turn}:{area:a.area,columns:a.columns};return g(`widget:${p.id}`,`${p.title} widget`,a,()=>p.render(r(),f))};const u=async({draw:a,handler:p,args:f},S)=>{const C=A.get(a);const F=C?.handlers[p];if(C===undefined||F===undefined)throw new Error(`${e}: ${gn}`);if(S!==Re&&C.id!=="markdown")throw new Error(`${e}: ${S} pressed a button only the cmod plugin draws.`);const X=async()=>{try{await F(...f)}catch(oe){o({id:C.id,message:"Its button failed",error:oe,isCritical:true})}};if(S===Re)return we(X);await X();return null};return{panes:{add:Me},sidebar:{add:(a)=>je("sidebar",a)},settings:{add:(a)=>je("settings",a),open:async()=>{await ue({requests:[{settings:true}]})}},widgets:{add:Ue},styles:{add:We},asked:ke,async answerInput(a,p){const f=pe;const S=await ke(a);if(pe>f)await p();return S},answer(a,p,f){const S=a===De.draw&&Te(p)&&typeof p["markdown"]==="string";if(f!==Re&&!S&&a!==De.press)return;if(a===De.list)return Promise.resolve({value:z()});if(a===De.draw)return Promise.resolve().then(()=>({value:L(p)}));if(a===De.press)return u(p,f).then((C)=>({value:C}));if(a===De.shown){W=p;return Promise.resolve({value:null})}if(a===De.stylers){V(p,true);return Promise.resolve({value:null})}return},markdownIn:me,restyled:(a)=>V(a,true),started(){const a=hn(G??[]);G=undefined;ue({...a,parts:z(),isStart:true})},changed(){if(R.size>0||H.size>0)ue({redraw:true});if(d.size===0&&N.size===0)return;t.ui.invalidate("ui.render");if(E)return;E=true;Promise.resolve().then(()=>{E=false;for(const{init:a}of d.values()){if(m.has(a.id))M(a)}})},async restorePanes(){if(d.size>0)await v()}}}var yn="cmod:install";var Au=8;function da(e,t,n,o){let s;let r=false;let i=false;let c=[];let d;const l=new Map;const m=async(Z)=>{if(d!==undefined)return void d.push(Z);await Xn(t()).cmod.call({to:Re,method:De.changed,input:Z})};const y=(Z)=>(E)=>t().ui.warn("installer:page",`${e}: ${Z}: ${re(E)}`);const v=(Z)=>m({requests:[{open:yn,focus:true}],...Z?{isAsked:true}:{}});const x=async(Z,E)=>{s?.cancel();const R=new Promise((k)=>{let H=false;const W=(A)=>{if(H)return;H=true;n.hide();t().clock.after(0,()=>k(A))};s={...Z(W),cancel:()=>W(E)}});n.show(()=>v(true));if(r){await m({redraw:true}).catch(y("the installer did not redraw"))}else{r=true;await v(false).catch((k)=>{r=false;n.hide();throw k})}for(const k of c)k();c=[];return R};const b=()=>void m({redraw:true}).catch(y("the installer did not redraw"));const N=(...Z)=>ie({gap:2,flexShrink:0,children:Z});const U=(Z,...E)=>ie({flexDirection:"column",gap:1,children:[Z,...E]});const K=(Z,E)=>{if(s===undefined&&!r)t().clock.after(0,()=>void m({requests:[{close:yn}]}).catch(y("a leftover install page stayed open")));const R=[];const k=_t(s?.draw({params:undefined,isFocused:E,columns:Z})??Q({dimColor:true,children:`${e} needs nothing from you now.`}),R);const H=o();l.set(H,R);for(const W of l.keys())if(l.size>Au)l.delete(W);return{draw:H,tree:k}};const q=async(Z)=>{const E=d;const R=[];d=R;try{await Z()}finally{d=E}return hn(R)};const se=async({draw:Z,handler:E,args:R})=>{const k=l.get(Z)?.[E];if(k===undefined)throw new Error(`${e}: ${gn}`);return q(()=>k(...R))};return{answer(Z,E){if(Z===De.draw&&Te(E)&&E["page"]===yn)return Promise.resolve({value:K(Number(E["columns"]),E["isFocused"]===true)});if(Z===De.press&&Te(E)&&typeof E["draw"]==="number"&&l.has(E["draw"]))return se(E).then((R)=>({value:R}));return},hear(Z){if(Z.open.some((E)=>E.id===yn)){i=r;return}if(!i)return;r=false;i=false;s?.cancel()},options(Z,E){const R=new Map;const k=new Map;return x((H)=>({draw:()=>U(Q({bold:true,children:`Set up ${e}`}),Q({children:`${e} needs ${Z.length===1?"one setting":`${Z.length} settings`}:`}),...Z.map(([W,A])=>{const T=ie({flexDirection:"column",children:[Q({bold:true,children:A.title}),...A.description===""?[]:[Q({dimColor:true,wrap:"wrap",children:A.description})]]});if(A.type==="secret"){return ie({flexDirection:"column",children:[T,Q({dimColor:true,wrap:"wrap",children:`${It} Then press Next.`}),Jt({key:`secret:${W}`,label:"Open /config",onPress:()=>void t().command.run({command:"config"})})]})}const j=k.get(W);const G=mn({key:`option:${W}`,label:"Value",placeholder:A.type==="choice"?(A.choices??[]).join(", "):A.type==="toggle"?"true or false":A.type==="list"?"comma-separated":"",value:R.get(W)??"",submitLabel:"save",onSubmit:(J)=>void E(W,J).then((pe)=>{if(pe===undefined){R.set(W,J);k.delete(W)}else k.set(W,pe)}).catch((pe)=>k.set(W,re(pe))).finally(b)});const ee=j!==undefined?[Q({color:"error",wrap:"wrap",children:j})]:R.has(W)?[Q({color:"success",children:"✓ saved"})]:[];return ie({flexDirection:"column",children:[T,G,...ee]})}),N(Jt({key:"next",hotkey:"x",variant:"primary",label:"Next",onPress:()=>H(true)}),Jt({key:"not-now",hotkey:"n",label:"Not now",onPress:()=>H(false)})))}),false)},step(Z,E,R,k){let H;return x((W)=>({draw:(A)=>{let T;try{T=E.render(Z,A)}catch(G){T=Q({color:"error",wrap:"wrap",children:`The ${E.title} step could not draw: ${re(G)}`})}const j=async()=>{try{if(await E.isDone(Z))return W(true);H={color:"warning",text:`Finish ${E.title} first.`}}catch(G){H={color:"error",text:`The ${E.title} step's isDone failed: ${re(G)}`}}await m({redraw:true})};return U(Q({children:[Q({bold:true,children:E.title}),Q({dimColor:true,children:`  (${R} of ${k})`})]}),T,...H===undefined?[]:[Q({color:H.color,wrap:"wrap",children:H.text})],N(Jt({key:"next",hotkey:"x",variant:"primary",label:R===k?"Finish":"Next",onPress:()=>void j()}),Jt({key:"not-now",hotkey:"n",label:"Not now",onPress:()=>W(false)})))}}),false)},async close(){s?.cancel();s=undefined;if(!r)return;r=false;i=false;await m({requests:[{close:yn}]}).catch(y("the install page stayed open"))},changed(){if(s!==undefined&&r)b()},shown:()=>new Promise((Z)=>void c.push(Z)),collect:q}}class wn extends Error{keys;titles;constructor(e,t){super(`it needs ${lt(t)}`);this.keys=e;this.titles=t}}function ua({name:e,declared:t,fromClaude:n,claude:o,report:s,changed:r}){let i=la(t,n,{},new Set);let c;let d;const l=async()=>{if(Object.keys(t).length===0)return new Set;const y=await o.config.list().catch((v)=>{o.ui.warn("options:config",`${e} could not read /config, so a project's options.json may override a value your organization set: ${re(v)}`);return[]});return new Set(y.filter((v)=>v.isLocked&&v.key.startsWith(`${e}.`)).map((v)=>v.key.slice(e.length+1)))};const m=async(y)=>{const v={HOME:await o.env.home(),CLAUDE_CONFIG_DIR:await o.env.configHome()};const x=Tn(v,e,y).find(({tier:K})=>K==="project");if(x===undefined)return{};const b=`${x.folder}/options.json`;if(!await o.fs.exists(b))return{};const{values:N,ignored:U}=zi(e,t,await o.fs.read(b));for(const K of U)s({id:`options:${b} ${K}`,message:`Ignores part of ${b}`,description:`${b} ${K}`});return N};return{get values(){return i},get missing(){return Object.entries(t).filter(([y,v])=>v.default===undefined&&wr(i[y])).map(([y])=>y)},async load(y){if(Object.keys(t).length===0)return;c??=await l();const v=await m(y);const x=d===undefined;d=y;const b=la(t,n,v,c);if(!x&&JSON.stringify(b)===JSON.stringify(i))return;i=b;if(!x)r()}}}function la(e,t,n,o){return Object.freeze(Object.fromEntries(Object.entries(e).map(([s,r])=>[s,Eu(s,r,t[s],n,o)])))}function Eu(e,t,n,o,s){if(s.has(e))return n;if(Object.hasOwn(o,e))return o[e];if(!wr(n)&&fn(t,n)===undefined)return Array.isArray(n)?Object.freeze([...n]):n;return t.default??(t.type==="list"?Object.freeze([]):t.type==="number"?undefined:"")}var ho=new AbortController().signal;function Er(){const e=new Map;return{add(t,n,o){const s={hook:n,...o===undefined?{}:{failed:o}};e.set(t,[...e.get(t)??[],s]);return{remove(){const r=(e.get(t)??[]).filter((i)=>i!==s);if(r.length===0)e.delete(t);else e.set(t,r)}}},dispatch(t,n,o,s=ho){const r=e.get(t);const i=async(c,d)=>{const l=r?.[c];if(l===undefined)return o(d);return l.hook(d,Object.assign((m)=>i(c+1,m),{signal:s}))};return i(0,n)},dispatchFailure(t,n,o,s,r){const i=e.get(t);const c=async(d,l)=>{const m=i?.[d];if(m===undefined)return s(l);const y=await m.failed?.(l,o,Object.assign((v)=>c(d+1,v),{signal:ho,called:r}));return y===undefined?c(d+1,l):y};return c(0,n)}}}var fa=["memory","session","project","global"];var _u=20;var Pu=new WeakMap;function Ru(e,t,n){return`${e}.${t}.sessions.${n}`}function pa({name:e,initial:t,session:n,root:o,claude:s,report:r,changed:i,forkParent:c}){const d=()=>{i();for(const A of Pu.get(W)??[])A()};const l=Tu(e,t);const m=Mu(l);let y=o;let v=n;let x=Promise.resolve();const b=(A)=>{const T=x.then(A);x=Promise.allSettled([T]);return T};const N=(A,T)=>A==="project"?`${e}.${T}.projects.`:Ru(e,T,"");const U=(A,T,j)=>A==="global"?`${e}.${T}`:`${N(A,T)}${j}`;const K=(A,T,j)=>s.store.get(U(A,T,j));const q=async(A,T,j,G)=>{if(A!=="project")return s.store.set(U(A,T,G),j);await s.store.delete(U(A,T,G));await s.store.set(U(A,T,G),j);const ee=(await s.store.keys()).filter((J)=>J.startsWith(N(A,T)));for(const J of ee.slice(0,-_u))await s.store.delete(J)};const se=`${e}.$transcripts.`;const Z=async(A)=>{const T=await s.store.keys();const j=async(ee)=>{const J=await s.store.get(ee);return typeof J!=="string"||!await s.fs.exists(J)};const G=T.filter((ee)=>ee.startsWith(se)&&ee!==`${se}${A}`);await Promise.all(G.map(async(ee)=>{if(!await j(ee))return;const J=ee.slice(se.length);await Promise.all(T.filter((pe)=>pe.startsWith(`${e}.`)&&pe.endsWith(`.sessions.${J}`)).map((pe)=>s.store.delete(pe)));await s.store.delete(ee)}))};const E=async(A,T)=>{const j=[];for(const G of A){for(const ee of Object.keys(l[G]))j.push([G,ee,G==="memory"?undefined:await K(G,ee,G==="project"?T.root:T.session)])}y=T.root;v=T.session;for(const[G,ee,J]of j)m[G][ee]=J===undefined?l[G][ee]:xn(e,`${G}.${ee}`,J);d()};const R=async(A,T)=>{for(const j of Object.keys(l.session)){const G=await K("session",j,A);if(G!==undefined)await q("session",j,G,T)}};const k=async(A)=>(await s.store.keys()).some((T)=>T.startsWith(`${e}.`)&&T.endsWith(`.sessions.${A}`));const H=(A)=>new Proxy(m[A],{set(T,j,G){if(typeof j!=="string")throw new Error(`${e}: mod.state.${A} keys are text, not ${String(j)}.`);if(!Object.hasOwn(l[A],j))throw new Error(`${e}: mod.state.${A}.${j} is not declared. Add it to state.${A} in defineMod with its starting value.`);if(Object.is(T[j],G))return true;T[j]=xn(e,`${A}.${j}`,G);if(A!=="memory"){const ee=A==="project"?y:v;b(()=>q(A,j,G,ee)).catch((J)=>{r({id:`state:${A}.${j}`,message:`Could not keep state.${A}.${j}`,error:J})})}d();return true}});const W=Object.freeze(Object.fromEntries(Object.keys(t).map((A)=>[A,H(A)])));return{state:W,get root(){return y},changed:d,load:()=>b(async()=>{if(Object.keys(l.session).length>0&&!await k(v)){const A=await c();if(A!==undefined)await R(A,v)}return E(fa,{root:y,session:v})}),moveTo:(A)=>b(async()=>A===y?undefined:E(["project"],{root:A,session:v})),switchSession:(A,T,j)=>b(async()=>{if(Object.keys(l.session).length>0){await s.store.set(`${se}${A}`,j);Z(A).catch((G)=>r({id:"state:sessions",message:"Could not forget the session values of ended sessions",error:G}))}if(A===v)return;if(T==="fork")await R(v,A);return E(["memory","session"],{root:y,session:A})})}}function Tu(e,t){const n={memory:{},session:{},project:{},global:{}};for(const[o,s]of Object.entries(t)){if(!ju(o))throw new Error(`${e}: state.${o} is not a lifetime. Put each value in state.memory, state.session, state.project, or state.global.`);if(!ma(s))throw new Error(`${e}: state.${o} is not an object of values. Write state: { ${o}: { key: value } }.`);for(const[r,i]of Object.entries(s))n[o][r]=xn(e,`${o}.${r}`,i)}return n}function Mu(e){return{memory:{...e.memory},session:{...e.session},project:{...e.project},global:{...e.global}}}function ju(e){return fa.includes(e)}function xn(e,t,n){const o=Array.isArray(n);if(!o&&!ma(n))return n;const s=o?n.map((c)=>xn(e,t,c)):Object.fromEntries(Object.entries(n).map(([c,d])=>[c,xn(e,t,d)]));const r=o?`mod.state.${t} = [...mod.state.${t}, item]`:`mod.state.${t} = { ...mod.state.${t}, field: value }`;const i=()=>{throw new Error(`${e}: mod.state.${t} cannot change in place. Assign it a new value, such as ${r}, so the mod redraws and keeps it.`)};return new Proxy(Object.freeze(s),{set:i,defineProperty:i,deleteProperty:i})}function ma(e){if(typeof e!=="object"||e===null)return false;const t=Object.getPrototypeOf(e);return t===Object.prototype||t===null}var ha="cmod:failed";var Iu=/^https:\/\/github\.com\/([^/]+\/[^/#?]+?)(?:\.git)?(?:\/issues)?\/?$/;var Lu=2048;var ga="cmod:hidden-failures";var Nu=30000;var ya=[1e4,60000,300000];var Bu=4000;var wa=3;var _r=2;var Du=16;var xa=["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];var ka=100;var Fu=1e4/ka;var Uu="…";var Wu={default:{glyph:" "},success:{glyph:"✓",color:"success"},info:{glyph:"ℹ",color:"suggestion"},warning:{glyph:"⚠",color:"warning"},error:{glyph:"✗",color:"error"}};function va(e,t,n){const o=new Map;const s=new Map;const r=new Map;e.store.get(ga).then((O)=>{if(typeof O!=="object"||O===null)return;for(const[D,z]of Object.entries(O))if(typeof z==="string"&&!s.has(D))s.set(D,z)},(O)=>j("hidden:read",`${t}: could not read the failures you hid: ${re(O)}`));let i=0;let c=0;let d;let l=false;let m=false;let y;const v=(O)=>O.type==="loading"||O.trying!==undefined;const x=(O)=>O.spinsFrom!==undefined&&c-O.spinsFrom<Fu;const b=()=>{for(const D of o.values())D.spinsFrom=v(D)?D.spinsFrom??c:undefined;const O=[...o.values()].some(x);if(O&&d===undefined){d=e.clock.every(ka,()=>{c+=1;b()})}if(!O&&d!==undefined){d.cancel();d=undefined}if(o.size<=wa)m=false;e.ui.invalidate("ui.render")};const N=(O)=>{O.timer?.cancel();O.timer=undefined};const U=(O)=>{const D=O.options.duration??Bu;if(O.timer!==undefined||O.type==="loading"||O.isOpen||!Number.isFinite(D))return;O.timer=e.clock.after(D,()=>{O.timer=undefined;if(l)U(O);else K(O.id)})};const K=(O)=>{if(O===undefined)r.clear();else r.delete(String(O));for(const D of o.values()){if(O!==undefined&&D.id!==O&&!D.merged.has(String(O)))continue;for(const z of D.merged.keys())r.delete(z);N(D);o.delete(D.id)}b()};const q=(O,D,z,V,ne)=>{const ae=z.id??(i+=1);const de=o.get(ae);if(de?.trying!==undefined&&O==="loading"){de.trying=z.description??D;b();return ae}if(de!==undefined)N(de);const ue=ne!==undefined&&de?.hides===ne?de.reporting:undefined;const ke={id:ae,type:O,message:D,options:z,actions:V,...ne===undefined?{}:{hides:ne},merged:new Map,count:1,at:new Date,isOpen:de?.isOpen??false,reporting:ue,timer:undefined};if(O==="error"&&de?.message!==D)e.ui.log(`${t}: ${D}${typeof z.description==="string"?`: ${z.description}`:""}`,{to:"debug"});o.set(ae,ke);b();return ae};const se=(O)=>(D,z={})=>q(O,D,z,z.action===undefined?[]:[z.action]);const Z=(O)=>{K(O.id);if(O.hides===undefined)return;for(const[D,z]of[[String(O.id),O.hides],...O.merged])s.set(D,z);e.store.set(ga,Object.fromEntries(s)).catch((D)=>j("hidden:write",`${t}: could not remember the failure you hid: ${re(D)}`))};const E=Object.assign(se("default"),{success:se("success"),info:se("info"),warning:se("warning"),error:se("error"),loading:se("loading"),dismiss:K,promise(O,D){const z=se("loading")(D.loading);const V=Promise.resolve().then(()=>typeof O==="function"?O():O).then((ne)=>{se("success")(typeof D.success==="function"?D.success(ne):D.success,{id:z});return ne},(ne)=>{se("error")(typeof D.error==="function"?D.error(ne):D.error,{id:z});throw ne});V.catch(()=>{return});return{unwrap:()=>V}}});const R=async(O)=>{const D=await e.ui.copy({text:O});if(!D.isCopied)throw new Error(D.reason)};const k=(O,D)=>()=>void Promise.resolve().then(D).catch((z)=>ee({id:`press:${O.id}`,message:`${O.message}: the press failed`,error:z,isCritical:true}));const H=(O)=>e.cmod.call({to:Re,method:ha,input:O});const W=()=>e.fs.read(`${e.plugin.root}/.claude-plugin/plugin.json`).then((O)=>String(JSON.parse(O).version)).catch((O)=>`unknown (${re(O)})`);const A=(O,D,z)=>`${t} ${O}, @cmodjs/core ${on}, at ${D.toISOString()}
-${z}`;const T=new Map;const j=(O,D)=>{e.ui.log(D,{to:"debug"});const z=new Date;const V=`${D}
-${z.toISOString().slice(0,16)}`;if(T.get(O)===V)return;T.set(O,V);e.clock.after(0,()=>{(async()=>{const ne=await W();await H({mod:t,id:O,message:D,details:A(ne,z,D),at:z.toISOString(),isCritical:false,root:e.plugin.root,level:"warning",version:ne,core:on})})().catch(()=>{return})})};const G=async(O,D)=>{const z={isSettled:false};try{const V=H(O).finally(()=>void(z.isSettled=true));const ne=await(D?V:Ft(e,{ms:Nu},ha,V));if(Te(ne)&&typeof ne["showsToast"]==="boolean")return ne["showsToast"];throw new Error(`cmod answered ${ne===undefined?"nothing":JSON.stringify(ne)}, not { showsToast: true or false }`)}catch(V){if(!z.isSettled||Do(V))return"unanswered";e.ui.log(`${t}: cmod kept no Log of ${O.id}, so it shows the toast: ${re(V)}`,{to:"debug"});return}};const ee=({id:O,message:D,error:z,description:V=z===undefined||go(z)===D?undefined:go(z),retry:ne,isCritical:ae=false,root:de=e.plugin.root})=>{if(!ae&&Do(z)){j(O,`${t}: ${D}: ${go(z)}`);return O}const ue=`${n()??""}
-${D}
-${z===undefined?"":go(z)}`;const ke=new Date;const we=`${ue}
-${V??""}
-${ke.toISOString().slice(0,16)}`;if(r.get(O)===we)return O;r.set(O,we);const Pe=z instanceof Error&&z.stack!==undefined?`
+// node_modules/@cmodjs/core/utils/text.js
+function listed(items) {
+  if (items.length <= 1)
+    return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+function firstLine(text) {
+  return text.split(`
+`).find((line) => line.trim() !== "")?.trim() ?? "";
+}
+function messageOf(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function formatExit(code, reason) {
+  const exit = code === null ? "was stopped by a signal" : `exited ${code}`;
+  const clause = reason.trim().replace(/[.!?]+$/, "");
+  return clause ? `${exit}: ${clause}` : exit;
+}
 
-${z.stack}`:"";const Y=async(P)=>A(await W(),P,`${D}${V===undefined?"":`
-${V}`}${Pe}`);const le=async(P=0)=>{const M=await $a(e);const Ae=await W();const fe={mod:t,id:O,message:D,details:A(Ae,ke,`${D}${V===undefined?"":`
-${V}`}${Pe}`),at:ke.toISOString(),isCritical:ae,root:de,...M===undefined?{}:{contact:M},level:"error",version:Ae,core:on};const be=await G(fe,ae);const Me=ya[P];if(be==="unanswered"&&Me!==undefined)return void e.clock.after(Me,()=>void le(P+1));if(be==="unanswered")e.ui.log(`${t}: cmod did not answer ${ya.length+1} times, so ${O} reached no Log and shows its toast`,{to:"debug"});if(ae)return;if(be!==false)return I();e.ui.log(`${t}: ${D}${V===undefined?"":`: ${V}`}`,{to:"debug"})};const I=()=>{if(s.get(O)===ue)return;s.delete(O);const P=o.get(O);const M=V??D;const Ae=P===undefined?[...o.values()].find((be)=>be.hides!==undefined&&be.trying===undefined&&(be.options.description??be.message)===M):P.hides===ue&&P.trying===undefined&&P.options.description===V?P:undefined;if(Ae!==undefined){if(Ae!==P)Ae.merged.set(O,ue);Ae.count+=1;Ae.at=new Date;b();return}const fe=[{label:"Report",onClick:me},...ne===undefined?[]:[{label:"Retry",onClick:Se}],...ye];q("error",D,{id:O,...V===undefined?{}:{description:V},duration:Infinity},fe,ue)};const me=async()=>{const P=o.get(O);if(P===undefined)return;P.reporting={contact:await $a(e),details:await Y(P.at)};N(P);b();if(y===undefined)return;const M=await e.ui.focus({requestId:y,key:`toast:${O}:ask-claude`});if("deny"in M)j("report:focus",`${t}: the Report choices did not take the keys: ${String(M.deny)}`)};const Se=async()=>{const P=o.get(O);if(P===undefined||ne===undefined||P.trying!==undefined)return;P.trying="Starting";b();try{await ne()}finally{if(o.get(O)===P){P.trying=undefined;b()}}};const ye=[{sentence:Ro,label:"Plugins",onClick:()=>e.command.run({command:"plugin"})},{sentence:It,label:"Open /config",onClick:()=>e.command.run({command:"config"})}].filter(({sentence:P})=>`${D}
-${V??""}`.includes(P));if(ae)I();e.clock.after(0,()=>void le());return O};const J=(O)=>()=>{O.isOpen=!O.isOpen;N(O);b()};const pe=(O,D)=>{const{description:z}=O.options;const V=typeof z==="string";const ne=O.type==="loading"||O.trying!==undefined?{glyph:x(O)?xa[c%xa.length]:Uu,color:"claude"}:Wu[O.type];const ae=V?Ne({plain:true,key:`toast:${O.id}:open`,label:O.message,onPress:J(O)}):Q({children:O.message});const de=!V?z:Q({dimColor:true,wrap:O.isOpen?"wrap":"truncate-end",children:O.isOpen?z:_n(z)});const ue=(Se)=>ie({flexShrink:0,children:Se});const ke=Ne({plain:true,dimColor:true,key:`toast:${O.id}:close`,label:"✕",onPress:()=>Z(O)});const we=O.actions.map((Se,ye)=>Ne({plain:true,key:`toast:${O.id}:${ye===0?"action":`action-${ye}`}`,label:Se.label,onPress:k(O,Se.onClick)}));const Pe=Q({dimColor:true,children:O.count>1?`${ba(O.at)} · ${O.count} times`:ba(O.at)});const Y=we.length===0?[]:[ie({gap:_r,flexWrap:"wrap",children:[...we,Pe].map(ue)})];const le=O.trying===undefined?undefined:ie({gap:1,children:[Q({dimColor:true,children:"Trying again:"}),typeof O.trying==="string"?Q({dimColor:true,wrap:"truncate-end",children:O.trying}):O.trying]});const I=de===undefined?[]:[le??de];const me=le!==undefined&&de===undefined?[le]:O.reporting===undefined?Y:$e(O,O.reporting);return ie({width:D,gap:_r,justifyContent:"space-between",children:[ie({gap:_r,flexShrink:1,children:[ue(Q({...ne.color===undefined?{}:{color:ne.color},children:ne.glyph})),ue(Q({dimColor:true,children:t.padEnd(Du)})),ie({flexDirection:"column",flexShrink:1,children:[ae,...I,...me]})]}),ue(ke)]})};const $e=(O,{contact:D,details:z,status:V})=>{const ne=(we)=>{O.reporting={contact:D,details:z,status:we};b()};const ae=()=>{O.reporting=undefined;b()};const de=async()=>{await e.prompt.submit({text:zu(t,D,z),asUser:true});ae()};const ue=async()=>{const we=await e.ui.copy({text:z});ne(we.isCopied?"Copied the error.":`Could not copy it: ${we.reason}`)};const ke=D===undefined?[]:[Hu(`toast:${O.id}:report`,D,t,O.message,z)];return[Q({dimColor:true,children:"Claude writes up the problem and files it with your tools. You approve each step before anything is posted."}),ie({gap:2,flexWrap:"wrap",children:[Ne({plain:true,key:`toast:${O.id}:ask-claude`,label:"Ask Claude to report it",onPress:k(O,de)}),...ke,Ne({plain:true,key:`toast:${O.id}:copy`,label:"Copy the error",onPress:k(O,ue)}),Ne({plain:true,dimColor:true,key:`toast:${O.id}:back`,label:"Back",onPress:ae})]}),...V===undefined?[]:[Q({dimColor:true,children:V})]]};return{toast:E,copy:R,fail:ee,warn:j,get shown(){return[...o.values()].map(({type:O,message:D,options:z})=>({type:O,message:D,...typeof z.description==="string"?{description:z.description}:{}}))},draw(O,D,z,V){y=V;l=z.hasSurvey===true;if(l||o.size===0)return O;const ne=[...o.values()];const ae=m?0:Math.max(ne.length-wa,0);for(const ue of ne.slice(ae))U(ue);const de=Ne({plain:true,dimColor:true,key:"toasts:more",label:`+${ae} more`,onPress:()=>{m=true;b()}});return Ve(D,()=>ie({flexDirection:"column",children:[O,...ae>0?[de]:[],...ne.slice(ae).map((ue)=>pe(ue,z.bodyColumns))]}))}}}function go(e){const t=[];for(let n=e;n!==undefined;n=n instanceof Error?n.cause:undefined){const o=re(n);if(!t.some((s)=>s.includes(o)||o.includes(s)))t.push(o)}return t.join(`
-`)}async function $a(e){const t=await e.fs.read(`${e.plugin.root}/.claude-plugin/plugin.json`).then((i)=>JSON.parse(i)).catch((i)=>{e.ui.log(`${e.plugin.name}: could not read whom to report to: ${re(i)}`,{to:"debug"});return{}});const n=Te(t["repository"])?t["repository"]["url"]:t["repository"];const o=[t["supportUrl"],n].map((i)=>typeof i==="string"?Iu.exec(i)?.[1]:undefined).find((i)=>i!==undefined);if(o!==undefined)return{kind:"github",repository:o};const s=t["author"];const r=Te(s)?s["email"]:undefined;return typeof r==="string"&&r!==""?{kind:"email",address:r}:undefined}function Hu(e,t,n,o,s){const r=`${n}: ${o}`.slice(0,120);const i=(d)=>t.kind==="github"?`https://github.com/${t.repository}/issues/new?title=${encodeURIComponent(r)}&body=${encodeURIComponent(d)}`:`mailto:${t.address}?subject=${encodeURIComponent(r)}&body=${encodeURIComponent(d)}`;let c=s;while(i(c).length>Lu&&c.length>0)c=`${c.slice(0,Math.floor(c.length*0.8))}…`;return Ne({plain:true,key:e,href:i(c),label:t.kind==="github"?"Report it on GitHub (opens your browser)":"Email the author (opens your mail app)"})}function zu(e,t,n){const o=t===undefined?`${e} names no place to report it, so find its author from its plugin.json or its marketplace.`:t.kind==="github"?`Report it as an issue on https://github.com/${t.repository}.`:`Email it to ${t.address}.`;return`The ${e} mod failed. Report it to its author. ${o} First check whether it is reported already, and add to that report instead of filing a new one. Show me the report before you post it.
+// node_modules/@cmodjs/core/records.js
+var listPermissions = ["network", "run", "files", "config"];
+var flagPermissions = ["conversation", "prompt", "model", "tasks", "tools", "approve"];
+var permissionNames = [...listPermissions, ...flagPermissions];
+var hostName = /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
+var programName = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+var releaseVersion = /^\d+\.\d+\.\d+$/;
+var settingPath = /^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z0-9_@-]+)*$/;
+var listItemHint = {
+  network: 'a host alone, such as "api.github.com", or a socket path, such as "/var/run/docker.sock"',
+  run: `a program's command, such as "gh"`,
+  files: 'a path that starts with ~/ or /, such as "~/.zshrc"',
+  config: `a Claude Code setting's name, or a key path inside one, such as "cleanupPeriodDays" or "env.ANTHROPIC_BASE_URL"`
+};
+var pluginName = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+function xdgFolder(env, variable, underHome) {
+  const base = env[variable];
+  const home = env["HOME"];
+  if (base)
+    return `${base}/cmod`;
+  if (!home)
+    throw new Error(`Neither ${variable} nor HOME is set, so cmod has no folder there. Set HOME.`);
+  return `${home}/${underHome}/cmod`;
+}
+function storeFolder(env) {
+  return xdgFolder(env, "XDG_DATA_HOME", ".local/share");
+}
+function recordPath(store, name) {
+  return `${store}/records/${checkedName(name)}.json`;
+}
+function programPath(store, program, version) {
+  return `${store}/bin/${checkedName(program)}/${version}/${program}`;
+}
+function linkedProgramPath(store, program, version) {
+  return `${programPath(store, program, version)}.linked`;
+}
+async function programModifiedMs(modifiedMs, store, record) {
+  if (record.program === null)
+    return;
+  const times = await Promise.all([programPath(store, record.program, record.version), linkedProgramPath(store, record.program, record.version)].map(modifiedMs));
+  const found = times.filter((time) => time !== undefined);
+  return found.length === 0 ? undefined : Math.max(...found);
+}
+function isProgramNewer(record, programModifiedMs) {
+  return record.program !== null && (programModifiedMs === undefined || programModifiedMs > Date.parse(record.installedAt));
+}
+async function readCmodVersion(files, store) {
+  if (!await files.exists(`${store}/programs/cmod`))
+    return;
+  const newestFirst = (await files.list(`${store}/bin/cmod`)).filter((name) => releaseVersion.test(name)).toSorted((one, other) => isAtLeast(one, other) ? -1 : 1);
+  for (const version of newestFirst)
+    if (await files.exists(programPath(store, "cmod", version)) || await files.exists(linkedProgramPath(store, "cmod", version)))
+      return version;
+  return;
+}
+function dataFolder(store, name) {
+  return `${store}/data/${checkedName(name)}`;
+}
+function cacheFolder(env, name) {
+  return `${xdgFolder(env, "XDG_CACHE_HOME", ".cache")}/${checkedName(name)}`;
+}
+function configFolder(env, name) {
+  const configRoot = env["CLAUDE_CONFIG_DIR"];
+  const home = env["HOME"];
+  if (configRoot)
+    return `${configRoot}/cmods/${checkedName(name)}`;
+  if (!home)
+    throw new Error(`Neither CLAUDE_CONFIG_DIR nor HOME is set, so ${name} has no config folder. Set HOME.`);
+  return `${home}/.claude/cmods/${checkedName(name)}`;
+}
+function configFolders(env, name, root) {
+  return [
+    { tier: "system", folder: configFolder(env, name) },
+    { tier: "project", folder: projectConfigFolder(root, name) }
+  ];
+}
+function projectConfigFolder(root, name) {
+  return `${root}/.claude/cmods/${checkedName(name)}`;
+}
+function checkedName(name) {
+  if (!pluginName.test(name) || name.includes("..")) {
+    throw new Error(`"${name}" is not a plugin name: use letters, digits, ".", "_", and "-", starting with a letter or digit.`);
+  }
+  return name;
+}
+async function readRecord(read, store, name) {
+  const path = recordPath(store, name);
+  const text = await read(path);
+  if (text === undefined)
+    return;
+  return parseRecord(text, path);
+}
+function parseRecord(text, path) {
+  const fix = `Delete ${path} and run cmod setup on the plugin again.`;
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${path} is not JSON (${messageOf(error)}). ${fix}`);
+  }
+  if (!isObject(value))
+    throw new Error(`${path} is not a cmod install record. ${fix}`);
+  for (const key of ["name", "version", "root", "installedAt", "scriptsSha256"]) {
+    if (typeof value[key] !== "string")
+      throw new Error(`${path} has no "${key}" text. ${fix}`);
+  }
+  const uninstall = value["uninstall"];
+  if (uninstall !== null && typeof uninstall !== "string")
+    throw new Error(`${path} has an "uninstall" that is neither a path nor null. ${fix}`);
+  const program = value["program"];
+  if (program !== null && typeof program !== "string")
+    throw new Error(`${path} has a "program" that is neither a command name nor null. ${fix}`);
+  const keys = value["keys"] ?? {};
+  if (!isObject(keys) || Object.values(keys).some((command) => typeof command !== "string"))
+    throw new Error(`${path} has "keys" that are not key bindings. ${fix}`);
+  const permissions = value["permissions"] ?? null;
+  if (permissions !== null && !isTextList(permissions))
+    throw new Error(`${path} has "permissions" that are not a list of permissions. ${fix}`);
+  const grantedOnUpdate = value["grantedOnUpdate"] ?? [];
+  if (!isTextList(grantedOnUpdate))
+    throw new Error(`${path} has a "grantedOnUpdate" that is not a list of permissions. ${fix}`);
+  const installedBy = value["installedBy"] ?? null;
+  if (installedBy !== null && !(isObject(installedBy) && (installedBy["session"] === null || typeof installedBy["session"] === "string") && typeof installedBy["pid"] === "number"))
+    throw new Error(`${path} has an "installedBy" that names no session and process. ${fix}`);
+  return {
+    name: value["name"],
+    version: value["version"],
+    root: value["root"],
+    installedAt: value["installedAt"],
+    scriptsSha256: value["scriptsSha256"],
+    uninstall,
+    program,
+    keys,
+    permissions,
+    grantedOnUpdate,
+    installedBy
+  };
+}
+function readSteps(pkg) {
+  if (pkg === undefined)
+    return;
+  if (!isObject(pkg))
+    throw new Error("package.json is not a JSON object.");
+  const steps = pkg["cmod"];
+  if (steps === undefined)
+    return;
+  if (!isObject(steps))
+    throw new Error('package.json has a "cmod" key that is not an object. Write "cmod": { "install": "./setup/install.sh", "uninstall": "./setup/uninstall.sh" }.');
+  const program = steps["program"];
+  if (program !== undefined && (typeof program !== "string" || !pluginName.test(program)))
+    throw new Error(`package.json "cmod.program" must be the program's command, such as "hello".`);
+  const approve = steps["approve"];
+  if (approve !== undefined && approve !== true)
+    throw new Error(`package.json "cmod.approve" is ${JSON.stringify(approve)}. Write "approve": true, or leave it out.`);
+  const permissions = readPermissions(steps);
+  return {
+    ...readCommand(steps, "install"),
+    ...readCommand(steps, "uninstall"),
+    ...program === undefined ? {} : { program },
+    ...readHotkeys(steps["hotkeys"]),
+    ...approve === true || permissions.includes("approve") ? { approve: true } : {},
+    ...permissions.length === 0 ? {} : { permissions }
+  };
+}
+function readPermissions(steps) {
+  const declared = steps["permissions"];
+  if (declared === undefined)
+    return [];
+  const at = 'package.json "cmod.permissions"';
+  if (!isObject(declared))
+    throw new Error(`${at} must be an object, such as { "network": ["api.github.com"], "prompt": true }.`);
+  const items = [];
+  for (const [name, value] of Object.entries(declared)) {
+    if (!permissionNames.includes(name))
+      throw new Error(`${at} names "${name}", which is not a permission. Use ${listed(permissionNames.map((each) => `"${each}"`))}.`);
+    if (flagPermissions.includes(name)) {
+      if (value !== true)
+        throw new Error(`${at} sets "${name}" to ${JSON.stringify(value)}. Write "${name}": true, or leave it out.`);
+      items.push(name);
+      continue;
+    }
+    if (name === "run" && value === "*") {
+      items.push("run:*");
+      continue;
+    }
+    const example = { network: '["api.github.com"]', run: '["gh"], or "*" for any program', files: '["~/.zshrc"]', config: '["cleanupPeriodDays"]' }[name];
+    if (!Array.isArray(value) || value.length === 0 || !value.every((each) => typeof each === "string"))
+      throw new Error(`${at} sets "${name}" to ${JSON.stringify(value)}. Write a list, such as "${name}": ${example}.`);
+    for (const each of value) {
+      const isPath = /^(~\/|\/)/.test(each) && !each.split("/").includes("..");
+      const isValid = { network: hostName.test(each) || isPath, run: programName.test(each), files: isPath, config: settingPath.test(each) }[name];
+      if (isValid !== true)
+        throw new Error(`${at} lists "${each}" under "${name}". Write ${listItemHint[name]}.`);
+      items.push(`${name}:${each}`);
+    }
+  }
+  return items;
+}
+var installFix = "Install it in Plugins.";
+var secretFix = "Set it in /config, where Claude Code keeps it in your keychain.";
+var pendingStepsMethod = "cmod:pendingSteps";
+var finishStepsMethod = "cmod:finishSteps";
+var interfaceName = /^[a-z0-9][\w.-]*\/[A-Z]\w*$/;
+function serviceFolder(store, mod) {
+  return `${store}/services/${checkedName(mod)}`;
+}
+function browserCommand(env, href) {
+  if (env.browser === "true")
+    return;
+  if (env.browser)
+    return [env.browser, href];
+  if (env.sshConnection)
+    return;
+  if (env.os === "darwin")
+    return ["open", href];
+  return env.display || env.waylandDisplay ? ["xdg-open", href] : undefined;
+}
+function readHotkeys(hotkeys) {
+  if (hotkeys === undefined)
+    return {};
+  const fix = "cmod check writes it from the hotkeys defineMod declares, so run cmod check.";
+  if (!isObject(hotkeys) || !Object.values(hotkeys).every((each) => isObject(each) && typeof each["title"] === "string" && (each["default"] === undefined || typeof each["default"] === "string")))
+    throw new Error(`package.json "cmod.hotkeys" is not a map of hotkeys to their title and optional default combo. ${fix}`);
+  return { hotkeys: checkHotkeys('package.json "cmod"', hotkeys) };
+}
+var coreVersion = "8.8.2";
+var oldestCmodVersion = "8.0.0";
+function hotkeyCommand(mod, hotkey) {
+  return `${mod}--${hotkey}`;
+}
+function boundCombos(keybindings) {
+  const blocks = isObject(keybindings) && Array.isArray(keybindings["bindings"]) ? keybindings["bindings"] : [];
+  const combos = new Map;
+  for (const block of blocks) {
+    if (!isObject(block) || block["context"] !== "Chat" || !isObject(block["bindings"]))
+      continue;
+    for (const [combo, action] of Object.entries(block["bindings"]))
+      if (typeof action === "string" && action.startsWith("command:"))
+        combos.set(action.slice("command:".length), combo);
+  }
+  return combos;
+}
+function readCommand(steps, key) {
+  const command = steps[key];
+  if (command === undefined)
+    return {};
+  if (typeof command !== "string" || command.trim() === "")
+    throw new Error(`package.json "cmod.${key}" must be a command, such as "./setup/${key}.sh".`);
+  if (/[\n\t]/.test(command))
+    throw new Error(`package.json "cmod.${key}" holds a line break or a tab. Write one command, such as "./setup/${key}.sh".`);
+  const atRoot = scriptPaths(command).find((path) => folderOf(path) === ".");
+  if (atRoot !== undefined)
+    throw new Error(`package.json "cmod.${key}" names ${atRoot}, a script at the plugin root. Move it into a folder, such as ./setup/${key}.sh: cmod runs the steps again whenever anything in a script's folder changes.`);
+  return { [key]: command };
+}
+function scriptPaths(command) {
+  const words = command.split(/[\s;&|()<>]+/).map((word) => word.replace(/^['"]|['"]$/g, "")).filter((word) => word.includes("/") && !word.startsWith("-") && !word.startsWith("/") && !word.startsWith("~") && !word.startsWith("$") && !word.includes("=") && !word.split("/").includes(".."));
+  return [...new Set(words)];
+}
+function folderOf(path) {
+  return path.slice(0, path.lastIndexOf("/"));
+}
+async function scriptsSha256(steps, files) {
+  const folders = new Set;
+  for (const key of ["install", "uninstall"]) {
+    const command = steps[key];
+    if (command === undefined)
+      continue;
+    const scriptFolders = [];
+    for (const path of scriptPaths(command)) {
+      if (await files.read(path) !== undefined)
+        scriptFolders.push(folderOf(path));
+    }
+    if (scriptFolders.length === 0)
+      throw new Error(`package.json "cmod.${key}" runs "${command}", which names no script file in the mod, so cmod cannot tell when what it runs changes. Put the commands in a script, such as ./setup/${key}.sh.`);
+    for (const folder of scriptFolders)
+      folders.add(folder);
+  }
+  let text = [
+    steps.install ?? "",
+    steps.uninstall ?? "",
+    steps.program ?? "",
+    ...steps.hotkeys === undefined ? [] : [JSON.stringify(Object.entries(steps.hotkeys).sort())],
+    ...steps.permissions === undefined ? [] : [JSON.stringify([...steps.permissions].sort())]
+  ].join("\x00");
+  for (const folder of [...folders].sort()) {
+    for (const name of (await files.list(folder)).sort()) {
+      const path = `${folder}/${name}`;
+      const content = await files.read(path);
+      if (content === undefined)
+        throw new Error(`${path} links to a folder or to nothing, so cmod cannot tell when it changes. Point the link at a file, or delete it.`);
+      text += `\x00${path}\x00${content}`;
+    }
+  }
+  const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(new TextEncoder().encode(text)));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function parseEvent(line) {
+  const progress = /^progress (\d+) (\d+)(?: (.*))?$/.exec(line);
+  if (progress !== null)
+    return { type: "progress", done: Number(progress[1]), total: Number(progress[2]), label: progress[3] ?? "" };
+  const consent = /^needs-consent (\S+)\t([^\t]*)\t([^\t]*)(?:\t(.*))?$/.exec(line);
+  if (consent !== null) {
+    const [hotkeys = "", ...permissions] = (consent[4] ?? "").split("\t");
+    return { type: "needs-consent", sha256: consent[1], install: consent[2], uninstall: consent[3], hotkeys, permissions: permissions.filter((item) => item !== "") };
+  }
+  const done = /^done (\S+)(?: (\S+))?$/.exec(line);
+  if (done !== null)
+    return { type: "done", name: done[1], ...done[2] === undefined ? {} : { version: done[2] } };
+  const missing = /^missing (\S+)$/.exec(line);
+  if (missing !== null)
+    return { type: "missing", name: missing[1] };
+  const failed = /^failed (-?\d+)(?:\t(.*))?$/.exec(line);
+  if (failed !== null)
+    return { type: "failed", code: Number(failed[1]), message: failed[2] ?? "" };
+  const retries = /^retries (changed|later)$/.exec(line);
+  if (retries !== null)
+    return { type: "retries", when: retries[1] };
+  return { type: "log", text: line.replace(/^log /, "") };
+}
+function isAtLeast(version, minimum) {
+  const parts = version.split(".").map(Number);
+  const least = minimum.split(".").map(Number);
+  for (let index = 0;index < Math.max(parts.length, least.length); index += 1) {
+    const difference = (parts[index] ?? 0) - (least[index] ?? 0);
+    if (difference !== 0)
+      return difference > 0;
+  }
+  return true;
+}
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isTextList(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
 
-${n}`}function ba(e){return`${String(e.getHours()).padStart(2,"0")}:${String(e.getMinutes()).padStart(2,"0")}`}async function Gu(e,t){if(t===undefined)return new Map;const n=await e.fs.read(`${t}/keybindings.json`).catch(Le("{}"));try{return ks(JSON.parse(n))}catch(o){e.ui.warn("hotkeys:read",`${t}/keybindings.json is not JSON, so cmod reads no combos from it: ${re(o)}`);return new Map}}async function Sa({name:e,declared:t,configRoot:n,claude:o,router:s,answerInput:r,report:i}){if(e===Re){s.add("command.describe",async(y,v)=>{const x=await v(y);return y.command.startsWith(Mn(y.provider.plugin.replace(/@[^@]*$/,""),""))?{...x,isHidden:true}:x})}const c=Object.entries(t);if(c.length===0)return{};const d=await Gu(o,n);const l=new Map;const m=new Map;for(const[y,{title:v}]of c){l.set(y,new Set);o.command.register({name:Mn(e,y),description:v,immediate:true}).then(({command:x})=>void m.set(x,y),(x)=>i({id:`hotkey:${y}`,message:`The ${v} hotkey is not added`,error:x}))}s.add("command.run",async(y,v)=>{const x=m.get(y.command);if(x===undefined)return v(y);return r(async()=>{for(const b of l.get(x)??[]){try{await b()}catch(N){i({id:`hotkey:${x}`,message:`The ${t[x]?.title??x} hotkey failed`,error:N,isCritical:true})}}return{}},()=>v(y))});return Object.fromEntries(c.map(([y,{title:v}])=>[y,{title:v,combo:d.get(Mn(e,y)),onPress(x){l.get(y)?.add(x);return{remove:()=>void l.get(y)?.delete(x)}}}]))}var Ju=200;function Oa({claude:e,report:t,press:n}){const o=new Map;const s=new Map;const r=new Map;const i=(d,l)=>`${d}\x00${l}`;const c=(d)=>r.get(d)??0;return{fill(d,l,m,y){const v=i(d,l);const x=c(d);if(o.get(v)?.generation===x)return;const b=(U,K)=>{o.delete(v);o.set(v,{data:U,...K===undefined?{}:{failure:K},generation:x});const[q]=o.keys();if(o.size>Ju&&q!==undefined)o.delete(q);if(c(d)!==x)e.ui.invalidate("ui.render")};const N=s.get(v)??e.cmod.call({to:d,method:De.draw,input:m}).then((U)=>b(U??null),(U)=>{if(ot(d,U))return b(o.get(v)?.data??null);t(`draw:${d}`,`${y} drew nothing`,U);b(o.get(v)?.data??null,re(U))}).finally(()=>s.delete(v));s.set(v,N);return N},element(d,l,m,y,v){const x=i(d,l);const b=o.get(x);if(b===undefined)return;o.delete(x);o.set(x,b);const{data:N}=b;if(N===null||N.tree===null)return;try{return pn(N.tree,m,(U,K)=>n(d,{draw:N.draw,handler:U,args:K}))}catch(U){t(v,`${y} could not draw`,U);return}},failure(d,l){return o.get(i(d,l))?.failure},forget(d){r.set(d,c(d)+1)}}}var Ku=500;var Xu=4;var Ca=2000;function Aa(e,t){const n=new Set;let o;let s=false;let r=0;const i=async(m)=>{const{paths:y}=m;const v=new Map;const x=new Set;const b=r%Xu===0?new Set:m.missing;const N=async(U)=>{const K=await e.fs.stat(U).catch(Le(undefined));if(K===undefined)return;if(K.kind!=="dir"){if(v.size===Ca)throw new Error(`fs.onChange watches at most ${Ca} files, and ${y.join(", ")} holds more, so it stopped. Watch a smaller folder.`);return void v.set(U,K.mtimeMs)}for(const q of await e.fs.list(U).catch(Le([])))await N(`${U}/${q.name}`)};for(const U of y){if(b.has(U)){x.add(U);continue}await N(U);if(![...v.keys()].some((K)=>K===U||K.startsWith(`${U}/`)))x.add(U)}m.missing=x;return v};const c=(m)=>{n.delete(m);if(n.size>0)return;o?.cancel();o=undefined};const d=(m)=>i(m).catch((y)=>{c(m);t({id:"fs:onChange",message:"Could not read the files fs.onChange watches",error:y});return});const l=async()=>{if(s)return;s=true;r+=1;try{for(const m of n){const y=await d(m);if(y===undefined)continue;const v=m.seen;m.seen=y;if(v===undefined)continue;const x=[...[...y].filter(([b,N])=>v.has(b)&&v.get(b)!==N).map(([b])=>({path:b,type:"change"})),...[...y.keys()].filter((b)=>!v.has(b)).map((b)=>({path:b,type:"add"})),...[...v.keys()].filter((b)=>!y.has(b)).map((b)=>({path:b,type:"unlink"}))];for(const b of x)await Promise.resolve().then(()=>m.listener(b)).catch((N)=>t({id:"fs:onChange",message:"The fs.onChange listener failed",error:N}))}}finally{s=false}};return{add(m,y){const v={paths:m,listener:y,seen:undefined,missing:new Set};n.add(v);d(v).then((x)=>void(v.seen??=x));o??=e.clock.every(Ku,()=>void l());return{remove:()=>c(v)}}}}function Ea({value:e,width:t=24}){const n=Math.round(Math.min(Math.max(e,0),100)/100*t);return Q({children:[Q({color:"claude",children:"█".repeat(n)}),Q({color:"subtle",children:"░".repeat(t-n)})]})}var Na=[Be.subscribe,Be.watchBefore];var Vu=[...Na,De.draw];var _a="cmod:announced";var Pr="cmod:cmod-updated-for";var Xt="cmod:install";var Pa="cmod:asking";var Ra="cmod:record";var Ta=[2,4,8,16,32,64,128];var qu=1000;var Zu=1000;var Qu=1000;var Yu=60000;var ef=1e4;var Ma=Kn/2;var tf=30000;var nf=3;var of=60000;var rf=["Bash","PowerShell"];async function Ba(e){const{name:t,root:n}=e.plugin;const o=async(x)=>{const b=await e.fs.stat(x).catch(Le(undefined));return b?.kind==="file"?e.fs.read(x):undefined};const s=await ja(o,`${n}/.claude-plugin/plugin.json`);const r=typeof s?.version==="string"?s.version:undefined;const i=nn({HOME:await e.env.home(),XDG_DATA_HOME:await e.env.dataHome()});const c=ys(await ja(o,`${n}/package.json`))??{};if(t===Re){const x=await Wt(e);return{name:t,root:n,version:r,store:i,steps:c,isInstalled:r!==undefined&&x!==undefined&&In(x,r),shouldRecord:false}}const d={name:t,root:n,version:r,store:i,steps:c};const l=await gs(o,i,t);if(Object.keys(c).length===0)return{...d,isInstalled:true,shouldRecord:l?.version!==r};const m=await Os(c,{read:(x)=>o(`${n}/${x}`),list:(x)=>Da(e,`${n}/${x}`)});if(r===undefined||l?.scriptsSha256!==m)return{...d,isInstalled:false,shouldRecord:false};const y=l.version===r||l.root===n;const v=l.program===null?undefined:(await e.fs.stat(_o(i,l.program,l.version)).catch(Le(undefined)))?.mtimeMs;return{...d,isInstalled:y,shouldRecord:y&&(l.version!==r||ms(l,v))}}async function Da(e,t){const n=await e.fs.list(t);const o=await Promise.all(n.map(async({name:s,kind:r,isLink:i})=>{if(r==="file"||i)return[s];if(r==="dir")return(await Da(e,`${t}/${s}`)).map((c)=>`${s}/${c}`);return[]}));return o.flat()}async function ja(e,t){const n=await e(t);if(n===undefined)return;try{return JSON.parse(n)}catch(o){throw new Error(`${t} is not JSON (${re(o)}). Fix it, then press Retry.`)}}function Fa(e,t=()=>{return},n={},o=true,s){let r=Er();let i;let c="starting";let d;let l;let m;let y;let v;const x=async()=>{await J().cmod.call({to:Re,method:De.changed,input:{requests:[{settings:true}],isAsked:true}})};let b;let N;let U;let K=n;let q=0;const se=()=>q+=1;const Z=da(e.name,()=>J(),{show:(_)=>{if(c!=="active")d?.toaster.toast.dismiss(Xt);d?.toaster.toast.info("Installing",{id:Pa,description:"Waiting for your answer",duration:Infinity,action:{label:"Answer",onClick:_}})},hide:()=>d?.toaster.toast.dismiss(Pa)},se);let E=false;let R;let k;let H=false;const W=new Map;let A=()=>{return};const T=new Promise((_)=>A=_);let j;let G=()=>{return};const ee=()=>c==="installing"||c==="waiting"?j??=new Promise((_)=>{G=()=>{j=undefined;_()}}):undefined;const J=()=>{if(d===undefined)throw new Error(`${e.name}: the lifecycle has not started. registerMod(addHook, mod, options) starts it at session.start.`);return d.claude};const pe=(_)=>d?.toaster.toast.loading("Installing",{id:Xt,..._===undefined?{}:{description:_}});const $e=(_)=>d?.toaster.fail(_);const O=(_,B,te,ce)=>{c="failed";G();U??=new Error(`${e.name}: ${_}${/[.!?]$/.test(_)?"":"."}${B===undefined?"":` ${B}`}`,{cause:ce});const ge=te===undefined?{}:{retry:()=>(U=undefined,de(),te().catch(je))};$e({id:Xt,message:_,...B===undefined?{}:{description:B},...ce===undefined?{}:{error:ce},...ge,isCritical:true});f()};const D=()=>{const _=U===undefined?"":re(U);const B=`${e.name}: `;return _===""?`${e.name} is not set up.`:`${e.name} is not set up: ${_.startsWith(B)?_.slice(B.length):_}`};const z=()=>Ae();const V=()=>J().store.delete(Pr).then(z);let ne;const ae=(_)=>{const B=Ta[Math.min(_.tries,Ta.length-1)];ne?.timer.cancel();ne={..._,tries:_.tries+1,timer:J().clock.after(B*1000,()=>void ke().catch(je))};O(_.reason,`Trying again in ${B} s.`,z)};const de=()=>{ne?.timer.cancel();ne=undefined};const ue=(_,B)=>{if(B===undefined){de();return O(_,undefined,z)}ae({when:B,tries:ne?.when===B?ne.tries:0,reason:_})};const ke=async()=>{if(c!=="failed"||ne===undefined)return;if(await L()){de();return C()}await Ae(true);await C()};const we=async()=>{await l?.refresh();c="ready";y??=new Promise((_)=>J().clock.after(0,()=>_(P().catch(je))));G();J().ui.invalidate("ui.render")};const Pe=async()=>{if(m===undefined||await Wt(J())===undefined)return;let _;const{code:B,lastError:te}=await At(J().process.spawn({argv:["cmod","setup",m.root,"--events"]}),(ce)=>{const ge=jn(ce);if(ge.type==="done")E=false;if(ge.type==="failed")_=ge.message});if(!E){d?.toaster.toast.dismiss(Ra);return l?.refresh()}if(_!==undefined)return void $e({id:Ra,message:_,retry:Y,isCritical:true});throw new Error(`cmod setup ${Je(B,te)}`)};const Y=()=>{R??=Pe().catch((_)=>J().ui.warn("record",`${e.name} has no cmod record yet: ${re(_)}`)).finally(()=>{R=undefined})};const le=async(_,B)=>{const te=e.options?.[_];if(te===undefined||m===undefined)return`${e.name} has no option ${_}.`;const ce=te.type==="number"?Number(B):te.type==="toggle"?B.trim()==="true":te.type==="list"?B.split(",").map((ve)=>ve.trim()).filter((ve)=>ve!==""):B;const ge=te.type==="toggle"&&!["true","false"].includes(B.trim())?"takes true or false":fn(te,ce);if(ge!==undefined)return`${te.title} ${ge}.`;const Ee=await J().process.run(["cmod","option",m.name,_,Array.isArray(ce)?ce.join(","):String(ce)]);return Ee.exitCode===0?undefined:Qn(Ee.stderr,"option")||`cmod option ${Je(Ee.exitCode,"")}.`};const I=async(_)=>{if(!o||m===undefined||(await J().session.surfaces()).length===0)return false;const B=e.options??{};const te=_.keys.flatMap((Ee)=>{const ve=B[Ee];return ve===undefined?[]:[[Ee,ve]]});if(!await Z.options(te,le))return false;const ce=`${m.name}.`;const ge=await J().config.list();K={...K,...Object.fromEntries(ge.filter((Ee)=>Ee.key.startsWith(ce)).map((Ee)=>[Ee.key.slice(ce.length),Ee.value]))};return true};const me=async(_,B)=>{try{return await B.isDone(_)}catch(te){$e({id:`step:${B.title}`,message:`The ${B.title} step's isDone failed`,error:te});return false}};const Se=async(_)=>{const B=[];for(const te of e.installer??[])if(!await me(_,te))B.push(te.title);return B};const ye=async(_)=>{const B=o?e.installer??[]:[];try{for(const[te,ce]of B.entries()){if(await me(_,ce))continue;const ge=(await J().session.surfaces()).length>0&&await Z.step(_,ce,te+1,B.length);if(!ge){d?.toaster.toast.warning(B.length-te===1?"Needs one more step":`Needs ${B.length-te} more steps`,{id:"cmod:steps",description:`Starting with ${ce.title}.`,duration:Infinity,action:{label:"Finish",onClick:()=>ye(_)}});break}}}finally{await Z.close()}};const P=async()=>{if(d===undefined||m===undefined)return;const _=Er();i=_;const B=await sf(e,{...d,router:_,dataFolder:Po(m.store,m.name),store:m.store,permissionRoutes:t,options:K,nextDraw:se,installer:Z,serveCmodPlugin:s}).catch(async(ve)=>{if(ve instanceof wn&&await I(ve))return;await Z.close();O(re(ve),ve instanceof wn?`Retry asks for ${ve.keys.length===1?"it":"them"}.`:undefined,_e,ve);throw ve}).finally(()=>{i=undefined});if(B===undefined)return P();const{added:te}=B;v=B.mod;b=B.imports;N=B.raise;r=_;c="active";S();const ce=[...W.values()];W.clear();for(const ve of ce){const Ie=(He)=>void $e({id:`listens:${String(ve.caller)}`,message:`${String(ve.caller)} hears nothing from this session`,error:He});_.dispatch("cmod.call",ve,async()=>({deny:`${e.name} has no method ${ve.method}.`})).then((He)=>("deny"in He)?Ie(new Error(He.deny)):undefined,Ie)}d.claude.ui.invalidate("ui.render");if(e.name===Re)d.claude.ui.invalidate("command.describe");ye(B.mod).catch((ve)=>$e({id:"cmod:steps",message:"Its installer stopped",error:ve,isCritical:true}));const ge=k;k=undefined;if(ge!==undefined)await M(ge);if(await d.claude.store.get(_a)!==undefined){d.toaster.toast.dismiss(Xt);return}await d.claude.store.set(_a,{version:m.version??""});const{toaster:Ee}=d;Pi(d.claude,m,te,x).then(({message:ve,...Ie})=>Ee.toast.success(ve,{id:Xt,duration:_i,...Ie})).catch((ve)=>$e({id:Xt,message:"Could not say what it installed",error:ve}))};const M=async(_)=>{H=true;const B=await r.dispatch("classic.SessionStart",_,async()=>({})).catch((ge)=>{$e({id:"classic.SessionStart",message:"The SessionStart hook failed",error:ge});return{}});const{additionalContext:te,...ce}=B;for(const ge of te??[]){const Ee=await J().session.append({message:{type:"user",content:[{type:"text",text:ge}]}});if(Ee.deny!==undefined)J().ui.warn("session-start:note",`${e.name}: Claude Code refused its SessionStart note: ${Ee.deny}`)}if(Object.keys(ce).length>0){J().ui.warn("session-start:late",`${e.name} started after Claude Code's SessionStart, so Claude Code did not read ${Object.keys(ce).join(", ")} from its SessionStart hooks.`)}};const Ae=async(_=false)=>{if(m===undefined)return;if(m.name===Re)return Me(m.root);c="installing";const B=await Wt(J());if(!fe(B))return be(B);if(!_)pe();let te;let ce;const{code:ge,lastError:Ee}=await At(J().process.spawn({argv:["cmod","setup",m.root,"--events"]}),(ve)=>{const Ie=jn(ve);if(Ie.type==="progress"&&!_)pe(La(Ie));if(Ie.type==="retries")ce=Ie.when;if(Ie.type==="done"||Ie.type==="failed")te=Ie});if(te?.type==="done"){de();return we()}return ue(te?.type==="failed"?te.message:`cmod setup ${Je(ge,Ee)}`,ce)};const fe=(_)=>_!==undefined&&In(_,Lt);const be=(_)=>{c="waiting";pe("Waiting for cmod");let B=_;let te;const ce=()=>{Ee.cancel();ve.cancel()};const ge=(Ie)=>J().clock.every(Ie,()=>{te??=Wt(J()).then((He)=>{te=undefined;B=He;if(!fe(He))return;ce();return Ae()}).catch((He)=>{ce();je(He)})});let Ee=ge(qu);const ve=J().clock.after(Yu,()=>{Ee.cancel();Ee=ge(ef);if(B===undefined)return pe("Still waiting for cmod to download cmod. See cmod's own line.");const Ie=B;const He=`${Ie} to ${Lt}`;return J().store.get(Pr).then(async(jt)=>{if(jt===He){ce();return O(`${e.name} needs cmod ${Lt} or later, and the newest cmod is ${Ie}.`,undefined,V)}await J().store.set(Pr,He);pe(`${e.name} needs cmod ${Lt} or later, and this computer has cmod ${Ie}, so cmod is updating itself.`);const{code:at,lastError:xt}=await At(J().process.spawn({argv:["cmod","update","cmod"]}),()=>{return});if(at===0)return;ce();O(`${e.name} needs cmod ${Lt} or later, and updating cmod ${Ie} ${Je(at,xt)}`,undefined,V)}).catch(je)})};const Me=async(_)=>{pe();c="installing";const{code:B,lastError:te}=await At(J().process.spawn({argv:["sh","-c","./setup/bootstrap.sh"],cwd:_}),(ce)=>{const ge=jn(ce);if(ge.type==="progress")pe(La(ge))});if(B===0)return we();O(`bootstrap ${Je(B,te)}`,undefined,()=>Me(_))};const _e=async()=>{if(w===undefined)return;const _=await w(J());m=_;We=await Ue(Rn(_.store,_.name));if(_.isInstalled){E=_.shouldRecord;if(E)Y();y=undefined;return P()}if(_.version===undefined)return O("no version to install",'Its author adds "version" to .claude-plugin/plugin.json.');Ae().catch(je)};const je=(_)=>{U=_;if(c!=="failed")O(re(_),undefined,_e,_)};const Ue=async(_)=>{const B=await J().fs.stat(_).catch(Le(undefined));return B?.kind==="file"?B.mtimeMs:0};let We=0;let w;const g=async()=>{if(m===undefined||w===undefined)return false;const _=await Ue(Rn(m.store,m.name));if(_===We)return false;We=_;const B=await w(J());if(!B.isInstalled)return false;m=B;return true};const L=async()=>{if(c!=="failed"||!await g())return false;U=undefined;y=undefined;await we();return true};let u;let a;let p;const f=()=>{u??=J().clock.every(Zu,()=>{a??=L().then(()=>{return}).catch((_)=>J().ui.warn("record:watch",`${e.name} could not read whether another cmod installed it: ${re(_)}`)).finally(()=>{a=undefined})})};const S=()=>{u?.cancel();u=undefined};const C=async()=>{if(c==="ready")y??=P().catch(je);if(y!==undefined&&c!=="active")await y};const F=(_,B)=>d===undefined?_.then(()=>false):new Promise((te)=>{const ce=J().clock.after(Ma,()=>te(true));if(B?.aborted===true)te(false);B?.addEventListener("abort",()=>te(false),{once:true});_.then(()=>{ce.cancel();te(false)})});const X=(_)=>F(T.then(C),_);const oe=(_)=>F(T.then(ee).then(C),_);const he=(_)=>{const B=C();return y!==undefined&&c!=="active"?F(B,_):B.then(()=>false)};const xe=async(_,B,te,ce)=>{if(b!==undefined)zt(b);const ge=B;if(_==="cmod.call"&&ge.to===e.name&&ge.caller===Re){if(ge.method===De.shown)Z.hear(ge.input);const dt=Z.answer(ge.method,ge.input);if(dt!==undefined)return await dt.catch((tn)=>({deny:`${e.name}: ${re(tn)}`}));if(ge.method===De.shown&&c!=="active")return{value:null}}if(_==="classic.SessionStart"){k=undefined;H=true}if(_==="classic.SessionStart"&&d===undefined){k=B;return te(B)}if(E&&_==="classic.UserPromptSubmit")Y();if(_==="classic.UserPromptSubmit"||_==="classic.SessionStart")await L().catch((dt)=>J().ui.warn("recover",`${e.name} stays stopped: ${re(dt)}`));const Ee=B.tool;const ve=_==="cmod.call"&&B.to===e.name||_==="tool.call"&&typeof Ee==="string"&&Ee.startsWith(`mcp__${e.name}__`);if(_==="cmod.call"&&!ve)return te(B);const Ie=ve&&_==="cmod.call"&&Na.includes(ge.method);if(Ie&&c!=="active"){W.set(`${ge.caller}
-${ge.method}
-${String(ge.input.session)}`,ge);T.then(ee).then(C);return{value:null}}const He=ve&&!(_==="cmod.call"&&Vu.includes(ge.method));const jt=await(He?oe(ce):_==="classic.SessionStart"||_==="session.append"||ve?X(ce):he(ce));if(_==="classic.SessionStart"&&c!=="active"){k=B;return te(B)}if(ve&&c!=="active")return{deny:c==="failed"?D():Vn(e.name)};if(jt&&c!=="active")return(i??r).dispatchFailure(_,B,new Error(`it was still starting after ${Ma/1000} s`),te,false);const at=B;if(_==="cmod.call"&&at.to===e.name&&v!==undefined){if(at.method===ws)return{value:await Se(v)};if(at.method===xs){const dt=v;const tn=await Z.collect(()=>Promise.race([ye(dt).catch((Eo)=>void $e({id:"cmod:steps",message:"Could not finish the setup",error:Eo,isCritical:true})),Z.shown()]));return{value:tn}}}if(_==="classic.UserPromptSubmit"&&c==="active"&&!H){const{session_id:dt,transcript_path:tn,cwd:Eo}=B;await M({session_id:dt,transcript_path:tn,cwd:Eo,hook_event_name:"SessionStart",source:"resume"})}const xt=r.dispatch(_,B,te,ce);const An=B;if(_!=="ui.render"||An.component!=="AbovePrompt"||d===undefined)return xt;return d.toaster.draw(await xt,d.claude.ui.resolve(An),An.props,An.requestId)};return{get phase(){return c},get mod(){return v},get failure(){return U},get toasts(){return d?.toaster.shown??[]},async raise(_,B){if(N===undefined||b===undefined)throw new Error(`${e.name} has not started, so ${_} has no listener yet.`);zt(b);return N(_,B,ho)},async start(_,B){if(d!==undefined)return;const te=(Ee,ve)=>void aa(_,Ee,ve.surface).then((Ie)=>Ie==="copied"&&d?.toaster.toast.success("Copied the link",{description:"Paste it in your browser."}),(Ie)=>$e({id:"open-link",message:"Could not open the link",error:Ie,isCritical:true}));const ce={..._,ui:{..._.ui,warn:(Ee,ve)=>d===undefined?_.ui.warn(Ee,ve):d.toaster.warn(Ee,ve),resolve:(Ee)=>Ki(_.ui.resolve(Ee),Ee.surface,te)},session:{..._.session,id:async()=>p??_.session.id()}};l=qs(ce);const ge={...ce,cmod:{async call(Ee){if(Ee.to===e.name)await X();return No(_,r).cmod.call(Ee)}}};d={claude:l.claude,toaster:va(ge,e.name,()=>m?.version)};w=B;try{q=await _.clock.now()*Qu;await l.refresh();await _e().catch(je)}finally{A()}},async route(_,B,te,ce){if(_!=="classic.SessionStart")return dn(xe(_,B,te,ce),ce);const ge=B.session_id;p=ge;try{return await dn(xe(_,B,te,ce),ce)}finally{if(p===ge)p=undefined}},async caught(_,B,te,{error:{kind:ce,message:ge},called:Ee}){const ve=B;const Ie=_==="cmod.call"&&ve.to===e.name&&Rr(ve)!==undefined;const He={timeout:Bo,throw:ge??"it threw"};const jt=He[ce];if(jt===undefined)return Ie?{value:null}:te(B);const at=new Error(jt);const xt=Ee&&ce==="throw"?await te(B).then(()=>{return},re):undefined;if(xt===undefined||xt!==ge)$e({id:`stopped:${_}`,message:`Claude Code stopped its ${_.replace(/^classic\./,"")} hook`,error:at});return(i??r).dispatchFailure(_,B,at,te,Ee)}}}async function sf(e,t){const{router:n,toaster:o}=t;const s=(u)=>void o.fail(u);const r=new Set;const i=No(Xn(t.claude),n);const c=(u)=>{i.ui.invalidate(u);if(u==="ui.render")for(const a of r)a()};const d={...i,ui:{...i.ui,invalidate:c}};const l=[];const m=(u)=>{l.push(u)};const[y,v,x,b,N]=await Promise.all([d.session.id(),d.session.root(),d.session.cwd(),d.env.home(),d.env.configHome()]);const U=N??(b===undefined?undefined:`${b}/.claude`);const K={home:b,configRoot:U,projectRoot:()=>pe.root};const q=Wi({name:e.name,claude:d,places:K,report:s});let se=x;let Z=x;let E;let R;let k;let H=true;let W;let A;const T=(u,a,p,f)=>{const S=`The markdown style of ${u}`;A?.fill(u,a,p,S)?.then(()=>d.ui.invalidate("ui.render"));return A?.element(u,a,`${u}/markdown:${f}:`,S,`markdown:${u}`)};const j=ca({name:e.name,claude:d,router:n,report:s,announce:m,mod:()=>le,borrowed:T,nextDraw:t.nextDraw});const G=async()=>{if(e.name===Re)return;try{const u=await d.cmod.call({to:Re,method:"forkParent",input:null});return typeof u==="string"?u:undefined}catch(u){d.ui.warn("fork:values",`${e.name} starts without the session values of the conversation it was forked from: ${re(u)}`);return}};const ee=()=>k??=G().then((u)=>{R=u;return u});const J=()=>{j.changed();t.installer.changed()};const pe=pa({name:e.name,initial:e.state??{},session:y,root:v,claude:d,report:s,changed:J,forkParent:ee});const $e=ua({name:e.name,declared:e.options??{},fromClaude:t.options,claude:d,report:s,changed:pe.changed});const O=(u,a,p)=>n.add(`classic.${u}`,ui(u,a,s),p===undefined?undefined:fi(p));const D=(u)=>an.test(u)?Gt(u,K):u;const z=(u)=>({read:()=>d.settings.read({source:u}),async update(a){await d.cmod.call({to:Re,method:"updateSettings",input:{mod:e.name,source:u,project:pe.root,values:a}})}});const V=bi({name:e.name,claude:d,report:(u,a,p)=>s({id:u,message:a,error:p}),hookOn:(u,a,p)=>O(u,a,p),routeOn:(u,a,p)=>n.add(u,a,p),permissionRoutes:t.permissionRoutes});let ne;const ae=Aa(d,s);const de=(u,a)=>{if(ne===undefined)return;ne={...ne,project:u,cwd:a};V.follow(ne)};let ue;const ke={sessions:V.sessions,commands:{list:async()=>(await d.command.list()).map(({name:u,description:a,source:p,plugin:f})=>({name:u,description:a,source:p,...f===undefined?{}:{plugin:f}})),run:async(u,a)=>{const{text:p,context:f}=await d.command.run({command:u,...a===undefined?{}:{args:a}});return{...p===undefined?{}:{text:p},...f===undefined||f.length===0?{}:{note:f.join(`
-`)}}},beforeRun:(...u)=>V.listen("beforeRun",u),onRun:(...u)=>V.listen("onRun",u)},config:{list:async()=>(await d.config.list()).map(({key:u,label:a,description:p,kind:f,value:S,options:C,provider:F,isLocked:X})=>({key:u,label:a,kind:f,value:S,isLocked:X,...p===undefined?{}:{description:p},...C===undefined?{}:{options:C},...F.plugin==="engine"?{}:{plugin:F.plugin}}))},settings:{user:z("user"),project:z("project"),local:z("local"),beforeFileChange:(u,a)=>{const p=a??u;const f=a===undefined?undefined:u;return O("ConfigChange",async({source:S,file_path:C})=>{const F={source:S==="skills"?"skills":S.replace("_settings",""),...C===undefined?{}:{path:C}};if(f!==undefined&&!et(F,f))return;const X=(await p(F))?.refuse;return typeof X==="string"?{block:X}:undefined})}},model:{complete:(u,a)=>d.model.complete(u,a)},fs:{read:(u)=>d.fs.read(D(u)),write:(u,a)=>d.fs.write(D(u),a),exists:(u)=>d.fs.exists(D(u)),find:(u)=>q.find(u),list:async(u)=>(await d.fs.list(u===undefined?undefined:D(u))).map(({name:a,kind:p,size:f,mtimeMs:S,isLink:C})=>({name:a,isFile:p==="file",isFolder:p==="dir",isLink:C,size:f,modifiedAt:S})),async stat(u,a){const{kind:p,size:f,mtimeMs:S,isLink:C,realPath:F}=await d.fs.stat(D(u),a);return{isFile:p==="file",isFolder:p==="dir",isLink:C,size:f,modifiedAt:S,...F===undefined?{}:{realPath:F}}},onChange:({path:u},a)=>ae.add([u].flat().map((p)=>Gt(p,K)),(p)=>{zt(ke);return a(p)})},metadata:{read:(u)=>q.read(u),update:(u,a)=>q.update(u,a)},process:{run:(u,a)=>d.process.run(u,a),spawn:(u,a)=>d.process.spawn({...a,argv:u})},http:{fetch:(u,a)=>d.http.fetch(u,a)},device:{read:()=>ue??=d.device.read().catch((u)=>{ue=undefined;throw u})},clipboard:{async write(u){await o.copy(u)}},mods:{isLoaded:async(u)=>await d.cmod.call({to:Re,method:Gs,input:{name:u}})===true}};const we=(u,a,p,f)=>{let S=false;let C=true;let F=0;let X=false;const oe=async()=>{const B=await d.clock.now()-F;if(X||B<Math.max(xe*nf,of))return;X=true;d.ui.warn(`${a}:${u}:stalled`,`${e.name}: one run of its ${a} ${u} ms timer has gone on for ${Math.round(B/1000)} s, so the timer skipped every tick since. Give what the listener awaits a deadline.`)};const he=()=>{if(!p)C=false;if(S){oe();return}S=true;X=false;Promise.resolve().then(async()=>{F=await d.clock.now();zt(ke);return f()}).catch((B)=>s({id:`${a}:${u}`,message:`The ${a} ${u} ms timer failed`,error:B})).finally(()=>{S=false})};const xe=cf(e.name,`mod.${a}`,u);const _=p?d.clock.every(xe,he):d.clock.after(xe,he);return{get isRunning(){return C},stop(){C=false;_.cancel()}}};const Pe=await Sa({name:e.name,declared:e.hotkeys??{},configRoot:U,claude:d,router:n,answerInput:j.answerInput,report:s});const Y=async(u,a,p)=>{const{exitCode:f,stdout:S,stderr:C}=await d.process.run(["cmod","secret",u,e.name,a],p===undefined?undefined:{stdin:p});if(f!==0)throw new Error(`${e.name}: mod.secrets.${u}: ${Qn(C,"secret")||`cmod secret ${Je(f,"")}.`}`);return S};const le={name:e.name,folder:d.plugin.root,dataFolder:t.dataFolder,secrets:{get:async(u)=>await Y("get",u)||undefined,store:async(u,a)=>void await Y("store",u,a),delete:async(u)=>void await Y("delete",u)},state:pe.state,get options(){return $e.values},hotkeys:Pe,every:(u,a)=>we(u,"every",true,a),after:(u,a)=>we(u,"after",false,a),use:(u)=>u({mod:le,announce:m,reserveName:We}),log:(u,a)=>{if(a?.level==="error")s({id:`log:${u}`,message:u});else if(a?.level==="warning")d.ui.warn(`log:${u}`,`${e.name}: ${u}`);else d.ui.log(`${e.name}: ${u}`,{to:a?.to??"debug"})},panes:j.panes,sidebar:j.sidebar,settings:j.settings,widgets:j.widgets,styles:j.styles,toast:o.toast,ask:(u,a)=>d.ui.ask(u,a),dependencies:Ks(d,(u,a)=>Ft(d,{ms:tf},u,a))};zt(ke);const I=async(u=false)=>{try{const[a,p]=await Promise.all([d.session.root(),d.session.cwd()]);const f=se;const S=a!==pe.root;if(u&&S&&jo(a,p)===undefined)E=p;if(p!==E)E=undefined;const C=E===undefined?p:a;if(!S&&C===f)return;se=C;de(a,C);await pe.moveTo(a).catch((X)=>{if(se===C)se=Z;de(pe.root,se);throw X});if(S)await $e.load(a);Z=C;if(!S)j.changed();if(C===f)return;const F={session_id:await d.session.id(),cwd:C,hook_event_name:"CwdChanged",old_cwd:f,new_cwd:C};await n.dispatch("classic.CwdChanged",F,async()=>({}))}catch(a){s({id:"cmod:follow",message:`Keeps the state of ${pe.root} until the next prompt or folder move`,error:a})}};const me=async(u,a)=>{const[p,f]=await Promise.all([d.session.model(),d.session.usage()]);ne={id:u,title:a??"",project:pe.root,cwd:se,model:p,startedAt:new Date(f.startedAt).toISOString(),...R===undefined?{}:{forkedFrom:R},...W===undefined?{}:{agentType:W}};V.follow(ne)};n.add("classic.SessionStart",async(u,a)=>{W=u.agent_id===undefined?u.agent_type:W;const p=ne?.id;if(u.source==="fork"&&p!==undefined&&p!==u.session_id)R=p;else if(u.session_id!==p){R=undefined;k=undefined}H=u.source!=="startup"&&u.source!=="clear";await me(u.session_id,u.session_title).catch((f)=>s({id:"cmod:current",message:"Kept the details of the session from before",error:f}));await pe.switchSession(u.session_id,u.source,u.transcript_path).catch((f)=>{s({id:"cmod:session",message:`Kept its session values from before the ${u.source}`,error:f})});return a(u)});n.add("classic.UserPromptSubmit",async(u,a)=>{E=undefined;await I();const p=u.source===undefined||u.source==="user"||u.source==="sdk";await me(u.session_id,u.session_title||(p&&!H&&V.sessions.current.title===""?_n(u.prompt):undefined)).catch((f)=>s({id:"cmod:current",message:"Kept the details of the session from before",error:f}));return a(u)});for(const u of["classic.PostToolUse","classic.PostToolUseFailure"]){n.add(u,async(a,p)=>{if(rf.includes(a.tool_name))await I();return p(a)})}n.add("command.run",async(u,a)=>{const p=await a(u);if(u.command==="cd"){await I(true);be?.moved()}return p});n.add("skill.prompt",pi(d));n.add("ui.press",(u,a)=>j.asked(()=>a(u)));let Se={};let ye;const P=(u,a,p)=>s({id:u,message:a,error:p});const M=(u,a)=>{if(re(a).includes(gn))o.toast.warning(`The ${u} button was from an older drawing, so nothing ran`,{id:`press:${u}`,description:"Press the button it shows now."});else s({id:`press:${u}`,message:`${u} did not take the press`,error:a,isCritical:true})};const Ae=(u,a)=>void d.cmod.call({to:u,method:De.press,input:a}).catch((p)=>{A?.forget(u);d.ui.invalidate("ui.render");M(u,p)});A=Oa({claude:d,report:P,press:(u,a)=>ye===undefined?Ae(u,a):ye.press(u,a)});const fe=t.serveCmodPlugin?.({claude:d,router:n,store:t.store,project:()=>pe.root,report:P,clear:(u)=>o.toast.dismiss(u),tellRefusedPress:M,parts:A,markdownIn:j.markdownIn,tellStylers:j.restyled});const be=fe?.conversations;const Me=fe?.widgets;ye=fe?.pages;const _e=(u,a)=>{if(a.session===""||u===Re)return;d.clock.after(0,()=>void d.cmod.call({to:u,method:Be.sessionColor,input:a}).catch((p)=>{if(!ot(u,p))d.ui.warn("color:tell",`cmod: ${u} did not hear the session's color: ${re(p)}`)}))};be?.onColor((u)=>{V.recolor(u);for(const{mod:a}of ye?.declared()??[])_e(a,u)});n.add("cmod.call",async(u,a)=>{if(u.to!==e.name)return a(u);const p=u;if(u.method===Be.changed&&p.caller===Re){const{session:C,change:F,isInProject:X}=u.input;V.changed(C,F,X!==false,a.signal);return{value:null}}if(u.method===Be.sessionColor&&p.caller===Re){V.recolor(u.input);return{value:null}}const f=Rr(p);if(f!==undefined)return{value:await V.answerBefore(f.session,f.event,f.change,f.isInProject,a.signal)??null};if(u.method===De.changed&&p.caller!==undefined&&ye!==undefined){const C=u.input;if(C.parts!==undefined&&be!==undefined)_e(p.caller,be.color());return{value:{isHeld:ye.update(p.caller,C),stylers:ye.stylers()}}}if(p.caller!==undefined){const C=u.method===De.draw?u.input.turn:undefined;const F=j.answer(u.method,C===undefined?u.input:{...u.input,turn:V.turn(C)},p.caller);if(F!==undefined)return F.catch((X)=>({deny:`${e.name}: ${re(X)}`}))}const S=await be?.answer(p);return S??Js(e.name,Se,u)},(u,a)=>{if(u.to!==e.name)return;const p=Rr(u);return p===undefined?{deny:`${e.name}: ${a.message}`}:{value:V.failedBefore(p.session,p.event,p.change,p.isInProject,a)??null}});const je=Xs(d,n);Ti(le,{claude:d,router:n,toolCalls:je,report:s,hasPermissionCheck:()=>t.permissionRoutes()!==undefined,answerInput:j.answerInput,spawnCmod:(u,a)=>Yn(d,u,y,a),watches:ae,onRedraw(u){r.add(u);return{remove:()=>void r.delete(u)}},...Me===undefined?{}:{widgets:Me},...ye===undefined?{}:{pages:ye}});const Ue=new Set;const We=(u,a,p)=>{const f=`${u}:${a}`;if(Ue.has(f))throw new Error(p);Ue.add(f);return{remove:()=>void Ue.delete(f)}};const w=async()=>{for(const{name:u}of await d.fs.list($s(t.store,e.name)).catch(Le([]))){const a=u.endsWith(".json")?u.slice(0,-".json".length):undefined;if(a!==undefined&&!Ue.has(`service:${a}`))await Wo(d,["program",e.name,"--remove-service","--",a],y)}};await $n("its state did not load",()=>pe.load());await $n("its options did not load",()=>$e.load(v));const g=$e.missing;if(g.length>0)throw new wn(g,g.map((u)=>e.options?.[u]?.title??u));await $n("the details of its session did not load",()=>me(y,undefined));const L=await $n("its setup function threw",()=>e.setup(le));Se=af(e.name,L);await $n("its open panes did not load",()=>j.restorePanes());j.started();w().catch((u)=>s({id:"program:services",message:"Could not stop a service it no longer runs",error:u}));return{mod:le,added:l,imports:ke,raise:V.raise,area:j}}function af(e,t){if(t===undefined||t===null)return{};if(typeof t!=="object"||!Object.values(t).every((n)=>typeof n==="function"))throw new Error(`${e}: setup returns its API, an object of methods other mods call, or nothing. It returned ${typeof t==="object"?"an object with values that are not methods":typeof t}.`);return t}var Ia=2147483647;function cf(e,t,n){if(!Number.isInteger(n)||n<=0||n>Ia)throw new Error(`${e}: ${t} is ${n}. Give a whole number of milliseconds above 0 and at most ${Ia}.`);return n}function Rr(e){if(e.method!==Be.before||e.caller!==Re)return;const{session:t,event:n,change:o,isInProject:s}=e.input;return{session:t,event:n,change:o,isInProject:s!==false}}async function $n(e,t){try{return await t()}catch(n){throw new Error(`${e}: ${re(n)}`,{cause:n})}}function La({done:e,total:t,label:n}){return ie({gap:2,children:[Ea({value:t>0?e/t*100:0}),Q({dimColor:true,wrap:"truncate-end",children:n})]})}var Vt;var Ua;var lf;var uf=[100,300,600];var ff="Lock file is already being held";var pf=globalThis;async function Wa(e){for(const t of uf){try{return await e()}catch(n){if(!re(n).includes(ff))throw n;await new Promise((o)=>void pf.setTimeout(o,t))}}return e()}async function mf(e,t,n){const o={plugin:{name:e.plugin.name,root:e.plugin.root},ui:{log:(r,i)=>e.ui.log(r,i),warn:(r,i)=>e.ui.log(i,{to:"debug"}),notice:(r,i)=>e.ui.notice(r,i),toast:(r,i)=>e.ui.toast(r,i),invalidate:(r)=>e.ui.invalidate(r),ask:(r,i)=>e.ui.ask(r,i),open:(r)=>e.ui.open(r),close:(r)=>e.ui.close(r),panes:()=>e.ui.panes(),scroll:(r)=>e.ui.scroll(r),copy:(r)=>e.ui.copy(r),focus:(r)=>e.ui.focus(r),resolve:(r)=>e.ui.resolve(r)},process:{run:(r,i)=>e.process.run(r,i),spawn:(r)=>e.process.spawn(r)},fs:{read:(r)=>e.fs.read(r),write:(r,i)=>e.fs.write(r,i),list:(r)=>e.fs.list(r),exists:(r)=>e.fs.exists(r),stat:(r,i)=>e.fs.stat(r,i)},http:{fetch:(r,i)=>e.http.fetch(r,i)},settings:{read:(r)=>e.settings.read(r)},config:{list:()=>e.config.list()},store:{get:(r)=>e.store.get(r),set:(r,i)=>Wa(()=>e.store.set(r,i)),delete:(r)=>Wa(()=>e.store.delete(r)),keys:()=>e.store.keys()},clock:{now:()=>e.clock.now(),after:(r,i)=>e.clock.after(r,i),every:(r,i)=>e.clock.every(r,i)},session:{id:()=>e.session.id(),root:()=>e.session.root(),cwd:()=>e.session.cwd(),model:()=>e.session.model(),usage:()=>e.session.usage(),surfaces:()=>e.session.surfaces(),version:async()=>(await e.session.version()).version,messages:(r)=>r===undefined?e.session.messages():e.session.messages(r),append:(r)=>e.session.append(r),send:(r)=>e.session.send(r)},prompt:{submit:(r)=>e.prompt.submit(r)},turn:{abort:(r)=>e.turn.abort(r)},model:{complete:(r,i)=>e.model.complete(r,i)},command:{register:(r)=>e.command.register(r),list:()=>e.command.list(),run:(r)=>e.command.run(r)},tool:{register:(r)=>e.tool.register(r),call:(r)=>e.tool.call(r)},agent:{list:()=>e.agent.list(),spawn:(r)=>e.agent.spawn(r)},env:{home:()=>e.env.get("HOME"),dataHome:()=>e.env.get("XDG_DATA_HOME"),configHome:()=>e.env.get("CLAUDE_CONFIG_DIR"),browser:()=>e.env.get("BROWSER"),sshConnection:()=>e.env.get("SSH_CONNECTION"),display:()=>e.env.get("DISPLAY"),waylandDisplay:()=>e.env.get("WAYLAND_DISPLAY")},device:{read:()=>Ei(o)},cmod:{call:(r)=>e.cmod.call(r)}};const[,s]=await dn(Promise.all([Vt.start(o,Ba),n(t)]),n.signal);return s}function Oe(e,t,n){return Vt.route(n.event,t,(o)=>n(o),n.signal)}function Ce(e,t,n){return Vt.caught(n.event,t,(o)=>n(o),n)}var Ha=(e,t)=>({...e,caller:t.origin.plugin});var za=(e)=>(t)=>e(Object.fromEntries(Object.entries(t).filter(([n])=>n!=="caller")));function hf(e,t,n){return Vt.route("cmod.call",Ha(t,n),za(n),n.signal)}function gf(e,t,n){return Vt.caught("cmod.call",Ha(t,n),za(n),n)}function Ga(e,t,n){yf(e,t,n);e("ui.render",Oe).catch(Ce)}function yf(e,t,n,o){Ua=undefined;lf=t;Vt=Fa(t,()=>Ua,n,true,o);e("session.start",mf);e("classic.Setup",Oe).catch(Ce);e("classic.SessionStart",Oe).catch(Ce);e("classic.SessionEnd",Oe).catch(Ce);e("classic.UserPromptSubmit",Oe).catch(Ce);e("classic.UserPromptExpansion",Oe).catch(Ce);e("classic.InstructionsLoaded",Oe).catch(Ce);e("classic.ConfigChange",Oe).catch(Ce);e("classic.DirectoryAdded",Oe).catch(Ce);e("classic.PreModelSwitch",Oe).catch(Ce);e("classic.PostModelSwitch",Oe).catch(Ce);e("classic.PermissionDenied",Oe).catch(Ce);e("classic.PostToolUse",Oe).catch(Ce);e("classic.PostToolUseFailure",Oe).catch(Ce);e("classic.PostToolBatch",Oe).catch(Ce);e("classic.MessageDisplay",Oe).catch(Ce);e("classic.SubagentStart",Oe).catch(Ce);e("classic.SubagentStop",Oe).catch(Ce);e("classic.TaskCreated",Oe).catch(Ce);e("classic.TaskCompleted",Oe).catch(Ce);e("classic.TeammateIdle",Oe).catch(Ce);e("classic.Elicitation",Oe).catch(Ce);e("classic.ElicitationResult",Oe).catch(Ce);e("classic.Notification",Oe).catch(Ce);e("classic.PreCompact",Oe).catch(Ce);e("classic.PostCompact",Oe).catch(Ce);e("classic.Stop",Oe).catch(Ce);e("classic.StopFailure",Oe).catch(Ce);e("classic.WorktreeCreate",Oe).catch(Ce);e("classic.WorktreeRemove",Oe).catch(Ce);e("tool.call",Oe).catch(Ce);e("prompt.submit",Oe).catch(Ce);e("prompt.context",Oe).catch(Ce);e("command.run",Oe).catch(Ce);e("session.measure",Oe).catch(Ce);e("skill.prompt",Oe).catch(Ce);e("ui.press",Oe).catch(Ce);e("ui.scroll",Oe).catch(Ce);e("ui.close",Oe).catch(Ce);e("cmod.call",{to:t.name},hf).catch(gf);e("session.compact",Oe).catch(Ce)}var wf=/^[A-Za-z0-9_-]{1,64}$/;function Ja(e,t){const n=new Set;for(const o of t){if(!wf.test(o.id))throw new Error(`${e}: the install step "${o.id}" has no valid id. Use 1 to 64 letters, digits, "_", or "-".`);if(o.title.trim()==="")throw new Error(`${e}: the install step "${o.id}" needs a title, the line the installer shows above it.`);if(n.has(o.id))throw new Error(`${e}: two install steps have the id "${o.id}". Give each step its own id.`);n.add(o.id)}}var ct={get current(){return Fe().sessions.current},list:(e)=>Fe().sessions.list(e),search:(e,t,n)=>Fe().sessions.search(e,t,n),...Object.fromEntries(Object.keys(Ot).map((e)=>[`on${e}`,(...t)=>Fe().sessions[`on${e}`](...t)]))};var yo={user:{read:()=>Fe().settings.user.read(),update:(e)=>Fe().settings.user.update(e)},project:{read:()=>Fe().settings.project.read(),update:(e)=>Fe().settings.project.update(e)},local:{read:()=>Fe().settings.local.read(),update:(e)=>Fe().settings.local.update(e)},beforeFileChange:(e,t)=>Fe().settings.beforeFileChange(e,t)};var Pt={read:(e)=>Fe().fs.read(e),write:(e,t)=>Fe().fs.write(e,t),exists:(e)=>Fe().fs.exists(e),find:(e)=>Fe().fs.find(e),list:(e)=>Fe().fs.list(e),stat:(e,t)=>Fe().fs.stat(e,t),onChange:(e,t)=>Fe().fs.onChange(e,t)};var Rt={fetch:(e,t)=>Fe().http.fetch(e,t)};var Ka={read:()=>Fe().device.read()};function Xa(e){if(e.name.trim()==="")throw new Error("defineMod: the mod needs a name, such as the name in .claude-plugin/plugin.json.");if(e.options!==undefined)Hi(e.name,e.options);if(e.hotkeys!==undefined)En(e.name,e.hotkeys);if(e.installer!==undefined)Ja(e.name,e.installer);return e}function Va(e,t,n,o){return Ft(oo(e).claude,t,n,Promise.resolve().then(o))}var xf={ms:30000,job:"slashCommand"};var $f=/^[A-Za-z0-9_-]{1,64}$/;function qa(e){const{name:t,description:n,argumentHint:o,immediate:s,reply:r}=e;return(i)=>{const{mod:c,announce:d,reserveName:l}=i;const{claude:m,router:y,report:v,answerInput:x}=oo(c);if(!$f.test(t))throw new Error(`${c.name}: "${t}" is not a slash command name. Use 1 to 64 letters, digits, "_", or "-", without the slash.`);const b=l("slashCommand",t,`${c.name}: the slash command /${t} is already added. Give each slashCommand its own name.`);let N;m.command.register({name:t,description:n,...o===undefined?{}:{argumentHint:o},...s===undefined?{}:{immediate:s}}).then(({command:K})=>{N=K},(K)=>{v({id:`command:${t}`,message:`/${t} is not added`,error:K})});d(`/${t}`);const U=y.add("command.run",async(K,q)=>{if(K.command!==N)return q(K);try{return await x(async()=>bf(c.name,await Va(c,xf,`/${t}`,()=>r({args:K.args,positionals:kf(K.args)},c))),()=>q(K))}catch(se){return{text:`/${t} failed: ${vf(se)}`}}});return{name:t,remove(){U.remove();b.remove()}}}}function bf(e,t){if(t===undefined)return{};if(typeof t==="string")return{text:t};return{...t.text===undefined?{}:{text:t.text},...t.note===undefined?{}:{context:[Ye(e,t.note)]}}}function kf(e){return Hn(e,(t)=>`$${t}`).flatMap((t)=>{if(typeof t==="string")return[t];if("comment"in t)return[];if(t.op==="glob")return[t.pattern];return[t.op]})}function vf(e){return re(e).replace(/\s*\n\s*/g," ")}var vn="http://127.0.0.1:8317";async function Mr(){const e=(await yo.user.read())["env"];return typeof e==="object"&&e!==null?e["ANTHROPIC_BASE_URL"]:undefined}async function xo(){const e=await Mr();return typeof e==="string"&&e!==""?e.replace(/\/+$/,""):vn}var Ya=(e)=>`${e}/v0/resource/plugins/oneclaude`;var Za=(e)=>`${Ya(e)}/status.json`;var jr=(e)=>`${Ya(e)}/usage.json`;var ec=(e)=>`${e}/management.html#/plugin-pages/oneclaude/0`;var Ir=(e)=>`${e}/management.html#/oauth`;var tc="management-key";async function Zt(e){const t=await Pt.read(`${e.dataFolder}/${tc}`).then((n)=>n.trim(),()=>"");return t===""?undefined:t}async function Lr(e,t){await Pt.write(`${e.dataFolder}/${tc}`,t)}async function $o(e,t,n,o={}){const s={Authorization:`Bearer ${t}`,...o.body===undefined?{}:{"Content-Type":"application/json"}};const r=e.state.memory.pool;const i=await Rt.fetch(`${r}/v0/management${n}`,{...o,headers:s}).catch((c)=>{e.log(`${r} gave no answer to ${n}: ${String(c)}`);return});if(i?.status===401)await Lr(e,"");return i}var Sn={"proxy-down":"pool unreachable","plugin-off":"plugin off",unreadable:"status unreadable"};function bo(e,t){return`${Sn[e]} since ${Ur(t.now,new Date().toISOString())}`}async function nc(e,t,n){const o=new URLSearchParams({...t===undefined?{}:{after:String(t)},...n===undefined?{}:{device:n}}).toString();const s=await Rt.fetch(o===""?Za(e):`${Za(e)}?${o}`).catch((r)=>String(r));if(typeof s==="string")return{problem:"proxy-down",cause:s};if(s.status===404)return{problem:"plugin-off",cause:"the proxy answered 404"};if(!s.ok)return{problem:"proxy-down",cause:`the proxy answered ${s.status}`};try{return{status:JSON.parse(s.text)}}catch(r){return{problem:"unreadable",cause:String(r)}}}async function Sf(e,t){const n=await $o(e,t,"/auth-files");if(n===undefined)throw new Error("the proxy did not answer /auth-files");if(!n.ok)throw new Error(`the proxy answered /auth-files with ${n.status}`);const{files:o}=JSON.parse(n.text);const s={};for(const r of o??[]){if(r.provider!=="claude"||r.auth_index===undefined||!r.cooldowns?.length)continue;s[r.auth_index]=r.cooldowns.map((i)=>({...i.scope==="model"&&i.model_key!==undefined?{model:i.model_key}:{},until:i.retry_at,reason:i.reason}))}return s}var oc="blocks.json";var rc="status.json";async function sc(e){return Pt.read(`${e.dataFolder}/${oc}`).then((t)=>JSON.parse(t)).catch(()=>{return})}async function ic(e,t){await Pt.write(`${e.dataFolder}/${rc}`,JSON.stringify(t)).catch((n)=>e.log(`oneclaude could not share the pool's status with the other sessions: ${String(n)}`))}async function ac(e){const t=await Pt.read(`${e.dataFolder}/${rc}`).then((n)=>JSON.parse(n)).catch(()=>null);if(t===null)return null;return{status:t,blocks:(await sc(e))?.blocks??{}}}async function cc(e,t,n){const o=await sc(e);if(t!==undefined&&o?.change===t)return o.blocks;if(!n)return;const s=await Zt(e);if(s===undefined)return;const r=await Sf(e,s).catch((i)=>{e.log(`oneclaude could not read the proxy's blocks: ${String(i)}`);return});if(r===undefined)return;await Pt.write(`${e.dataFolder}/${oc}`,JSON.stringify({change:t,blocks:r})).catch((i)=>e.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(i)}`));return r}async function dc(e,t){const n=e.state.memory.pool;const o=await Zt(e);if(o===undefined)return"No management key. Enter it in the Install oneclaude tab.";const s=await $o(e,o,"/plugins/oneclaude/retry",{method:"POST",body:JSON.stringify({auth_index:t.auth_index})});if(s===undefined)return`${n} did not respond.`;if(s.ok)return;if(s.status===401)return"401 Unauthorized: the pool rejected the management key. Enter it in the Install oneclaude tab.";if(s.status===404&&s.text.trim()==="")return`404 Not Found: the pool runs oneclaude ${e.state.memory.reading?.status.version??"of another version"}. Reload this session.`;return`${s.status}: ${Of(s.text)}`}function Of(e){try{const t=JSON.parse(e).error;return typeof t==="string"?t:e}catch{return e}}var Cf=["quota","credential_quota"];var lc=["unauthorized","invalid_grant"];function uc(e,t,n){const o=e.auth_index===undefined?[]:t[e.auth_index]??[];return o.filter((s)=>Date.parse(s.until)>Date.parse(n))}function wo(e,t,n){return e.signed_out||uc(e,t,n).some((o)=>lc.includes(o.reason))}function Nr(e,t,n){return uc(e,t,n).filter((o)=>!Cf.includes(o.reason)&&!lc.includes(o.reason))}var Br="accounts";var bn=(e)=>`account-${e.name}`;function fc(e,t){const n=e.accounts.filter((r)=>r.refused!==undefined);const o=e.accounts.filter((r)=>r.refused===undefined&&wo(r,t,e.now));const s=e.accounts.filter((r)=>r.refused===undefined&&!wo(r,t,e.now)&&Nr(r,t,e.now).length>0);return[...n.length>0?[{text:`${it(n.length,"account")} refused`,key:bn(n[0])}]:[],...o.length>0?[{text:`${it(o.length,"account")} signed out`,key:bn(o[0])}]:[],...s.length>0?[{text:`${it(s.length,"account")} blocked`,key:bn(s[0])}]:[],...e.pool.limit_reached?[{text:"agent limit reached",key:Br}]:[]]}var Dr=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];function Fr(e){const t=new Date(e);return[t.getHours(),t.getMinutes(),t.getSeconds()].map((n)=>String(n).padStart(2,"0")).join(":")}function Ur(e,t){const n=new Date(e);const o=Fr(e).slice(0,5);return n.toDateString()===new Date(t).toDateString()?o:`${Dr[n.getMonth()]} ${n.getDate()} ${o}`}var Wr=["opus","sonnet","haiku","fable"];function Ze(e){return`${Math.round(e*100)}%`}function ko(e){const t=Math.round(Math.abs(e)*100);if(t===0)return"on pace";return`${t}% ${e<0?"under":"over"} pace`}function pc(e){if(e>0.25)return"far-over";if(e>0.05)return"over";if(e<-0.05)return"under";return"on"}var Hr=0.95;var Af=7*24*60*60*1000;function zr(e,t){if(e.resets_at===undefined)return;return Tr(1-(Date.parse(e.resets_at)-Date.parse(t))/Af)}function yt(e,t){if(e===undefined)return"unknown";const n=Math.round((Date.parse(e)-Date.parse(t))/60000);if(n<=0)return"now";if(n<60)return`${n}m`;const o=Math.floor(n/60);if(o<24)return Qa(`${o}h`,n%60,"m");if(o<48)return Qa("1d",o%24,"h");return`${Math.round(n/(24*60))}d`}function Qa(e,t,n){return t===0?e:`${e} ${t}${n}`}function mc(e,t){const n=yt(t,e);return n==="now"?"just now":`${n} ago`}var vo=20;var qt=8;var Ef=["","▏","▎","▍","▌","▋","▊","▉"];var Gr="";var Jr="";function hc(e,t,n){const o=n*qt;const s=Math.round(Tr(e)*o);const r=Math.round(Tr(t)*o);const i=e>=Hr;const c=(l)=>{if(l<Math.min(s,r))return i?"error":"inactive";if(l<s)return i?"diffRemoved":"warning";if(l<r)return"promptBorder";return"subtle"};const d=[{text:Gr,color:c(0)}];for(let l=0;l<n;l++){const m=c(l*qt);const y=c(l*qt+qt-1);let v=1;while(v<qt&&c(l*qt+v)===m)v++;d.push(m===y?{text:"█",color:m}:{text:Ef[v]??"█",color:m,background:y})}d.push({text:Jr,color:c(o-1)});return Kr(d)}function Kr(e){return e.reduce((t,n)=>{const o=t.at(-1);if(o!==undefined&&o.color===n.color&&o.background===n.background&&o.isDim===n.isDim)t[t.length-1]={...o,text:o.text+n.text};else t.push(n);return t},[])}var _f=0.18;var gc=33;var So="line";var Xr="pool";var Vr=(e)=>`claude:${e.name}`;var qr=(e)=>`codex:${e.name}`;function kn(e,t){return e.empty?e.used:zr(e,t)??e.used}function yc(e){const t={used:e.pool.used,pace:e.pool.even};const n={[So]:t,[Xr]:t};for(const o of e.accounts)if(o.known)n[Vr(o)]={used:o.used,pace:kn(o,e.now)};for(const o of e.codex)if(o.known)n[qr(o)]={used:o.used,pace:kn(o,e.now)};return n}function wc(e,t){const n=(o,s)=>Math.abs(s-o)<0.0005?s:o+(s-o)*_f;return{used:n(e.used,t.used),pace:n(e.pace,t.pace)}}function Tr(e){return Math.min(1,Math.max(0,e))}function xc(e){return Wr.reduce((t,n)=>t+(e.agents[n]??0),0)}function it(e,t){return`${e} ${t}${e===1?"":"s"}`}function Oo({used:e,pace:t}){return Zr(hc(e,t,vo))}function Zr(e){return e.map((t)=>h(Q,{color:t.color,backgroundColor:t.background,dimColor:t.isDim},t.text))}var Pf={on:undefined,under:"success",over:"claude","far-over":"error"};function $c(e){return e.map((t)=>typeof t==="string"?t:ko(t.ahead)).join(" · ")}function Qt({facts:e,color:t,wrap:n="wrap"}){const o=(r)=>{if(typeof r==="string")return r;const i=Pf[pc(r.ahead)];return i===undefined?ko(r.ahead):h(Q,{color:i,dimColor:false},ko(r.ahead))};if(n==="wrap"){return h(ie,{flexWrap:"wrap",columnGap:1},e.map((r,i)=>h(ie,{flexShrink:0},h(Q,{color:t,dimColor:t===undefined},i===0?[o(r)]:["· ",o(r)]))))}const s=e.flatMap((r,i)=>i===0?[o(r)]:[" · ",o(r)]);return h(Q,{color:t,dimColor:t===undefined,wrap:n},s)}function bc({reading:e,problem:t,shown:n,isOpen:o,onToggle:s,onTrouble:r}){if(e===null)return t===null?h(Q,{dimColor:true},"oneclaude: reading the pool"):h(Q,{color:"warning"},`oneclaude: ${Sn[t]}`);const{pool:i,now:c}=e.status;const d=i.known===0?["reading accounts",it(i.agents,"agent")]:[Ze(i.used),...i.pace===undefined?[]:[{ahead:i.pace}],...i.next_refill===undefined?[]:[`next refill in ${yt(i.next_refill,c)}`],it(i.agents,"agent")];return h(ie,{gap:2},h(ie,{flexShrink:0},Oo(n??{used:i.used,pace:i.even})),h(ie,{gap:1},h(Qt,{facts:d,wrap:"truncate-end"}),t===null?null:h(ie,{flexShrink:0},h(Q,{color:"warning"},`· ${bo(t,e.status)}`)),fc(e.status,e.blocks).map((l)=>h(ie,{flexShrink:0},h(Ne,{key:`trouble-${l.key}`,plain:true,onPress:()=>r(l.key)},h(Q,{color:"warning"},`· ${l.text}`)))),h(ie,{flexShrink:0},h(Ne,{key:"accounts",plain:true,dimColor:true,onPress:s},o?"[-]":"[+]"))))}var Qr=8;var vc=60*60*1000;var On=24*vc;var Rf=7*On;var Co=2;var Tf=8;var Mf=4;var jf=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];var Sc="│";var Oc="text";function Cc(e,t,n){const o=Date.parse(t);const s=Nf(t);const r=o+s-(o+s)%On-On-s;const i=e.flatMap((x)=>x.known&&x.resets_at!==undefined?[{account:x,resets:Date.parse(x.resets_at)}]:[]).sort((x,b)=>x.resets-b.resets).map(({account:x,resets:b})=>{const N=yt(x.resets_at,t);return{account:x,resets:b,reset:N==="now"?N:`in ${N}`,remaining:x.empty?"empty":`${Ze(1-x.used)} left`}});const c=Math.max(0,...i.map(({reset:x})=>x.length));const d=c+Co+Math.max(0,...i.map(({remaining:x})=>x.length));const l=Math.min(Tf,Math.max(Mf,Math.floor((n-Co-d)/Qr)));const m=(x)=>(x-r)/On*l;const y=Math.floor(m(o));const v=Array.from({length:Qr},(x,b)=>{const N=new Date(r+s+b*On);const U=jf[N.getUTCDay()];return(l>`${U} 00`.length?`${U} ${N.getUTCDate()}`:U).padEnd(l)});return{days:v.join("").trimEnd(),now:y,lanes:i.map(({account:x,resets:b,reset:N,remaining:U})=>{const K=x.empty||x.used>=Hr;const q=b-Rf;const se=kc(Math.round(m(q)),y);const Z=kc(Math.round(m(b)),y);const E=x.empty?o:If(x.used,q,o);const R=Math.min(Z,Math.max(y+1,Math.round(m(E))));return{name:x.name,cells:Lf({open:se,out:R,close:Z},y,Qr*l,K),reset:N.padEnd(c),remaining:U,isNearlyEmpty:K}})}}function kc(e,t){return e>t?Math.max(e,t+2):Math.min(e,t-1)}function If(e,t,n){const o=e/Math.max(n-t,vc);return o===0?Infinity:n+(1-e)/o}function Lf({open:e,out:t,close:n},o,s,r){return Kr(Array.from({length:s},(i,c)=>{if(c<e||c>=n)return{text:"╌",color:"inactive",isDim:true};const d=c<o?"subtle":r?"error":"inactive";if(c===o)return{text:Sc,color:Oc,background:d};const l=c===e&&c>0?Gr:c===n-1&&n<s?Jr:"█";return c>=t?{text:l,color:d,isDim:true}:{text:l,color:d}}))}function Nf(e){const t=/([+-])(\d\d):(\d\d)$/.exec(e);if(t===null)return 0;const n=Number(t[2])*60+Number(t[3]);return(t[1]==="-"?-n:n)*60000}function Ac({calendar:e,width:t}){const n=" ".repeat(Co);const o=" ".repeat(t+Co);const s=h(Q,{color:Oc},`${o}${" ".repeat(e.now)}${Sc}`);return h(ie,{flexDirection:"column"},h(Q,{dimColor:true},`${o}${e.days}`),e.lanes.flatMap((r)=>[s,h(Q,null,`${r.name.padEnd(t)}${n}`,Zr(r.cells),h(Q,{color:r.isNearlyEmpty?"error":undefined},`${n}${r.reset}${n}`,h(Q,{dimColor:!r.isNearlyEmpty},r.remaining)))]))}var _c=[["quarter","90 days"],["month","30 days"],["week","7 days"],["yesterday","Yesterday"],["today","Today"]];var Pc=[["account","Account"],["model","Model"],["agent","Agent"],["project","Project"],["time","Time"]];var Rc=[["cost","Cost"],["tokens","Tokens"]];async function ts(e,t,n,o){const s=await Rt.fetch(`${jr(e)}?period=${t}&by=${n}&units=${o}`).catch(()=>{return});if(s===undefined||!s.ok)return null;try{const r=JSON.parse(s.text);return Array.isArray(r.rows)&&Array.isArray(r.days)?r:null}catch{return null}}var Tc=["input","output","cache_write","cache_read"];var Bf={input:"Input",output:"Output",cache_write:"Cache write",cache_read:"Cache read"};var Df=0.9;function Tt(e,t){const n=t==="cost"?e.cost:e.tokens;return Tc.reduce((o,s)=>o+n[s],0)}function Yr(e){const t=e.input+e.cache_write+e.cache_read;return t===0?undefined:e.cache_read/t}function Ec(e){const[,t,n]=e.split("-").map(Number);return`${Dr[(t??1)-1]} ${n}`}function Yt(e){if(e<0.005)return"$0";if(e<1)return`$${e.toFixed(2)}`;return`$${Math.round(e).toLocaleString("en-US")}`}var Ff=new Intl.NumberFormat("en-US",{notation:"compact",maximumSignificantDigits:3});function Mc(e){return Ff.format(e)}function es(e,t){return t==="cost"?Yt(e):Mc(e)}var Cn="   ";function ns(e,t,n){const o=Tt(e.total,t);const s=[...n?Tc.map((y)=>[Bf[y],(v)=>es((t==="cost"?v.cost:v.tokens)[y],t)]):[],["Cached",(y)=>{const v=Yr(y.tokens);return v===undefined?"":Ze(v)}],["Share",(y)=>y===e.total?"":o===0?"0%":Ze(Tt(y,t)/o)],["Total",(y)=>es(Tt(y,t),t)]];const r=[...e.rows,e.total];const i=Math.max(...r.map((y)=>y.label.length));const c=s.map(([y,v])=>Math.max(y.length,...r.map((x)=>v(x).length)));const d=(y,v,x)=>({cells:[y.padEnd(i),...v.map((b,N)=>b.padStart(c[N]??0))],cold:x});const l=(y)=>{const v=Yr(y.tokens);return d(y.label,s.map(([,x])=>x(y)),v!==undefined&&v<Df)};const m=d("",s.map(([y])=>y),false);return{header:m,rows:e.rows.map(l),total:l(e.total),width:m.cells.join(Cn).length}}var Ao=4;var Uf=["","▁","▂","▃","▄","▅","▆","▇","█"];function jc(e,t){const n=e.days.map((i)=>i.rows.length===0?undefined:i.rows.reduce((c,d)=>c+Tt(d,t),0));const o=Math.max(0,...n.map((i)=>i??0));const s=n.map((i)=>i===undefined?undefined:o===0?0:Math.max(i>0?1:0,Math.round(i/o*Ao*8)));const r=Array.from({length:Ao},(i,c)=>{const d=(Ao-1-c)*8;return s.map((l)=>{if(l===undefined)return c===Ao-1?"·":" ";return Uf[Math.min(8,Math.max(0,l-d))]||" "})});return{peak:es(o,t),rows:r,first:Ec(e.days[0]?.day??e.today),last:Ec(e.days.at(-1)?.day??e.today)}}function Ic(e,t,n,o){const s=(r)=>r.rows.filter((i)=>Tt(i,"cost")>0).slice(0,12).map((i)=>{const c=Yr(i.tokens);return`- ${i.label}: ${Yt(Tt(i,"cost"))} (cache writes ${Yt(i.cost.cache_write)}, cache reads ${Yt(i.cost.cache_read)}, output ${Yt(i.cost.output)}, input ${Yt(i.cost.input)}), ${Mc(Tt(i,"tokens"))} tokens${c===undefined?"":`, ${Ze(c)} from cache`}`});return["Optimize my Claude usage: find where it can cost less without losing quality. These are oneclaude's numbers for the last 30 days, at API list prices.","",'By agent type ("Main sessions" are the sessions I talk to):',...s(t),"","By project:",...s(n),"","By model:",...s(o),"",`Any period and breakdown: ${jr(e)}?period=month&by=agent (period quarter, month, week, yesterday or today; by account, model, agent, project or time).`,"","Read the agent definitions, Skills and settings behind the most expensive rows, find what drives their cache writes and their output, and propose changes ranked by what each would save per day. Change nothing until I approve."].join(`
-`)}var Wf="Combined usage";var wt=2;var os=3;var Hf=7;async function en(e,t={}){const n={...e.state.memory.usage,...t};e.state.memory.usage=n;const o=await ts(e.state.memory.pool,n.period,n.by,n.units);const{period:s,by:r,units:i}=e.state.memory.usage;if(o!==null&&s===n.period&&r===n.by&&i===n.units)e.state.memory.table=o}var rs=10;var Nc={id:"accounts",title:"Accounts",render:(e,{columns:t})=>{const{reading:n,problem:o}=e.state.memory;if(n===null)return o===null?h(Q,{dimColor:true},"Reading your accounts"):h(Q,{color:"warning"},`oneclaude: ${Sn[o]}`);const{status:s,blocks:r}=n;const i=e.state.memory.shown;const c=Jf(s,i[Xr]);const d=s.accounts.map((b)=>Kf(e,b,r,s.now,i[Vr(b)]));const l=s.codex.map((b)=>Xf(b,s.now,i[qr(b)]));const m=[c,...d,...l];const y=Math.max(...m.map((b)=>b.name.length));const v=m.some((b)=>os*2+y+wt+vo+2+wt+$c(b.facts).length>t);const x=(b)=>h(Gf,{row:b,width:y,isNarrow:v});return h(ie,{flexDirection:"column",gap:1,paddingX:1},o===null?null:h(ie,{paddingX:2},h(Q,{color:"warning"},bo(o,s))),h(ie,{borderStyle:"round",borderDimColor:true,paddingX:1,flexDirection:"column"},x(c)),h(Mt,{key:Br,title:"Claude accounts"},d.map(x)),l.length>0?h(Mt,{title:"Codex accounts"},l.map(x)):null,h(zf,{accounts:s.accounts,now:s.now,width:y,columns:t-os*2}),h(Vf,{mod:e,table:e.state.memory.table,view:e.state.memory.usage,columns:t-os*2}),e.state.memory.table===null?null:h(Zf,{table:e.state.memory.table,view:e.state.memory.usage}),s.log.length===0?null:h(Qf,{log:s.log}),h(ie,{paddingX:2,gap:2},h(Ne,{key:"open-dashboard",plain:true,dimColor:true,href:ec(e.state.memory.pool)},"[Open dashboard]"),h(Ne,{key:"add-account",plain:true,dimColor:true,href:Ir(e.state.memory.pool)},"[Add account]")))}};function Mt({key:e,title:t,children:n}){return h(ie,{key:e,flexDirection:"column",gap:1,paddingX:2},h(Q,{bold:true},t),h(ie,{flexDirection:"column",gap:1},n))}function zf({accounts:e,now:t,width:n,columns:o}){const s=Cc(e,t,o-n-wt);if(s.lanes.length===0)return null;return h(Mt,{title:"Weekly resets"},[h(Ac,{calendar:s,width:n})])}function Gf({row:e,width:t,isNarrow:n}){const o=h(ie,{flexShrink:0},h(Q,null,e.name.padEnd(t)));const s=e.trouble===undefined?null:h(ie,{paddingLeft:t+wt},e.trouble);if(e.shown===undefined){return h(ie,{key:e.key,gap:wt},o,e.facts.length===0?null:h(Qt,{facts:e.facts,color:e.color}),e.trouble??null)}const r=h(ie,{flexShrink:0},Oo(e.shown));if(!n){return h(ie,{key:e.key,flexDirection:"column"},h(ie,{gap:wt},o,r,h(Qt,{facts:e.facts,color:e.color})),s)}const[i,...c]=e.facts;return h(ie,{key:e.key,flexDirection:"column"},h(ie,{gap:wt},o,r,h(Qt,{facts:i===undefined?[]:[i],color:e.color})),h(ie,{paddingLeft:t+wt},h(Qt,{facts:c,color:e.color})),s)}function Jf(e,t){const{pool:n,now:o}=e;const s=n.accounts-n.known;return{name:Wf,shown:t??{used:n.used,pace:n.even},facts:[Ze(n.used),...n.pace===undefined?[]:[{ahead:n.pace}],...n.next_refill===undefined?[]:[`next refill in ${yt(n.next_refill,o)} frees ${Ze(n.refill_gain)}`],it(n.agents,"agent"),...s>0?[`${it(s,"account")} not read yet`]:[]]}}function Kf(e,t,n,o,s){const r=bn(t);if(t.refused!==undefined){return{key:r,name:t.name,facts:[],trouble:h(ss,{text:"refused"},h(Lc,{mod:e,account:t}))}}if(wo(t,n,o)){return{key:r,name:t.name,facts:[],trouble:h(ss,{text:"signed out"},h(Ne,{key:`sign-in-${t.name}`,plain:true,dimColor:true,href:Ir(e.state.memory.pool)},"[Sign in]"))}}const i=Nr(t,n,o).map((l)=>l.until).sort().at(-1);const c=i===undefined?undefined:h(ss,{text:`blocked until ${Ur(i,o)}`},h(Lc,{mod:e,account:t}));if(!t.known)return{key:r,name:t.name,facts:["not read yet"],trouble:c};const d=Wr.filter((l)=>(t.agents[l]??0)>0).map((l)=>`${t.agents[l]} ${l}`);return{key:r,name:t.name,shown:s??{used:t.used,pace:kn(t,o)},color:t.empty?"error":undefined,facts:[...Bc(t,o),...t.throttled_at===undefined?[]:[`throttled ${mc(t.throttled_at,o)}`],xc(t)===0?"idle":d.join(", "),...t.projected?["refilled since its last reading"]:[]],trouble:c}}function ss({text:e,children:t}){return h(ie,{gap:2},h(Q,{color:"warning"},e),t)}function Lc({mod:e,account:t}){const n=async()=>{const o=await dc(e,t);if(o!==undefined)e.toast.error(`Could not clear ${t.name}'s blocks`,{description:o})};return h(Ne,{key:`retry-${t.name}`,plain:true,dimColor:true,onPress:n},"[Retry]")}function Xf(e,t,n){if(!e.known)return{name:e.name,facts:["not read yet"]};return{name:e.name,shown:n??{used:e.used,pace:kn(e,t)},color:e.empty?"error":undefined,facts:[...Bc(e,t),...e.projected?["refilled since its last reading"]:[]]}}function Bc(e,t){const n=zr(e,t);return[e.empty?"empty":Ze(e.used),...e.empty||n===undefined?[]:[{ahead:e.used-n}],`refills in ${yt(e.resets_at,t)}`]}function is({name:e,choices:t,chosen:n,onChoose:o}){return h(ie,null,h(ie,{flexShrink:0},h(Q,{dimColor:true},e.padEnd(Hf))),h(ie,{gap:1,flexWrap:"wrap"},t.map(([s,r])=>h(Ne,{key:`${e.toLowerCase()}-${s}`,plain:true,dimColor:s!==n,onPress:()=>o(s)},s===n?`[${r}]`:` ${r} `))))}function as({line:e,isHeader:t=false,isTotal:n=false}){const o=e.cells.length-1;const s=o-2;const r=e.cells.map((i,c)=>{const d=c===0?i:`${Cn}${i}`;if(t)return d;if(c===o)return h(Q,{color:"claude"},d);if(c===s&&e.cold)return h(Q,{color:"warning"},d);return d});return h(Q,{dimColor:t,bold:n},r)}function Vf({mod:e,table:t,view:n,columns:o}){if(t===null)return h(Mt,{title:"Usage"},[h(Q,{dimColor:true},"Reading the request log")]);const s=ns(t,n.units,true);const r=s.width<=o?s:ns(t,n.units,false);const i=(n.by==="agent"||n.by==="project")&&t.rows.some((c)=>c.key==="");return h(Mt,{key:"usage",title:"Usage"},[h(ie,{flexDirection:"column"},h(is,{name:"Period",choices:_c,chosen:n.period,onChoose:(c)=>void en(e,{period:c})}),h(is,{name:"By",choices:Pc,chosen:n.by,onChoose:(c)=>void en(e,{by:c})}),h(is,{name:"Show",choices:Rc,chosen:n.units,onChoose:(c)=>void en(e,{units:c})})),h(ie,{flexDirection:"column"},h(as,{line:r.header,isHeader:true}),r.rows.map((c)=>h(as,{line:c})),h(as,{line:r.total,isTotal:true})),...i?[h(Q,{dimColor:true,wrap:"wrap"},"Not recorded: requests from before oneclaude recorded agent types and projects, and from conversations whose record never reached the pool.")]:[],h(qf,{mod:e})])}function qf({mod:e}){if(!e.state.memory.isConfirming){return h(ie,null,h(Ne,{key:"optimize",plain:true,dimColor:true,onPress:()=>{e.state.memory.isConfirming=true}},"[Optimize usage]"))}const t=async()=>{const[n,o,s]=await Promise.all(["agent","project","model"].map((r)=>ts(e.state.memory.pool,"month",r,"cost")));e.state.memory.isConfirming=false;if(!n||!o||!s){e.toast.error("oneclaude could not read the usage, so nothing was sent");return}await ct.current.send({type:Bt,text:Ic(e.state.memory.pool,n,o,s)})};return h(ie,{flexDirection:"column"},h(Q,{bold:true},"Ask your agent to optimize your usage?"),h(Q,{dimColor:true,wrap:"wrap"},"We'll send it your last 30 days of usage, by agent, project and model."),h(ie,{gap:2},h(Ne,{key:"optimize-send",plain:true,onPress:t},h(Q,{color:"claude"},"[Ask your agent]")),h(Ne,{key:"optimize-cancel",plain:true,dimColor:true,onPress:()=>{e.state.memory.isConfirming=false}},"[Cancel]")))}function Zf({table:e,view:t}){const n=jc(e,t.units);const o=" ".repeat(n.peak.length);const s=n.rows[0].length*2-1;return h(Mt,{title:"Usage per day, last 30 days"},[h(ie,{flexDirection:"column"},n.rows.map((r,i)=>h(Q,null,h(Q,{dimColor:true},i===0?n.peak:o),Cn,r.map((c,d)=>{const l=d===0?c:` ${c}`;if(c==="·")return h(Q,{dimColor:true},l);return c===" "?l:h(Q,{color:"claude"},l)}))),h(Q,{dimColor:true},`${o}${Cn}${n.first}${n.last.padStart(s-n.first.length)}`))])}function Qf({log:e}){const t=[...e].reverse().slice(0,rs);return h(Mt,{key:"log",title:"Log"},[h(ie,{flexDirection:"column"},t.map((n)=>h(ie,{gap:2},h(ie,{flexShrink:0},h(Q,{dimColor:true},Fr(n.at))),h(ie,{flexShrink:0},h(Q,{color:n.level==="WARN"?"warning":undefined,dimColor:n.level==="INFO"},n.level)),h(Q,{wrap:"wrap"},n.text))),e.length>rs?h(Q,{dimColor:true},`${it(e.length-rs,"earlier line")} on the dashboard`):null)])}function Yf(e){const{name:t,url:n,responses:o,timeoutSeconds:s,failOpen:r,observabilityMode:i}=e;if(typeof t!=="string"||t==="")throw new Error("a filter needs its mod's name");if(typeof n!=="string"||n==="")throw new Error(`the ${t} filter needs its url`);if(s!==undefined&&(!Number.isInteger(s)||s<1||s>120))throw new Error(`the ${t} filter's timeoutSeconds must be a whole number from 1 to 120`);return{name:t,url:n,...o===true?{responses:o}:{},...s===undefined?{}:{timeoutSeconds:s},...r===true?{failOpen:r}:{},...i===true?{observabilityMode:i}:{}}}function Dc(e){let t=[];let n={};let o;let s={session:"",last:Promise.resolve(undefined)};const r=async(d)=>{const l=await Zt(e);if(l===undefined)return;const m=JSON.stringify({session:d,project:ct.current.project,agents:n,filters:t});const y=`${e.state.memory.pool} ${m}`;if(y===o)return;const v=await $o(e,l,"/plugins/oneclaude/session",{method:"POST",body:m});if(v===undefined||v.ok){if(v?.ok===true)o=y;return}e.log(`the pool refused the record of session ${d} with ${v.status}: ${v.text}`);return v.status===400?JSON.parse(v.text).error??v.text:undefined};const i=()=>{const d=ct.current.id;if(s.session!==d)s={session:d,last:Promise.resolve(undefined)};const l=s;const m=()=>{l.next=undefined;return r(d)};l.next??=l.last.then(m,m);l.last=l.next;return l.next};const c=async(d)=>{if(JSON.stringify(d)===JSON.stringify(t))return;const l=t;t=d;const m=await i();if(m!==undefined){t=l;throw new Error(m)}};return{addFilter:async(d)=>{const l=Yf(d);const m=t.findIndex((y)=>y.name===l.name);await c(m===-1?[...t,l]:t.with(m,l))},removeFilter:async({name:d})=>c(t.filter((l)=>l.name!==d)),addAgent:async(d,l)=>{if(n[d]===l)return;n={...n,[d]:l};await i()},send:async()=>{await i()}}}var Fc={memory:{pool:vn,reading:null,problem:null,isOpen:false,shown:{},usage:{period:"month",by:"account",units:"cost"},table:null,isConfirming:false,keyAnswer:null}};var cs=[1000,2000,4000,8000,16000];async function ep(e,t){e.state.memory.pool=await xo();const n=await Rt.fetch(`${e.state.memory.pool}/v0/management/plugins/oneclaude/status`,{headers:{Authorization:`Bearer ${t}`}}).catch(()=>{return});if(n?.ok===true)await Lr(e,t);e.state.memory.keyAnswer=n?.ok===true?"saved":n?.status===401?"wrong":"unanswered"}var tp={id:"management-key",title:"CLIProxyAPI's management key",render:(e)=>h(ie,{flexDirection:"column"},h(Q,null,"oneclaude reads and clears the proxy's blocks, and tells it each session's project, agents and filters, with the management key you set for CLIProxyAPI."),h(mn,{key:"management-key",label:"› ",submitLabel:"save",onSubmit:(t)=>void ep(e,t)}),e.state.memory.keyAnswer==="saved"?h(Q,{color:"success"},"✔ saved"):e.state.memory.keyAnswer==="wrong"?h(Q,{color:"error"},"The proxy at ",e.state.memory.pool," refused that key."):e.state.memory.keyAnswer==="unanswered"?h(Q,{color:"error"},"The proxy at ",e.state.memory.pool," didn't answer."):h(Q,null,"")),isDone:async(e)=>await Zt(e)!==undefined};var Uc=Xa({name:"oneclaude",state:Fc,installer:[tp],async setup(e){const t=e.sidebar.add(Nc);let n;const o=()=>{n?.stop();n=undefined};const s=()=>{const R=e.state.memory.reading;if(R===null)return o();const k={};let H=false;for(const[W,A]of Object.entries(yc(R.status))){const T=wc(e.state.memory.shown[W]??A,A);k[W]=T;H||=T.used!==A.used||T.pace!==A.pace}e.state.memory.shown=k;if(!H)o()};const r=()=>{n??=e.every(gc,s)};let i=false;const c=async()=>{if(i)return;i=true;if(await Mr()===undefined)await yo.user.update({env:{ANTHROPIC_BASE_URL:vn}})};const d=Dc(e);let l;let m={change:undefined,isReader:false};let y=false;const v=async(R)=>{const k=R.reads_blocks===true||R.blocks_change===undefined;m={change:R.blocks_change,isReader:k||m.change===R.blocks_change&&m.isReader};if(y)return;y=true;try{while(l===undefined||l.change!==m.change){const H=m;const W=await cc(e,H.change,H.isReader);if(W===undefined)return;const A=e.state.memory.reading;if(A!==null)e.state.memory.reading={...A,blocks:W};l={change:H.change,blocks:W}}}finally{y=false}};let x;const b=(R)=>{e.state.memory.problem=null;e.state.memory.reading={status:R,blocks:l?.blocks??e.state.memory.reading?.blocks??{}};r();ic(e,R);v(R);d.send();c();e.state.memory.isOpen=t.isOpen;if(t.isOpen)x??=en(e).finally(()=>{x=undefined})};const N=Ka.read().then(({id:R})=>R,(R)=>{e.log(`oneclaude names no machine to the pool, so this session reads every blocks change itself: ${String(R)}`);return});const U=async(R)=>{const k=await xo();e.state.memory.pool=k;const H=e.state.memory.reading?.status.answers_within_ms;const W=H===undefined?undefined:e.after(H,()=>{e.log(`${k} sent no status within ${H} ms`);e.state.memory.problem="proxy-down"});const A=await nc(k,R,await N).finally(()=>W?.stop());if(!("problem"in A))return A.status;e.log(`${k} brought no status: ${A.cause}`);e.state.memory.problem=A.problem;return};const K=(R)=>new Promise((k)=>void e.after(R,k));const q=async()=>{let R;let k=0;for(;;){const H=await U(R).catch((W)=>{e.log(`oneclaude could not ask the pool for its status: ${String(W)}`);return});if(H===undefined){R=undefined;await K(cs[Math.min(k++,cs.length-1)]);continue}k=0;R=H.change;b(H);if(R===undefined)await K(cs[0])}};const se=async()=>{const R=!t.isOpen;if(R){e.state.memory.isConfirming=false;en(e);e.state.memory.shown=Object.fromEntries(Object.entries(e.state.memory.shown).map(([k,H])=>[k,k===So?H:{used:0,pace:0}]));r()}await t.toggle({focus:true});e.state.memory.isOpen=R};const Z=async(R)=>{if(!t.isOpen)await se();await t.scrollTo({key:R},{block:"start"})};e.widgets.add({id:"pool",title:"Pool usage",areas:[co,Sr],render:(R)=>h(bc,{reading:R.state.memory.reading,problem:R.state.memory.problem,shown:R.state.memory.shown[So],isOpen:R.state.memory.isOpen,onToggle:se,onTrouble:Z})});e.use(qa({name:"accounts",description:"Show every Claude account: combined usage, pace, agents and the log",reply:se}));ct.current.onTaskStart((R)=>{if(R.owner.agentType!==undefined)d.addAgent(R.id,R.owner.agentType)});const E=async()=>{const R=await ac(e);e.state.memory.reading??=R;e.state.memory.pool=await xo();d.send()};ct.current.onSessionStart({source:/^(clear|resume|fork)$/},E);ct.current.onCwdChange(()=>void d.send());await E();q();return{addFilter:(R)=>d.addFilter(R),removeFilter:(R)=>d.removeFilter(R)}}});function e$(e,t){Ga(e,Uc,t)}export{e$ as register};
+// node_modules/@cmodjs/core/session/goal/task.js
+var Task = "task";
+var TaskStart = "taskStart";
+var TaskEnd = "taskEnd";
+
+// node_modules/@cmodjs/core/session/context/turn/message/note.js
+var Note = "note";
+var modNoteBlock = new RegExp(`<(${pluginName.source.slice(1, -1)})_mod>\\n([\\s\\S]*?)\\n</\\1_mod>`, "g");
+function modNote(mod, text) {
+  return `<${mod}_mod>
+${text}
+</${mod}_mod>`;
+}
+
+// node_modules/@cmodjs/core/session/context/turn/message/prompt.js
+var Prompt = "prompt";
+
+// node_modules/@cmodjs/core/session/context/turn/message/sender.js
+var Person = "person";
+var Mod = "mod";
+var Schedule = "schedule";
+var Channel = "channel";
+var Sdk = "sdk";
+var Engine = "engine";
+var personOrigins = ["human", "composer", "bridge", "slack-ping"];
+var sessionOrigins = ["peer", "peer-send-message", "coordinator", "projects-relay", "observer", "observer-activity"];
+function senderOf(origin, isInTask) {
+  const fields = isObject(origin) ? origin : {};
+  const kind = typeof fields["kind"] === "string" ? fields["kind"] : undefined;
+  if (kind === undefined)
+    return { type: isInTask ? Task : Person };
+  if (personOrigins.includes(kind))
+    return { type: Person };
+  if (sessionOrigins.includes(kind))
+    return { type: "session" };
+  if (kind === "auto-continuation")
+    return { type: Engine };
+  if (kind === "plugin" && typeof fields["name"] === "string")
+    return { type: Mod, name: fields["name"], ...fields["asUser"] === true ? { as: Person } : {} };
+  if (kind === "scheduled-trigger")
+    return { type: Schedule };
+  if (kind === "channel" && typeof fields["server"] === "string")
+    return { type: Channel, name: fields["server"] };
+  if (kind === "sdk")
+    return { type: Sdk };
+  if (kind === "task-notification")
+    return { type: Task };
+  return { type: isInTask ? Task : Person };
+}
+
+// node_modules/@cmodjs/core/session/context/turn/message/tool-call.js
+var ToolCall = "toolCall";
+
+// node_modules/@cmodjs/core/session/context/turn/message/tool-result.js
+var ToolResult = "toolResult";
+
+// node_modules/@cmodjs/core/session/context/turn/message/message.js
+var Message = "message";
+
+// node_modules/@cmodjs/core/session/context/context.js
+var ContextStart = "contextStart";
+var ContextEnd = "contextEnd";
+
+// node_modules/@cmodjs/core/session/context/turn/turn.js
+var TurnStart = "turnStart";
+var TurnEnd = "turnEnd";
+
+// node_modules/@cmodjs/core/session/goal/goal.js
+var GoalChange = "goalChange";
+
+// node_modules/@cmodjs/core/session/conversation.js
+var forkAgentType = "fork";
+var searchLimit = 50;
+
+// node_modules/@cmodjs/core/session/session.js
+var Session = "session";
+var sessionEvents = {
+  Message: "message",
+  Prompt: "prompt",
+  Note: "note",
+  Reply: "reply",
+  ToolCall: "toolCall",
+  ToolResult: "toolResult",
+  Skill: "skill",
+  InstructionFile: "instructionFile",
+  AttachedFile: "attachedFile",
+  Notice: "notice",
+  ContextStart: "contextStart",
+  ContextEnd: "contextEnd",
+  TurnStart: "turnStart",
+  TurnEnd: "turnEnd",
+  TaskStart: "taskStart",
+  TaskEnd: "taskEnd",
+  GoalChange: "goalChange",
+  UsageChange: "usageChange"
+};
+var beforeEvents = ["Prompt", "Note", "Skill", "InstructionFile", "AttachedFile", "Reply", "ToolCall", "ToolResult", "Notice", "TaskStart", "TurnEnd", "ContextEnd"];
+var processEvents = {
+  ProjectSetup: { on: "Setup", before: "Setup" },
+  SessionStart: { on: "SessionStart", before: "SessionStart" },
+  SessionEnd: { on: "SessionEnd" },
+  ModelChange: { on: "PostModelSwitch", before: "PreModelSwitch" },
+  CwdChange: { on: "CwdChanged" },
+  DirectoryAdd: { on: "DirectoryAdded" },
+  WorktreeCreate: { on: "WorktreeCreate", before: "WorktreeCreate" },
+  WorktreeRemove: { on: "WorktreeRemove" },
+  Notification: { on: "Notification" },
+  Elicitation: { on: "Elicitation", before: "Elicitation" },
+  ElicitationResponse: { on: "ElicitationResult", before: "ElicitationResult" },
+  PermissionCheck: { on: "tool.check", before: "tool.check" },
+  PermissionRequest: { on: "PermissionRequest", before: "PermissionRequest" },
+  PermissionDenial: { on: "PermissionDenied", before: "PermissionDenied" },
+  ToolBatch: { on: "PostToolBatch", before: "PostToolBatch" },
+  TodoCreate: { on: "TaskCreated", before: "TaskCreated" },
+  TodoComplete: { on: "TaskCompleted", before: "TaskCompleted" },
+  ReplyDisplay: { on: "MessageDisplay", before: "MessageDisplay" }
+};
+
+// node_modules/@cmodjs/core/utils/matcher.js
+function matches(value, matcher) {
+  if (matcher instanceof RegExp)
+    return value !== undefined && value !== null && matcher.test(String(value));
+  if (Array.isArray(matcher))
+    return matcher.some((each) => matches(value, each));
+  if (typeof matcher !== "object" || matcher === null)
+    return value === matcher;
+  if (Array.isArray(value))
+    return value.some((each) => matches(each, matcher));
+  if (typeof value !== "object" || value === null)
+    return false;
+  return Object.entries(matcher).every(([key, wanted]) => wanted === undefined || matches(value[key], wanted));
+}
+function sentMatcher(matcher) {
+  if (matcher instanceof RegExp)
+    return { regexp: matcher.source, flags: matcher.flags };
+  if (Array.isArray(matcher))
+    return matcher.map(sentMatcher);
+  if (typeof matcher !== "object" || matcher === null)
+    return matcher;
+  return Object.fromEntries(Object.entries(matcher).filter(([, value]) => value !== undefined).map(([key, value]) => [key, sentMatcher(value)]));
+}
+
+// node_modules/@cmodjs/core/vendor.js
+var Bt = Object.create;
+var { getPrototypeOf: jt, defineProperty: Ve, getOwnPropertyNames: Gt } = Object;
+var Ye = Object.prototype.hasOwnProperty;
+function Ut(e) {
+  return this[e];
+}
+var qt;
+var Ft;
+var Kt = (e, r, t) => {
+  var n = e != null && typeof e === "object";
+  if (n) {
+    var o = r ? qt ??= new WeakMap : Ft ??= new WeakMap, u = o.get(e);
+    if (u)
+      return u;
+  }
+  t = e != null ? Bt(jt(e)) : {};
+  let s = r || !e || !e.__esModule || !Ye.call(e, "default") ? Ve(t, "default", { value: e, enumerable: true }) : t;
+  if (e && typeof e === "object" || typeof e === "function") {
+    for (let i of Gt(e))
+      if (!Ye.call(s, i))
+        Ve(s, i, { get: Ut.bind(e, i), enumerable: true });
+  }
+  if (n)
+    o.set(e, s);
+  return s;
+};
+var me = (e, r) => () => (r || e((r = { exports: {} }).exports, r), r.exports);
+var Se = me(function(Qn, dt) {
+  var lt = { DOT_LITERAL: "\\.", PLUS_LITERAL: "\\+", QMARK_LITERAL: "\\?", SLASH_LITERAL: "\\/", ONE_CHAR: "(?=.)", QMARK: "[^/]", END_ANCHOR: "(?:\\/|$)", DOTS_SLASH: "\\.{1,2}(?:\\/|$)", NO_DOT: "(?!\\.)", NO_DOTS: "(?!(?:^|\\/)\\.{1,2}(?:\\/|$))", NO_DOT_SLASH: "(?!\\.{0,1}(?:\\/|$))", NO_DOTS_SLASH: "(?!\\.{1,2}(?:\\/|$))", QMARK_NO_DOT: "[^.\\/]", STAR: "[^/]*?", START_ANCHOR: "(?:^|\\/)", SEP: "/" }, wr = { ...lt, SLASH_LITERAL: "[\\\\/]", QMARK: "[^\\\\/]", STAR: "[^\\\\/]*?", DOTS_SLASH: "\\.{1,2}(?:[\\\\/]|$)", NO_DOT: "(?!\\.)", NO_DOTS: "(?!(?:^|[\\\\/])\\.{1,2}(?:[\\\\/]|$))", NO_DOT_SLASH: "(?!\\.{0,1}(?:[\\\\/]|$))", NO_DOTS_SLASH: "(?!\\.{1,2}(?:[\\\\/]|$))", QMARK_NO_DOT: "[^.\\\\/]", START_ANCHOR: "(?:^|[\\\\/])", END_ANCHOR: "(?:[\\\\/]|$)", SEP: "\\" }, Or = { __proto__: null, alnum: "a-zA-Z0-9", alpha: "a-zA-Z", ascii: "\\x00-\\x7F", blank: " \\t", cntrl: "\\x00-\\x1F\\x7F", digit: "0-9", graph: "\\x21-\\x7E", lower: "a-z", print: "\\x20-\\x7E ", punct: "\\-!\"#$%&'()\\*+,./:;<=>?@[\\]^_`{|}~", space: " \\t\\r\\n\\v\\f", upper: "A-Z", word: "A-Za-z0-9_", xdigit: "A-Fa-f0-9" };
+  dt.exports = { DEFAULT_MAX_EXTGLOB_RECURSION: 0, MAX_LENGTH: 65536, POSIX_REGEX_SOURCE: Or, REGEX_BACKSLASH: /\\(?![*+?^${}(|)[\]])/g, REGEX_NON_SPECIAL_CHARS: /^[^@![\].,$*+?^{}()|\\/]+/, REGEX_SPECIAL_CHARS: /[-*+?.^${}(|)[\]]/, REGEX_SPECIAL_CHARS_BACKREF: /(\\?)((\W)(\3*))/g, REGEX_SPECIAL_CHARS_GLOBAL: /([-*+?.^${}(|)[\]])/g, REGEX_REMOVE_BACKSLASH: /(?:\[.*?[^\\]\]|\\(?=.))/g, REPLACEMENTS: { __proto__: null, "***": "*", "**/**": "**", "**/**/**": "**" }, CHAR_0: 48, CHAR_9: 57, CHAR_UPPERCASE_A: 65, CHAR_LOWERCASE_A: 97, CHAR_UPPERCASE_Z: 90, CHAR_LOWERCASE_Z: 122, CHAR_LEFT_PARENTHESES: 40, CHAR_RIGHT_PARENTHESES: 41, CHAR_ASTERISK: 42, CHAR_AMPERSAND: 38, CHAR_AT: 64, CHAR_BACKWARD_SLASH: 92, CHAR_CARRIAGE_RETURN: 13, CHAR_CIRCUMFLEX_ACCENT: 94, CHAR_COLON: 58, CHAR_COMMA: 44, CHAR_DOT: 46, CHAR_DOUBLE_QUOTE: 34, CHAR_EQUAL: 61, CHAR_EXCLAMATION_MARK: 33, CHAR_FORM_FEED: 12, CHAR_FORWARD_SLASH: 47, CHAR_GRAVE_ACCENT: 96, CHAR_HASH: 35, CHAR_HYPHEN_MINUS: 45, CHAR_LEFT_ANGLE_BRACKET: 60, CHAR_LEFT_CURLY_BRACE: 123, CHAR_LEFT_SQUARE_BRACKET: 91, CHAR_LINE_FEED: 10, CHAR_NO_BREAK_SPACE: 160, CHAR_PERCENT: 37, CHAR_PLUS: 43, CHAR_QUESTION_MARK: 63, CHAR_RIGHT_ANGLE_BRACKET: 62, CHAR_RIGHT_CURLY_BRACE: 125, CHAR_RIGHT_SQUARE_BRACKET: 93, CHAR_SEMICOLON: 59, CHAR_SINGLE_QUOTE: 39, CHAR_SPACE: 32, CHAR_TAB: 9, CHAR_UNDERSCORE: 95, CHAR_VERTICAL_LINE: 124, CHAR_ZERO_WIDTH_NOBREAK_SPACE: 65279, extglobChars(e) {
+    return { "!": { type: "negate", open: "(?:(?!(?:", close: `))${e.STAR})` }, "?": { type: "qmark", open: "(?:", close: ")?" }, "+": { type: "plus", open: "(?:", close: ")+" }, "*": { type: "star", open: "(?:", close: ")*" }, "@": { type: "at", open: "(?:", close: ")" } };
+  }, globChars(e) {
+    return e === true ? wr : lt;
+  } };
+});
+var Te = me(function(kr) {
+  var { REGEX_BACKSLASH: vr, REGEX_REMOVE_BACKSLASH: Tr, REGEX_SPECIAL_CHARS: Ir, REGEX_SPECIAL_CHARS_GLOBAL: Cr } = Se();
+  kr.isObject = (e) => e !== null && typeof e === "object" && !Array.isArray(e);
+  kr.hasRegexChars = (e) => Ir.test(e);
+  kr.isRegexChar = (e) => e.length === 1 && kr.hasRegexChars(e);
+  kr.escapeRegex = (e) => e.replace(Cr, "\\$1");
+  kr.toPosixSlashes = (e) => e.replace(vr, "/");
+  kr.isWindows = () => {
+    if (typeof navigator < "u" && navigator.platform) {
+      let e = navigator.platform.toLowerCase();
+      return e === "win32" || e === "windows";
+    }
+    return false;
+  };
+  kr.removeBackslashes = (e) => e.replace(Tr, (r) => r === "\\" ? "" : r);
+  kr.escapeLast = (e, r, t) => {
+    let n = e.lastIndexOf(r, t);
+    if (n === -1)
+      return e;
+    if (e[n - 1] === "\\")
+      return kr.escapeLast(e, r, n - 1);
+    return `${e.slice(0, n)}\\${e.slice(n)}`;
+  };
+  kr.removePrefix = (e, r = {}) => {
+    let t = e;
+    if (t.startsWith("./"))
+      t = t.slice(2), r.prefix = "./";
+    return t;
+  };
+  kr.wrapOutput = (e, r = {}, t = {}) => {
+    let n = t.contains ? "" : "^", o = t.contains ? "" : "$", u = `${n}(?:${e})${o}`;
+    if (r.negated === true)
+      u = `(?:^(?!${u}).*$)`;
+    return u;
+  };
+  kr.basename = (e, { windows: r } = {}) => {
+    let t = e.split(r ? /[\\/]/ : "/"), n = t[t.length - 1];
+    if (n === "")
+      return t[t.length - 2];
+    return n;
+  };
+});
+var xt = me(function(Vn, _t) {
+  var Ce = Te(), { CHAR_ASTERISK: Be, CHAR_AT: Gr, CHAR_BACKWARD_SLASH: xe, CHAR_COMMA: Ur, CHAR_DOT: je, CHAR_EXCLAMATION_MARK: Ge, CHAR_FORWARD_SLASH: gt, CHAR_LEFT_CURLY_BRACE: Ue, CHAR_LEFT_PARENTHESES: Ie, CHAR_LEFT_SQUARE_BRACKET: qr, CHAR_PLUS: Fr, CHAR_QUESTION_MARK: ht, CHAR_RIGHT_CURLY_BRACE: Kr, CHAR_RIGHT_PARENTHESES: $t, CHAR_RIGHT_SQUARE_BRACKET: Wr } = Se(), mt = (e) => e === gt || e === xe, yt = (e) => {
+    if (e.isPrefix !== true)
+      e.depth = e.isGlobstar ? 1 / 0 : 1;
+  }, Xr = (e, r) => {
+    let t = r || {}, n = e.length - 1, o = t.parts === true || t.tokens === true || t.scanToEnd === true, u = [], s = [], i = [], h2 = e, N = -1, _ = 0, w = 0, M = false, K = false, g = false, k = false, ee = false, q = false, L = false, H = false, ne = false, X = false, T = 0, V, A, I = { value: "", depth: 0, isGlob: false }, a = () => N >= n, Q = () => h2.charCodeAt(N + 1), C = () => (V = A, h2.charCodeAt(++N));
+    while (N < n) {
+      A = C();
+      let P;
+      if (A === xe) {
+        if (L = I.backslashes = true, A = C(), A === Ue)
+          q = true;
+        continue;
+      }
+      if (q === true || A === Ue) {
+        T++;
+        while (a() !== true && (A = C())) {
+          if (A === xe) {
+            L = I.backslashes = true, C();
+            continue;
+          }
+          if (A === Ue) {
+            T++;
+            continue;
+          }
+          if (q !== true && A === je && (A = C()) === je) {
+            if (M = I.isBrace = true, g = I.isGlob = true, X = true, o === true)
+              continue;
+            break;
+          }
+          if (q !== true && A === Ur) {
+            if (M = I.isBrace = true, g = I.isGlob = true, X = true, o === true)
+              continue;
+            break;
+          }
+          if (A === Kr) {
+            if (T--, T === 0) {
+              q = false, M = I.isBrace = true, X = true;
+              break;
+            }
+          }
+        }
+        if (o === true)
+          continue;
+        break;
+      }
+      if (A === gt) {
+        if (u.push(N), s.push(I), I = { value: "", depth: 0, isGlob: false }, X === true)
+          continue;
+        if (V === je && N === _ + 1) {
+          _ += 2;
+          continue;
+        }
+        w = N + 1;
+        continue;
+      }
+      if (t.noext !== true) {
+        if ((A === Fr || A === Gr || A === Be || A === ht || A === Ge) === true && Q() === Ie) {
+          if (g = I.isGlob = true, k = I.isExtglob = true, X = true, A === Ge && N === _)
+            ne = true;
+          if (o === true) {
+            let te = 0;
+            while (a() !== true && (A = C())) {
+              if (A === xe) {
+                L = I.backslashes = true, C();
+                continue;
+              }
+              if (A === Ie) {
+                te++;
+                continue;
+              }
+              if (A === $t && --te === 0) {
+                X = true;
+                break;
+              }
+            }
+            continue;
+          }
+          break;
+        }
+      }
+      if (A === Be) {
+        if (V === Be)
+          ee = I.isGlobstar = true;
+        if (g = I.isGlob = true, X = true, o === true)
+          continue;
+        break;
+      }
+      if (A === ht) {
+        if (g = I.isGlob = true, X = true, o === true)
+          continue;
+        break;
+      }
+      if (A === qr) {
+        while (a() !== true && (P = C())) {
+          if (P === xe) {
+            L = I.backslashes = true, C();
+            continue;
+          }
+          if (P === Wr) {
+            K = I.isBracket = true, g = I.isGlob = true, X = true;
+            break;
+          }
+        }
+        if (o === true)
+          continue;
+        break;
+      }
+      if (t.nonegate !== true && A === Ge && N === _) {
+        H = I.negated = true, _++;
+        continue;
+      }
+      if (t.noparen !== true && A === Ie) {
+        if (g = I.isGlob = true, o === true) {
+          let J = 1;
+          while (a() !== true && (A = C())) {
+            if (A === xe) {
+              L = I.backslashes = true, C();
+              continue;
+            }
+            if (A === Ie) {
+              J++;
+              continue;
+            }
+            if (A === $t && --J === 0) {
+              X = true;
+              break;
+            }
+          }
+          continue;
+        }
+        break;
+      }
+      if (g === true) {
+        if (X = true, o === true)
+          continue;
+        break;
+      }
+    }
+    if (t.noext === true)
+      k = false, g = false;
+    let B = h2, l = "", f = "";
+    if (_ > 0)
+      l = h2.slice(0, _), h2 = h2.slice(_), w -= _;
+    if (B && g === true && w > 0)
+      B = h2.slice(0, w), f = h2.slice(w);
+    else if (g === true)
+      B = "", f = h2;
+    else
+      B = h2;
+    if (B && B !== "" && B !== "/" && B !== h2) {
+      if (mt(B.charCodeAt(B.length - 1)))
+        B = B.slice(0, -1);
+    }
+    if (t.unescape === true) {
+      if (f)
+        f = Ce.removeBackslashes(f);
+      if (B && L === true)
+        B = Ce.removeBackslashes(B);
+    }
+    let Y = { prefix: l, input: e, start: _, base: B, glob: f, isBrace: M, isBracket: K, isGlob: g, isExtglob: k, isGlobstar: ee, negated: H, negatedExtglob: ne };
+    if (t.tokens === true) {
+      if (Y.maxDepth = 0, !mt(A))
+        s.push(I);
+      Y.tokens = s;
+    }
+    if (t.parts === true || t.tokens === true) {
+      let P;
+      for (let W = 0;W < u.length; W++) {
+        let ue = P !== undefined ? P + 1 : _, $e = u[W], fe = e.slice(ue, $e);
+        if (t.tokens) {
+          if (W === 0 && _ !== 0)
+            s[W].isPrefix = true, s[W].value = l;
+          else
+            s[W].value = fe;
+          yt(s[W]), Y.maxDepth += s[W].depth;
+        }
+        if ($e >= _)
+          i.push(fe), P = $e;
+      }
+      let J = P !== undefined ? P + 1 : _, te = e.slice(J);
+      if (i.push(te), t.tokens && P && P + 1 < e.length)
+        s[s.length - 1].value = te, yt(s[s.length - 1]), Y.maxDepth += s[s.length - 1].depth;
+      Y.slashes = u, Y.parts = i;
+    }
+    return Y;
+  };
+  _t.exports = Xr;
+});
+var St = me(function(Yn, Et) {
+  var he = Se(), G = Te(), { MAX_LENGTH: ke, POSIX_REGEX_SOURCE: Qr, REGEX_NON_SPECIAL_CHARS: Zr, REGEX_SPECIAL_CHARS_BACKREF: Vr, REPLACEMENTS: At } = he, Yr = (e, r) => {
+    if (typeof r.expandRange === "function")
+      return r.expandRange(...e, r);
+    e.sort();
+    let t = `[${e.join("-")}]`;
+    try {
+      new RegExp(t);
+    } catch (n) {
+      return e.map((o) => G.escapeRegex(o)).join("..");
+    }
+    return t;
+  }, Ae = (e, r) => `Missing ${e}: "${r}" - use "\\\\${r}" to match literal characters`, Rt = (e) => {
+    let r = [], t = 0, n = 0, o = 0, u = "", s = false;
+    for (let i of e) {
+      if (s === true) {
+        u += i, s = false;
+        continue;
+      }
+      if (i === "\\") {
+        u += i, s = true;
+        continue;
+      }
+      if (i === '"') {
+        o = o === 1 ? 0 : 1, u += i;
+        continue;
+      }
+      if (o === 0) {
+        if (i === "[")
+          t++;
+        else if (i === "]" && t > 0)
+          t--;
+        else if (t === 0) {
+          if (i === "(")
+            n++;
+          else if (i === ")" && n > 0)
+            n--;
+          else if (i === "|" && n === 0) {
+            r.push(u), u = "";
+            continue;
+          }
+        }
+      }
+      u += i;
+    }
+    return r.push(u), r;
+  }, Jr = (e) => {
+    let r = false;
+    for (let t of e) {
+      if (r === true) {
+        r = false;
+        continue;
+      }
+      if (t === "\\") {
+        r = true;
+        continue;
+      }
+      if (/[?*+@!()[\]{}]/.test(t))
+        return false;
+    }
+    return true;
+  }, Fe = (e) => {
+    let r = e.trim(), t = true;
+    while (t === true)
+      if (t = false, /^@\([^\\()[\]{}|]+\)$/.test(r))
+        r = r.slice(2, -1), t = true;
+    if (!Jr(r))
+      return;
+    return r.replace(/\\(.)/g, "$1");
+  }, en = (e) => {
+    let r = e.map(Fe).filter(Boolean);
+    for (let t = 0;t < r.length; t++)
+      for (let n = t + 1;n < r.length; n++) {
+        let o = r[t], u = r[n], s = o[0];
+        if (!s || o !== s.repeat(o.length) || u !== s.repeat(u.length))
+          continue;
+        if (o === u || o.startsWith(u) || u.startsWith(o))
+          return true;
+      }
+    return false;
+  }, qe = (e, r = true) => {
+    if (e[0] !== "+" && e[0] !== "*" || e[1] !== "(")
+      return;
+    let t = 0, n = 0, o = 0, u = false;
+    for (let s = 1;s < e.length; s++) {
+      let i = e[s];
+      if (u === true) {
+        u = false;
+        continue;
+      }
+      if (i === "\\") {
+        u = true;
+        continue;
+      }
+      if (i === '"') {
+        o = o === 1 ? 0 : 1;
+        continue;
+      }
+      if (o === 1)
+        continue;
+      if (i === "[") {
+        t++;
+        continue;
+      }
+      if (i === "]" && t > 0) {
+        t--;
+        continue;
+      }
+      if (t > 0)
+        continue;
+      if (i === "(") {
+        n++;
+        continue;
+      }
+      if (i === ")") {
+        if (n--, n === 0) {
+          if (r === true && s !== e.length - 1)
+            return;
+          return { type: e[0], body: e.slice(2, s), end: s };
+        }
+      }
+    }
+  }, tn = (e) => `${e.length === 1 ? G.escapeRegex(e[0]) : `[${e.map((t) => G.escapeRegex(t)).join("")}]`}*`, rn = (e) => {
+    let r = 0, t = [];
+    while (r < e.length) {
+      let n = qe(e.slice(r), false);
+      if (!n || n.type !== "*")
+        return;
+      let o = Rt(n.body).map((s) => s.trim());
+      if (o.length !== 1)
+        return;
+      let u = Fe(o[0]);
+      if (!u || u.length !== 1)
+        return;
+      t.push(u), r += n.end + 1;
+    }
+    if (t.length < 1)
+      return;
+    return t;
+  }, nn = (e) => {
+    let r = 0, t = e.trim(), n = qe(t);
+    while (n)
+      r++, t = n.body.trim(), n = qe(t);
+    return r;
+  }, sn = (e, r) => {
+    if (r.maxExtglobRecursion === false)
+      return { risky: false };
+    let t = typeof r.maxExtglobRecursion === "number" ? r.maxExtglobRecursion : he.DEFAULT_MAX_EXTGLOB_RECURSION, n = Rt(e).map((i) => i.trim());
+    if (n.length > 1) {
+      if (n.some((i) => i === "") || n.some((i) => /^[*?]+$/.test(i)) || en(n))
+        return { risky: true };
+    }
+    let o = [], u = false, s = true;
+    for (let i of n) {
+      let h2 = rn(i);
+      if (h2) {
+        u = true, o.push(...h2);
+        continue;
+      }
+      let N = Fe(i);
+      if (N && N.length === 1) {
+        o.push(N);
+        continue;
+      }
+      if (s = false, nn(i) > t)
+        return { risky: true };
+    }
+    if (u)
+      return s ? { risky: true, safeOutput: tn([...new Set(o)]) } : { risky: true };
+    return { risky: false };
+  }, Ke = (e, r) => {
+    if (typeof e !== "string")
+      throw TypeError("Expected a string");
+    e = At[e] || e;
+    let t = { ...r }, n = typeof t.maxLength === "number" ? Math.min(ke, t.maxLength) : ke, o = e.length;
+    if (o > n)
+      throw SyntaxError(`Input length: ${o}, exceeds maximum allowed length: ${n}`);
+    let u = { type: "bos", value: "", output: t.prepend || "" }, s = [u], i = t.capture ? "" : "?:", h2 = he.globChars(t.windows), N = he.extglobChars(h2), { DOT_LITERAL: _, PLUS_LITERAL: w, SLASH_LITERAL: M, ONE_CHAR: K, DOTS_SLASH: g, NO_DOT: k, NO_DOT_SLASH: ee, NO_DOTS_SLASH: q, QMARK: L, QMARK_NO_DOT: H, STAR: ne, START_ANCHOR: X } = h2, T = (p) => `(${i}(?:(?!${X}${p.dot ? g : _}).)*?)`, V = t.dot ? "" : k, A = t.dot ? L : H, I = t.bash === true ? T(t) : ne;
+    if (t.capture)
+      I = `(${I})`;
+    if (typeof t.noext === "boolean")
+      t.noextglob = t.noext;
+    let a = { input: e, index: -1, start: 0, dot: t.dot === true, consumed: "", output: "", prefix: "", backtrack: false, negated: false, brackets: 0, braces: 0, parens: 0, quotes: 0, globstar: false, tokens: s };
+    e = G.removePrefix(e, a), o = e.length;
+    let Q = [], C = [], B = [], l = u, f, Y = () => a.index === o - 1, P = a.peek = (p = 1) => e[a.index + p], J = a.advance = () => e[++a.index] || "", te = () => e.slice(a.index + 1), W = (p = "", j = 0) => {
+      a.consumed += p, a.index += j;
+    }, ue = (p) => {
+      a.output += p.output != null ? p.output : p.value, W(p.value);
+    }, $e = () => {
+      let p = 1;
+      while (P() === "!" && (P(2) !== "(" || P(3) === "?"))
+        J(), a.start++, p++;
+      if (p % 2 === 0)
+        return false;
+      return a.negated = true, a.start++, true;
+    }, fe = (p) => {
+      a[p]++, B.push(p);
+    }, ae = (p) => {
+      a[p]--, B.pop();
+    }, R = (p) => {
+      if (l.type === "globstar") {
+        let j = a.braces > 0 && (p.type === "comma" || p.type === "brace"), d = p.extglob === true || Q.length && (p.type === "pipe" || p.type === "paren");
+        if (p.type !== "slash" && p.type !== "paren" && !j && !d)
+          a.output = a.output.slice(0, -l.output.length), l.type = "star", l.value = "*", l.output = I, a.output += l.output;
+      }
+      if (Q.length && p.type !== "paren")
+        Q[Q.length - 1].inner += p.value;
+      if (p.value || p.output)
+        ue(p);
+      if (l && l.type === "text" && p.type === "text") {
+        l.output = (l.output || l.value) + p.value, l.value += p.value;
+        return;
+      }
+      p.prev = l, s.push(p), l = p;
+    }, de = (p, j) => {
+      let d = { ...N[j], conditions: 1, inner: "" };
+      d.prev = l, d.parens = a.parens, d.output = a.output, d.startIndex = a.index, d.tokensIndex = s.length;
+      let O = (t.capture ? "(" : "") + d.open;
+      fe("parens"), R({ type: p, value: j, output: a.output ? "" : K }), R({ type: "paren", extglob: true, value: J(), output: O }), Q.push(d);
+    }, Re = (p) => {
+      let j = e.slice(p.startIndex, a.index + 1), d = e.slice(p.startIndex + 2, a.index), O = sn(d, t);
+      if ((p.type === "plus" || p.type === "star") && O.risky) {
+        let z = O.safeOutput ? (p.output ? "" : K) + (t.capture ? `(${O.safeOutput})` : O.safeOutput) : undefined, re = s[p.tokensIndex];
+        re.type = "text", re.value = j, re.output = z || G.escapeRegex(j);
+        for (let ie = p.tokensIndex + 1;ie < s.length; ie++)
+          s[ie].value = "", s[ie].output = "", delete s[ie].suffix;
+        a.output = p.output + re.output, a.backtrack = true, R({ type: "paren", extglob: true, value: f, output: "" }), ae("parens");
+        return;
+      }
+      let D = p.close + (t.capture ? ")" : ""), U;
+      if (p.type === "negate") {
+        let z = I;
+        if (p.inner && p.inner.length > 1 && p.inner.includes("/"))
+          z = T(t);
+        if (z !== I || Y() || /^\)+$/.test(te()))
+          D = p.close = `)$))${z}`;
+        if (p.inner.includes("*") && (U = te()) && /^\.[^\\/.]+$/.test(U)) {
+          let re = Ke(U, { ...r, fastpaths: false }).output;
+          D = p.close = `)${re})${z})`;
+        }
+        if (p.prev.type === "bos")
+          a.negatedExtglob = true;
+      }
+      R({ type: "paren", extglob: true, value: f, output: D }), ae("parens");
+    };
+    if (t.fastpaths !== false && !/(^[*!]|[/()[\]{}"])/.test(e)) {
+      let p = false, j = e.replace(Vr, (d, O, D, U, z, re) => {
+        if (U === "\\")
+          return p = true, d;
+        if (U === "?") {
+          if (O)
+            return O + U + (z ? L.repeat(z.length) : "");
+          if (re === 0)
+            return A + (z ? L.repeat(z.length) : "");
+          return L.repeat(D.length);
+        }
+        if (U === ".")
+          return _.repeat(D.length);
+        if (U === "*") {
+          if (O)
+            return O + U + (z ? I : "");
+          return I;
+        }
+        return O ? d : `\\${d}`;
+      });
+      if (p === true)
+        if (t.unescape === true)
+          j = j.replace(/\\/g, "");
+        else
+          j = j.replace(/\\+/g, (d) => d.length % 2 === 0 ? "\\\\" : d ? "\\" : "");
+      if (j === e && t.contains === true)
+        return a.output = e, a;
+      return a.output = G.wrapOutput(j, a, r), a;
+    }
+    while (!Y()) {
+      if (f = J(), f === "\x00")
+        continue;
+      if (f === "\\") {
+        let d = P();
+        if (d === "/" && t.bash !== true)
+          continue;
+        if (d === "." || d === ";")
+          continue;
+        if (!d) {
+          f += "\\", R({ type: "text", value: f });
+          continue;
+        }
+        let O = /^\\+/.exec(te()), D = 0;
+        if (O && O[0].length > 2) {
+          if (D = O[0].length, a.index += D, D % 2 !== 0)
+            f += "\\";
+        }
+        if (t.unescape === true)
+          f = J();
+        else
+          f += J();
+        if (a.brackets === 0) {
+          R({ type: "text", value: f });
+          continue;
+        }
+      }
+      if (a.brackets > 0 && (f !== "]" || l.value === "[" || l.value === "[^")) {
+        if (t.posix !== false && f === ":") {
+          let d = l.value.slice(1);
+          if (d.includes("[")) {
+            if (l.posix = true, d.includes(":")) {
+              let O = l.value.lastIndexOf("["), D = l.value.slice(0, O), U = l.value.slice(O + 2), z = Qr[U];
+              if (z) {
+                if (l.value = D + z, a.backtrack = true, J(), !u.output && s.indexOf(l) === 1)
+                  u.output = K;
+                continue;
+              }
+            }
+          }
+        }
+        if (f === "[" && P() !== ":" || f === "-" && P() === "]")
+          f = `\\${f}`;
+        if (f === "]" && (l.value === "[" || l.value === "[^"))
+          f = `\\${f}`;
+        if (t.posix === true && f === "!" && l.value === "[")
+          f = "^";
+        l.value += f, ue({ value: f });
+        continue;
+      }
+      if (a.quotes === 1 && f !== '"') {
+        f = G.escapeRegex(f), l.value += f, ue({ value: f });
+        continue;
+      }
+      if (f === '"') {
+        if (a.quotes = a.quotes === 1 ? 0 : 1, t.keepQuotes === true)
+          R({ type: "text", value: f });
+        continue;
+      }
+      if (f === "(") {
+        fe("parens"), R({ type: "paren", value: f });
+        continue;
+      }
+      if (f === ")") {
+        if (a.parens === 0 && t.strictBrackets === true)
+          throw SyntaxError(Ae("opening", "("));
+        let d = Q[Q.length - 1];
+        if (d && a.parens === d.parens + 1) {
+          Re(Q.pop());
+          continue;
+        }
+        R({ type: "paren", value: f, output: a.parens ? ")" : "\\)" }), ae("parens");
+        continue;
+      }
+      if (f === "[") {
+        if (t.nobracket === true || !te().includes("]")) {
+          if (t.nobracket !== true && t.strictBrackets === true)
+            throw SyntaxError(Ae("closing", "]"));
+          f = `\\${f}`;
+        } else
+          fe("brackets");
+        R({ type: "bracket", value: f });
+        continue;
+      }
+      if (f === "]") {
+        if (t.nobracket === true || l && l.type === "bracket" && l.value.length === 1) {
+          R({ type: "text", value: f, output: `\\${f}` });
+          continue;
+        }
+        if (a.brackets === 0) {
+          if (t.strictBrackets === true)
+            throw SyntaxError(Ae("opening", "["));
+          R({ type: "text", value: f, output: `\\${f}` });
+          continue;
+        }
+        ae("brackets");
+        let d = l.value.slice(1);
+        if (l.posix !== true && d[0] === "^" && !d.includes("/"))
+          f = `/${f}`;
+        if (l.value += f, ue({ value: f }), t.literalBrackets === false || G.hasRegexChars(d))
+          continue;
+        let O = G.escapeRegex(l.value);
+        if (a.output = a.output.slice(0, -l.value.length), t.literalBrackets === true) {
+          a.output += O, l.value = O;
+          continue;
+        }
+        l.value = `(${i}${O}|${l.value})`, a.output += l.value;
+        continue;
+      }
+      if (f === "{" && t.nobrace !== true) {
+        fe("braces");
+        let d = { type: "brace", value: f, output: "(", outputIndex: a.output.length, tokensIndex: a.tokens.length };
+        C.push(d), R(d);
+        continue;
+      }
+      if (f === "}") {
+        let d = C[C.length - 1];
+        if (t.nobrace === true || !d) {
+          R({ type: "text", value: f, output: f });
+          continue;
+        }
+        let O = ")";
+        if (d.dots === true) {
+          let D = s.slice(), U = [];
+          for (let z = D.length - 1;z >= 0; z--) {
+            if (s.pop(), D[z].type === "brace")
+              break;
+            if (D[z].type !== "dots")
+              U.unshift(D[z].value);
+          }
+          O = Yr(U, t), a.backtrack = true;
+        }
+        if (d.comma !== true && d.dots !== true) {
+          let D = a.output.slice(0, d.outputIndex), U = a.tokens.slice(d.tokensIndex);
+          d.value = d.output = "\\{", f = O = "\\}", a.output = D;
+          for (let z of U)
+            a.output += z.output || z.value;
+        }
+        R({ type: "brace", value: f, output: O }), ae("braces"), C.pop();
+        continue;
+      }
+      if (f === "|") {
+        if (Q.length > 0)
+          Q[Q.length - 1].conditions++;
+        R({ type: "text", value: f });
+        continue;
+      }
+      if (f === ",") {
+        let d = f, O = C[C.length - 1];
+        if (O && B[B.length - 1] === "braces")
+          O.comma = true, d = "|";
+        R({ type: "comma", value: f, output: d });
+        continue;
+      }
+      if (f === "/") {
+        if (l.type === "dot" && a.index === a.start + 1) {
+          a.start = a.index + 1, a.consumed = "", a.output = "", s.pop(), l = u;
+          continue;
+        }
+        R({ type: "slash", value: f, output: M });
+        continue;
+      }
+      if (f === ".") {
+        if (a.braces > 0 && l.type === "dot") {
+          if (l.value === ".")
+            l.output = _;
+          let d = C[C.length - 1];
+          l.type = "dots", l.output += f, l.value += f, d.dots = true;
+          continue;
+        }
+        if (a.braces + a.parens === 0 && l.type !== "bos" && l.type !== "slash") {
+          R({ type: "text", value: f, output: _ });
+          continue;
+        }
+        R({ type: "dot", value: f, output: _ });
+        continue;
+      }
+      if (f === "?") {
+        if (!(l && l.value === "(") && t.noextglob !== true && P() === "(" && P(2) !== "?") {
+          de("qmark", f);
+          continue;
+        }
+        if (l && l.type === "paren") {
+          let O = P(), D = f;
+          if (l.value === "(" && !/[!=<:]/.test(O) || O === "<" && !/<([!=]|\w+>)/.test(te()))
+            D = `\\${f}`;
+          R({ type: "text", value: f, output: D });
+          continue;
+        }
+        if (t.dot !== true && (l.type === "slash" || l.type === "bos")) {
+          R({ type: "qmark", value: f, output: H });
+          continue;
+        }
+        R({ type: "qmark", value: f, output: L });
+        continue;
+      }
+      if (f === "!") {
+        if (t.noextglob !== true && P() === "(") {
+          if (P(2) !== "?" || !/[!=<:]/.test(P(3))) {
+            de("negate", f);
+            continue;
+          }
+        }
+        if (t.nonegate !== true && a.index === 0) {
+          $e();
+          continue;
+        }
+      }
+      if (f === "+") {
+        if (t.noextglob !== true && P() === "(" && P(2) !== "?") {
+          de("plus", f);
+          continue;
+        }
+        if (l && l.value === "(" || t.regex === false) {
+          R({ type: "plus", value: f, output: w });
+          continue;
+        }
+        if (l && (l.type === "bracket" || l.type === "paren" || l.type === "brace") || a.parens > 0) {
+          R({ type: "plus", value: f });
+          continue;
+        }
+        R({ type: "plus", value: w });
+        continue;
+      }
+      if (f === "@") {
+        if (t.noextglob !== true && P() === "(" && P(2) !== "?") {
+          R({ type: "at", extglob: true, value: f, output: "" });
+          continue;
+        }
+        R({ type: "text", value: f });
+        continue;
+      }
+      if (f !== "*") {
+        if (f === "$" || f === "^")
+          f = `\\${f}`;
+        let d = Zr.exec(te());
+        if (d)
+          f += d[0], a.index += d[0].length;
+        R({ type: "text", value: f });
+        continue;
+      }
+      if (l && (l.type === "globstar" || l.star === true)) {
+        l.type = "star", l.star = true, l.value += f, l.output = I, a.backtrack = true, a.globstar = true, W(f);
+        continue;
+      }
+      let p = te();
+      if (t.noextglob !== true && /^\([^?]/.test(p)) {
+        de("star", f);
+        continue;
+      }
+      if (l.type === "star") {
+        if (t.noglobstar === true) {
+          W(f);
+          continue;
+        }
+        let d = l.prev, O = d.prev, D = d.type === "slash" || d.type === "bos", U = O && (O.type === "star" || O.type === "globstar");
+        if (t.bash === true && (!D || p[0] && p[0] !== "/")) {
+          R({ type: "star", value: f, output: "" });
+          continue;
+        }
+        let z = a.braces > 0 && (d.type === "comma" || d.type === "brace"), re = Q.length && (d.type === "pipe" || d.type === "paren");
+        if (!D && d.type !== "paren" && !z && !re) {
+          R({ type: "star", value: f, output: "" });
+          continue;
+        }
+        while (p.slice(0, 3) === "/**") {
+          let pe = e[a.index + 4];
+          if (pe && pe !== "/")
+            break;
+          p = p.slice(3), W("/**", 3);
+        }
+        let ie = Y() || a.parens > 0 && p === ")".repeat(a.parens) && !Q.some((pe) => pe.type === "negate");
+        if (d.type === "bos" && Y()) {
+          l.type = "globstar", l.value += f, l.output = T(t), a.output = l.output, a.globstar = true, W(f);
+          continue;
+        }
+        if (d.type === "slash" && d.prev.type !== "bos" && !U && ie) {
+          a.output = a.output.slice(0, -(d.output + l.output).length), d.output = `(?:${d.output}`, l.type = "globstar", l.output = T(t) + (t.strictSlashes ? ")" : "|$)"), l.value += f, a.globstar = true, a.output += d.output + l.output, W(f);
+          continue;
+        }
+        if (d.type === "slash" && d.prev.type !== "bos" && p[0] === "/") {
+          let pe = p[1] !== undefined ? "|$" : "";
+          a.output = a.output.slice(0, -(d.output + l.output).length), d.output = `(?:${d.output}`, l.type = "globstar", l.output = `${T(t)}${M}|${M}${pe})`, l.value += f, a.output += d.output + l.output, a.globstar = true, W(f + J()), R({ type: "slash", value: "/", output: "" });
+          continue;
+        }
+        if (d.type === "bos" && p[0] === "/") {
+          l.type = "globstar", l.value += f, l.output = `(?:^|${M}|${T(t)}${M})`, a.output = l.output, a.globstar = true, W(f + J()), R({ type: "slash", value: "/", output: "" });
+          continue;
+        }
+        a.output = a.output.slice(0, -l.output.length), l.type = "globstar", l.output = T(t), l.value += f, a.output += l.output, a.globstar = true, W(f);
+        continue;
+      }
+      let j = { type: "star", value: f, output: I };
+      if (t.bash === true) {
+        if (j.output = ".*?", l.type === "bos" || l.type === "slash")
+          j.output = V + j.output;
+        R(j);
+        continue;
+      }
+      if (l && (l.type === "bracket" || l.type === "paren") && t.regex === true) {
+        j.output = f, R(j);
+        continue;
+      }
+      if (a.index === a.start || l.type === "slash" || l.type === "dot") {
+        if (l.type === "dot")
+          a.output += ee, l.output += ee;
+        else if (t.dot === true)
+          a.output += q, l.output += q;
+        else
+          a.output += V, l.output += V;
+        if (P() !== "*")
+          a.output += K, l.output += K;
+      }
+      R(j);
+    }
+    while (a.brackets > 0) {
+      if (t.strictBrackets === true)
+        throw SyntaxError(Ae("closing", "]"));
+      a.output = G.escapeLast(a.output, "["), ae("brackets");
+    }
+    while (a.parens > 0) {
+      if (t.strictBrackets === true)
+        throw SyntaxError(Ae("closing", ")"));
+      a.output = G.escapeLast(a.output, "("), ae("parens");
+    }
+    while (a.braces > 0) {
+      if (t.strictBrackets === true)
+        throw SyntaxError(Ae("closing", "}"));
+      a.output = G.escapeLast(a.output, "{"), ae("braces");
+    }
+    if (t.strictSlashes !== true && (l.type === "star" || l.type === "bracket"))
+      R({ type: "maybe_slash", value: "", output: `${M}?` });
+    if (a.backtrack === true) {
+      a.output = "";
+      for (let p of a.tokens)
+        if (a.output += p.output != null ? p.output : p.value, p.suffix)
+          a.output += p.suffix;
+    }
+    return a;
+  };
+  Ke.fastpaths = (e, r) => {
+    let t = { ...r }, n = typeof t.maxLength === "number" ? Math.min(ke, t.maxLength) : ke, o = e.length;
+    if (o > n)
+      throw SyntaxError(`Input length: ${o}, exceeds maximum allowed length: ${n}`);
+    e = At[e] || e;
+    let { DOT_LITERAL: u, SLASH_LITERAL: s, ONE_CHAR: i, DOTS_SLASH: h2, NO_DOT: N, NO_DOTS: _, NO_DOTS_SLASH: w, STAR: M, START_ANCHOR: K } = he.globChars(t.windows), g = t.dot ? _ : N, k = t.dot ? w : N, ee = t.capture ? "" : "?:", q = { negated: false, prefix: "" }, L = t.bash === true ? ".*?" : M;
+    if (t.capture)
+      L = `(${L})`;
+    let H = (V) => {
+      if (V.noglobstar === true)
+        return L;
+      return `(${ee}(?:(?!${K}${V.dot ? h2 : u}).)*?)`;
+    }, ne = (V) => {
+      switch (V) {
+        case "*":
+          return `${g}${i}${L}`;
+        case ".*":
+          return `${u}${i}${L}`;
+        case "*.*":
+          return `${g}${L}${u}${i}${L}`;
+        case "*/*":
+          return `${g}${L}${s}${i}${k}${L}`;
+        case "**":
+          return g + H(t);
+        case "**/*":
+          return `(?:${g}${H(t)}${s})?${k}${i}${L}`;
+        case "**/*.*":
+          return `(?:${g}${H(t)}${s})?${k}${L}${u}${i}${L}`;
+        case "**/.*":
+          return `(?:${g}${H(t)}${s})?${u}${i}${L}`;
+        default: {
+          let A = /^(.*?)\.(\w+)$/.exec(V);
+          if (!A)
+            return;
+          let I = ne(A[1]);
+          if (!I)
+            return;
+          return I + u + A[2];
+        }
+      }
+    }, X = G.removePrefix(e, q), T = ne(X);
+    if (T && t.strictSlashes !== true)
+      T += `${s}?`;
+    return T;
+  };
+  Et.exports = Ke;
+});
+var wt = me(function(Jn, bt) {
+  var on = xt(), He = St(), Ne = Te(), un = Se(), an = (e) => e && typeof e === "object" && !Array.isArray(e), Z = (e, r, t = false) => {
+    if (Array.isArray(e)) {
+      let _ = e.map((M) => Z(M, r, t));
+      return (M) => {
+        for (let K of _) {
+          let g = K(M);
+          if (g)
+            return g;
+        }
+        return false;
+      };
+    }
+    let n = an(e) && e.tokens && e.input;
+    if (e === "" || typeof e !== "string" && !n)
+      throw TypeError("Expected pattern to be a non-empty string");
+    let o = r || {}, u = o.windows, s = n ? Z.compileRe(e, r) : Z.makeRe(e, r, false, true), i = s.state;
+    delete s.state;
+    let h2 = () => false;
+    if (o.ignore) {
+      let _ = { ...r, ignore: null, onMatch: null, onResult: null };
+      h2 = Z(o.ignore, _, t);
+    }
+    let N = (_, w = false) => {
+      let { isMatch: M, match: K, output: g } = Z.test(_, s, r, { glob: e, posix: u }), k = { glob: e, state: i, regex: s, posix: u, input: _, output: g, match: K, isMatch: M };
+      if (typeof o.onResult === "function")
+        o.onResult(k);
+      if (M === false)
+        return k.isMatch = false, w ? k : false;
+      if (h2(_)) {
+        if (typeof o.onIgnore === "function")
+          o.onIgnore(k);
+        return k.isMatch = false, w ? k : false;
+      }
+      if (typeof o.onMatch === "function")
+        o.onMatch(k);
+      return w ? k : true;
+    };
+    if (t)
+      N.state = i;
+    return N;
+  };
+  Z.test = (e, r, t, { glob: n, posix: o } = {}) => {
+    if (typeof e !== "string")
+      throw TypeError("Expected input to be a string");
+    if (e === "")
+      return { isMatch: false, output: "" };
+    let u = t || {}, s = u.format || (o ? Ne.toPosixSlashes : null), i = e === n, h2 = i && s ? s(e) : e;
+    if (i === false)
+      h2 = s ? s(e) : e, i = h2 === n;
+    if (i === false || u.capture === true)
+      if (u.matchBase === true || u.basename === true)
+        i = Z.matchBase(e, r, t, o);
+      else
+        i = r.exec(h2);
+    return { isMatch: Boolean(i), match: i, output: h2 };
+  };
+  Z.matchBase = (e, r, t, n = t && t.windows) => (r instanceof RegExp ? r : Z.makeRe(r, t)).test(Ne.basename(e, { windows: n }));
+  Z.isMatch = (e, r, t) => Z(r, t)(e);
+  Z.parse = (e, r) => {
+    if (Array.isArray(e))
+      return e.map((t) => Z.parse(t, r));
+    return He(e, { ...r, fastpaths: false });
+  };
+  Z.scan = (e, r) => on(e, r);
+  Z.compileRe = (e, r, t = false, n = false) => {
+    if (t === true)
+      return e.output;
+    let o = r || {}, u = o.contains ? "" : "^", s = o.contains ? "" : "$", i = `${u}(?:${e.output})${s}`;
+    if (e && e.negated === true)
+      i = `^(?!${i}).*$`;
+    let h2 = Z.toRegex(i, r);
+    if (n === true)
+      h2.state = e;
+    return h2;
+  };
+  Z.makeRe = (e, r = {}, t = false, n = false) => {
+    if (!e || typeof e !== "string")
+      throw TypeError("Expected a non-empty string");
+    let o = { negated: false, fastpaths: true };
+    if (r.fastpaths !== false && (e[0] === "." || e[0] === "*"))
+      o.output = He.fastpaths(e, r);
+    if (!o.output)
+      o = He(e, r);
+    return Z.compileRe(o, r, t, n);
+  };
+  Z.toRegex = (e, r) => {
+    try {
+      let t = r || {};
+      return new RegExp(e, t.flags || (t.nocase ? "i" : ""));
+    } catch (t) {
+      if (r && r.debug === true)
+        throw t;
+      return /$^/;
+    }
+  };
+  Z.constants = un;
+  bt.exports = Z;
+});
+var vt = me(function(es, Ot) {
+  var fn = ["||", "&&", ";;&", ";;", ";&", "|&", "<(", ">(", "<<<", "<<-", "<<", ">>", ">&", ">|", "&>>", "&>", "<&", "<>", "&", ";", "(", ")", "|", "<", ">"], We = /[\n\r\u2028\u2029]/, ln = /[\s#!"$&'():;<=>@\\^`|~]/g;
+  Ot.exports = function(r) {
+    var t = false;
+    return r.map(function(n) {
+      if (t && typeof n === "string" && We.test(n))
+        throw TypeError("a token after a `comment` must not contain line terminators");
+      if (n === "")
+        return "''";
+      if (n && typeof n === "object") {
+        if ("op" in n && n.op === "glob") {
+          if (typeof n.pattern !== "string")
+            throw TypeError("glob token requires a string `pattern`");
+          if (We.test(n.pattern))
+            throw TypeError("glob `pattern` must not contain line terminators");
+          if (n.pattern === "")
+            return "''";
+          return n.pattern.replace(ln, "\\$&");
+        }
+        if ("op" in n && typeof n.op === "string") {
+          if (fn.indexOf(n.op) < 0)
+            throw TypeError("invalid `op` value: " + JSON.stringify(n.op));
+          return n.op.replace(/[\s\S]/g, "\\$&");
+        }
+        if ("comment" in n && typeof n.comment === "string") {
+          if (We.test(n.comment))
+            throw TypeError("`comment` must not contain line terminators");
+          return t = true, "#" + n.comment;
+        }
+        throw TypeError("unrecognized object token shape");
+      }
+      if (/'/.test(n) && /!/.test(n))
+        return "'" + n.replace(/'/g, `'"'"'`) + "'";
+      if (/["\s\\]/.test(n) && !/'/.test(n))
+        return "'" + n + "'";
+      if (/["'\s]/.test(n))
+        return '"' + n.replace(/(["\\$`])/g, "\\$1") + '"';
+      return String(n).replace(/([A-Za-z]:)?([#!"$&'()*,:;<=>?@[\\\]^`{|}~])/g, "$1\\$2");
+    }).join(" ");
+  };
+});
+var Pt = me(function(ts, Lt) {
+  var Ht = "(?:" + ["\\|\\|", "\\&(?:\\&|>>?)", ";;\\&?", "[;|]\\&", "\\<\\(", "\\<\\<\\<", "\\<\\<-", "\\<\\<(?!\\()", ">>", ">[&|(]", "<[&>]", "[&;()|<>]"].join("|") + ")", Tt = new RegExp("^" + Ht + "$"), It = "|&;()<> \\t", dn = "'([^']*?)'", Nt = "(?:\\\\[\\s\\S]|[^\\\\'])*?", Ct = "\\$'" + Nt + "'", Pe = new RegExp("\\$'" + Nt + "(?:(')|\\\\?$)", "g"), pn = "abeEfnrtv", cn = `\x07\b\x1B\x1B\f
+\r	\v`, hn = /^#$/, Xe = "'", kt = '"', be = "$", ge = "", $n = 4294967296;
+  for (Le = 0;Le < 4; Le++)
+    ge += ($n * Math.random()).toString(16);
+  var Le, mn = new RegExp("^" + ge);
+  function yn(e, r) {
+    var t = r.lastIndex, n = [], o;
+    while (o = r.exec(e))
+      if (n[n.length] = o, r.lastIndex === o.index)
+        r.lastIndex += 1;
+    return r.lastIndex = t, n;
+  }
+  function gn(e, r, t) {
+    var n = typeof e === "function" ? e(t) : e[t];
+    if (typeof n > "u" && t != "")
+      n = "";
+    else if (typeof n > "u")
+      n = "$";
+    if (typeof n === "object")
+      return r + ge + JSON.stringify(n) + ge;
+    return r + n;
+  }
+  var _n = /\\([0-7]{1,3}|x[\dA-Fa-f]{1,2}|u[\dA-Fa-f]{1,4}|U[\dA-Fa-f]{1,8}|c(?:\\\\|[\s\S])|[abeEfnrtv\\'"?])/g;
+  function xn(e, r) {
+    var t = r.charAt(0);
+    if (t === "c") {
+      var n = r.charAt(1);
+      return n === "?" ? "\u007f" : String.fromCharCode(n.charCodeAt(0) & 31);
+    }
+    if (t === "x" || t === "u" || t === "U") {
+      var o = parseInt(r.slice(1), 16);
+      if (o > 1114111)
+        return e;
+      return String.fromCharCode.apply(null, o > 65535 ? [55232 + (o >> 10), 56320 + (o & 1023)] : [o]);
+    }
+    if (t >= "0" && t <= "7")
+      return String.fromCharCode(parseInt(r, 8) & 255);
+    var u = pn.indexOf(r);
+    return u < 0 ? r : cn.charAt(u);
+  }
+  function An(e) {
+    return e.replace(_n, xn).split("\x00")[0];
+  }
+  function Rn(e, r) {
+    return Pe.lastIndex = r, !!Pe.exec(e)[1];
+  }
+  function En(e, r, t) {
+    if (!t)
+      t = {};
+    var n = t.escape || "\\", o = t.splitUnquoted === true ? ` 	
+` : typeof t.splitUnquoted === "string" ? t.splitUnquoted : "", u = "(\\" + n + `['"$\\` + n + It + "]|\\$\\$|\\$(?!" + Ct.slice(2) + `)|[^\\s'"$` + It + "])+", s = '"(?:\\' + n + '[\\s\\S]|[^"\\' + n + '])*"', i = new RegExp(["(" + Ht + ")", "(" + Ct + "|" + u + "|" + s + "|" + dn + ")+"].join("|"), "g"), h2 = yn(e, i);
+    if (h2.length === 0)
+      return [];
+    if (!r)
+      r = {};
+    var N = false;
+    return h2.map(function(_) {
+      var w = _[0];
+      if (!w || N)
+        return;
+      if (Tt.test(w))
+        return { op: w };
+      var M = false, K = false, g = "", k = [], ee = false, q = null, L = false, H;
+      function ne() {
+        H += 1;
+        var C, B, l = w.charAt(H);
+        if (l === "{") {
+          if (H += 1, w.charAt(H) === "}")
+            throw Error("Bad substitution: " + w.slice(H - 2, H + 1));
+          var f = 1;
+          C = H;
+          while (f > 0 && C < w.length) {
+            if (w.charAt(C) === "{" && w.charAt(C - 1) === "$")
+              f += 1;
+            else if (w.charAt(C) === "}")
+              f -= 1;
+            C += 1;
+          }
+          if (f !== 0)
+            throw Error("Bad substitution: " + w.slice(H));
+          C -= 1, B = w.slice(H, C), H = C;
+        } else if (/[*@#?$!-]/.test(l))
+          B = l;
+        else {
+          var Y = w.slice(H);
+          if (C = Y.match(/[^\w\d_]/), !C)
+            B = Y, H = w.length;
+          else
+            B = Y.slice(0, C.index), H += C.index - 1;
+        }
+        return gn(r, "", B);
+      }
+      function X() {
+        if (q === null)
+          return;
+        if (q === 0) {
+          if (g !== "")
+            k[k.length] = g, g = "";
+        } else {
+          k[k.length] = g, g = "";
+          for (var C = 1;C < q; C += 1)
+            k[k.length] = "";
+        }
+        q = null;
+      }
+      for (H = 0;H < w.length; H++) {
+        var T = w.charAt(H);
+        if (o && T !== be)
+          X();
+        if (L = L || !M && (T === "*" || T === "?"), K)
+          g += T, K = false;
+        else if (M)
+          if (T === M)
+            M = false;
+          else if (M == Xe)
+            g += T;
+          else if (T === n)
+            if (H += 1, T = w.charAt(H), T === kt || T === n || T === be)
+              g += T;
+            else
+              g += n + T;
+          else if (T === be)
+            g += ne();
+          else
+            g += T;
+        else if (T === kt || T === Xe)
+          M = T, ee = true;
+        else if (Tt.test(T))
+          return { op: w };
+        else if (hn.test(T)) {
+          N = true;
+          var V = { comment: e.slice(_.index + H + 1) };
+          if (g.length)
+            return [g, V];
+          return [V];
+        } else if (T === n)
+          K = true;
+        else if (T === be && w.charAt(H + 1) === Xe && Rn(w, H))
+          X(), ee = true, g += An(w.slice(H + 2, Pe.lastIndex - 1)), H = Pe.lastIndex - 1;
+        else if (T === be) {
+          var A = ne();
+          if (!o)
+            g += A;
+          else
+            for (var I = 0;I < A.length; I += 1) {
+              var a = A.charAt(I);
+              if (o.indexOf(a) < 0)
+                X(), g += a;
+              else if (q === null)
+                q = a === " " || a === "\t" || a === `
+` ? 0 : 1;
+              else if (a !== " " && a !== "\t" && a !== `
+`)
+                q += 1;
+            }
+        } else
+          g += T;
+      }
+      if (L)
+        return { op: "glob", pattern: g };
+      if (o) {
+        if (q !== null && q > 0) {
+          k[k.length] = g, g = "";
+          for (var Q = 1;Q < q; Q += 1)
+            k[k.length] = "";
+        }
+        if (g !== "" || ee && k.length === 0)
+          k[k.length] = g;
+        return k;
+      }
+      return g;
+    }).reduce(function(_, w) {
+      if (typeof w > "u")
+        return _;
+      return [].concat(w).forEach(function(M) {
+        _[_.length] = M;
+      }), _;
+    }, []);
+  }
+  Lt.exports = function(r, t, n) {
+    var o = En(r, t, n);
+    if (typeof t !== "function")
+      return o;
+    return o.reduce(function(u, s) {
+      if (typeof s === "object")
+        return u[u.length] = s, u;
+      var i = s.split(RegExp("(" + ge + ".*?" + ge + ")", "g"));
+      if (i.length === 1)
+        return u[u.length] = i[0], u;
+      return i.filter(Boolean).forEach(function(h2) {
+        u[u.length] = mn.test(h2) ? JSON.parse(h2.split(ge)[1]) : h2;
+      }), u;
+    }, []);
+  };
+});
+var Vt = typeof self < "u" && self.location && self.location.origin !== "null" ? new URL(self.location.origin + self.location.pathname + location.search) : new URL("https://github.com/cfworker");
+var Yt = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
+var Jt = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+var er = /^(\d\d):(\d\d):(\d\d)(\.\d+)?(z|[+-]\d\d(?::?\d\d)?)?$/i;
+var tr = /^(?=.{1,253}\.?$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[-0-9a-z]{0,61}[0-9a-z])?)*\.?$/i;
+var rr = /^(?:[a-z][a-z0-9+\-.]*:)?(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'"()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*)?(?:\?(?:[a-z0-9\-._~!$&'"()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'"()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
+var nr = /^(?:(?:[^\x00-\x20"'<>%\\^`{|}]|%[0-9a-f]{2})|\{[+#./;?&=,!@|]?(?:[a-z0-9_]|%[0-9a-f]{2})+(?::[1-9][0-9]{0,3}|\*)?(?:,(?:[a-z0-9_]|%[0-9a-f]{2})+(?::[1-9][0-9]{0,3}|\*)?)*\})*$/i;
+var sr = /^(?:(?:https?|ftp):\/\/)(?:\S+(?::\S*)?@)?(?:(?!10(?:\.\d{1,3}){3})(?!127(?:\.\d{1,3}){3})(?!169\.254(?:\.\d{1,3}){2})(?!192\.168(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\u{00a1}-\u{ffff}0-9]+-?)*[a-z\u{00a1}-\u{ffff}0-9]+)(?:\.(?:[a-z\u{00a1}-\u{ffff}0-9]+-?)*[a-z\u{00a1}-\u{ffff}0-9]+)*(?:\.(?:[a-z\u{00a1}-\u{ffff}]{2,})))(?::\d{2,5})?(?:\/[^\s]*)?$/iu;
+var or = /^(?:urn:uuid:)?[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+var ur = /^(?:\/(?:[^~/]|~0|~1)*)*$/;
+var ir = /^#(?:\/(?:[a-z0-9_\-.!$&'()*+,;:=@]|%[0-9a-f]{2}|~0|~1)*)*$/i;
+var ar = /^(?:0|[1-9][0-9]*)(?:#|(?:\/(?:[^~/]|~0|~1)*)*)$/;
+var fr = (e) => {
+  if (e[0] === '"')
+    return false;
+  let [r, t, ...n] = e.split("@");
+  if (!r || !t || n.length !== 0 || r.length > 64 || t.length > 253)
+    return false;
+  if (r[0] === "." || r.endsWith(".") || r.includes(".."))
+    return false;
+  if (!/^[a-z0-9.-]+$/i.test(t) || !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(r))
+    return false;
+  return t.split(".").every((o) => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i.test(o));
+};
+var lr = /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+var dr = /^((([0-9a-f]{1,4}:){7}([0-9a-f]{1,4}|:))|(([0-9a-f]{1,4}:){6}(:[0-9a-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){5}(((:[0-9a-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){4}(((:[0-9a-f]{1,4}){1,3})|((:[0-9a-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){3}(((:[0-9a-f]{1,4}){1,4})|((:[0-9a-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){2}(((:[0-9a-f]{1,4}){1,5})|((:[0-9a-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){1}(((:[0-9a-f]{1,4}){1,6})|((:[0-9a-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-f]{1,4}){1,7})|((:[0-9a-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))$/i;
+var pr = (e) => e.length > 1 && e.length < 80 && (/^P\d+([.,]\d+)?W$/.test(e) || /^P[\dYMDTHS]*(\d[.,]\d+)?[YMDHS]$/.test(e) && /^P([.,\d]+Y)?([.,\d]+M)?([.,\d]+D)?(T([.,\d]+H)?([.,\d]+M)?([.,\d]+S)?)?$/.test(e));
+function le(e) {
+  return e.test.bind(e);
+}
+var Me = { date: Je, time: et.bind(undefined, false), "date-time": $r, duration: pr, uri: gr, "uri-reference": le(rr), "uri-template": le(nr), url: le(sr), email: fr, hostname: le(tr), ipv4: le(lr), ipv6: le(dr), regex: xr, uuid: le(or), "json-pointer": le(ur), "json-pointer-uri-fragment": le(ir), "relative-json-pointer": le(ar) };
+function cr(e) {
+  return e % 4 === 0 && (e % 100 !== 0 || e % 400 === 0);
+}
+function Je(e) {
+  let r = e.match(Yt);
+  if (!r)
+    return false;
+  let t = +r[1], n = +r[2], o = +r[3];
+  return n >= 1 && n <= 12 && o >= 1 && o <= (n == 2 && cr(t) ? 29 : Jt[n]);
+}
+function et(e, r) {
+  let t = r.match(er);
+  if (!t)
+    return false;
+  let n = +t[1], o = +t[2], u = +t[3], s = !!t[5];
+  return (n <= 23 && o <= 59 && u <= 59 || n == 23 && o == 59 && u == 60) && (!e || s);
+}
+var hr = /t|\s/i;
+function $r(e) {
+  let r = e.split(hr);
+  return r.length == 2 && Je(r[0]) && et(true, r[1]);
+}
+var mr = /\/|:/;
+var yr = /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
+function gr(e) {
+  return mr.test(e) && yr.test(e);
+}
+var _r = /[^\\]\\Z/;
+function xr(e) {
+  if (_r.test(e))
+    return false;
+  try {
+    return new RegExp(e, "u"), true;
+  } catch (r) {
+    return false;
+  }
+}
+var Ar = /^[A-Za-z]:\//;
+function Ee(e = "") {
+  if (!e)
+    return e;
+  return e.replace(/\\/g, "/").replace(Ar, (r) => r.toUpperCase());
+}
+var Er = /^[/\\](?![/\\])|^[/\\]{2}(?!\.)|^[A-Za-z]:[/\\]/;
+function br() {
+  return "/";
+}
+var ve = function(...e) {
+  e = e.map((n) => Ee(n));
+  let r = "", t = false;
+  for (let n = e.length - 1;n >= -1 && !t; n--) {
+    let o = n >= 0 ? e[n] : br();
+    if (!o || o.length === 0)
+      continue;
+    r = `${o}/${r}`, t = ye(o);
+  }
+  if (r = ze(r, !t), t && !ye(r))
+    return `/${r}`;
+  return r.length > 0 ? r : ".";
+};
+function ze(e, r) {
+  let t = "", n = 0, o = -1, u = 0, s = null;
+  for (let i = 0;i <= e.length; ++i) {
+    if (i < e.length)
+      s = e[i];
+    else if (s === "/")
+      break;
+    else
+      s = "/";
+    if (s === "/") {
+      if (o === i - 1 || u === 1)
+        ;
+      else if (u === 2) {
+        if (t.length < 2 || n !== 2 || t[t.length - 1] !== "." || t[t.length - 2] !== ".") {
+          if (t.length > 2) {
+            let h2 = t.lastIndexOf("/");
+            if (h2 === -1)
+              t = "", n = 0;
+            else
+              t = t.slice(0, h2), n = t.length - 1 - t.lastIndexOf("/");
+            o = i, u = 0;
+            continue;
+          } else if (t.length > 0) {
+            t = "", n = 0, o = i, u = 0;
+            continue;
+          }
+        }
+        if (r)
+          t += t.length > 0 ? "/.." : "..", n = 2;
+      } else {
+        if (t.length > 0)
+          t += `/${e.slice(o + 1, i)}`;
+        else
+          t = e.slice(o + 1, i);
+        n = i - o - 1;
+      }
+      o = i, u = 0;
+    } else if (s === "." && u !== -1)
+      ++u;
+    else
+      u = -1;
+  }
+  return t;
+}
+var ye = function(e) {
+  return Er.test(e);
+};
+var ft = function(e, r) {
+  let t = Ee(e).split("/"), n = "";
+  for (let o = t.length - 1;o >= 0; o--) {
+    let u = t[o];
+    if (u) {
+      n = u;
+      break;
+    }
+  }
+  return r && n.endsWith(r) ? n.slice(0, -r.length) : n;
+};
+var Sn = Kt(wt(), 1);
+var Mt = vt();
+var Dt = Pt();
+var $s = Sn.default;
+
+// node_modules/@cmodjs/core/utils/paths.js
+var missingPath = /(?:^|: )(?:ENOENT|ENOTDIR)\b/;
+function isMissing(error) {
+  return missingPath.test(messageOf(error));
+}
+function ifMissing(value) {
+  return (error) => {
+    if (isMissing(error))
+      return value;
+    throw error;
+  };
+}
+var homePrefix = /^(~|\$HOME|\$CLAUDE_CONFIG_DIR)(?=\/|$)/;
+function expandHome(path, home, configRoot = `${home}/.claude`) {
+  const prefix = homePrefix.exec(path)?.[0];
+  if (prefix === undefined)
+    return path;
+  return `${prefix === "$CLAUDE_CONFIG_DIR" ? configRoot : home}${path.slice(prefix.length)}`;
+}
+function relativePath(base, path) {
+  if (path === base)
+    return "";
+  const prefix = base === "/" ? "/" : `${base}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : undefined;
+}
+
+// node_modules/@cmodjs/core/runtime/deadline.js
+var longestMs = 600000;
+var callDeadline = { ms: 30000 };
+var listenerMs = 1e4;
+var hookMs = 1e4;
+
+class PassedTimeout extends Error {
+}
+var timers = globalThis;
+function listenerOf(name, method, args) {
+  const hasMatcher = typeof args[1] === "function";
+  const listener = hasMatcher ? args[1] : args[0];
+  const options = (hasMatcher ? args[2] : args[1]) ?? {};
+  if (typeof listener !== "function")
+    throw new Error(`${name}: ${method} takes a listener, or a matcher and then a listener.`);
+  const { timeoutMs, onFailure } = options;
+  if (timeoutMs !== undefined && (typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > longestMs))
+    throw new Error(`${name}: ${method}'s timeoutMs is ${String(timeoutMs)}. Give a whole number of milliseconds above 0 and at most ${longestMs}.`);
+  if (onFailure !== undefined && onFailure !== "pass" && onFailure !== "refuse")
+    throw new Error(`${name}: ${method}'s onFailure is ${String(onFailure)}. Give 'pass' or 'refuse'.`);
+  return { matcher: hasMatcher ? args[0] : undefined, listener, options };
+}
+async function withinTime(clock, method, { timeoutMs = listenerMs }, cancel, run) {
+  const controller = new AbortController;
+  const deadline = await clock.now() + timeoutMs;
+  cancel.throwIfAborted();
+  let timer;
+  let cancelled = () => {
+    return;
+  };
+  const passed = new Promise((_resolve, reject) => {
+    timer = timers.setTimeout(() => {
+      controller.abort();
+      reject(new PassedTimeout(`${method} passed its ${timeoutMs / 1000} s timeout`));
+    }, timeoutMs);
+    cancelled = () => reject(cancel.reason);
+    cancel.addEventListener("abort", cancelled, { once: true });
+  });
+  try {
+    return await Promise.race([Promise.resolve().then(() => run({ deadline, signal: AbortSignal.any([controller.signal, cancel]) })), passed]);
+  } finally {
+    timers.clearTimeout(timer);
+    cancel.removeEventListener("abort", cancelled);
+  }
+}
+var abortGraceMs = 1000;
+function settledAfterAbort(work, signal) {
+  if (signal === undefined)
+    return work;
+  return new Promise((resolve, reject) => {
+    let timer;
+    const giveUp = () => void (timer = timers.setTimeout(() => reject(signal.reason), abortGraceMs));
+    if (signal.aborted)
+      giveUp();
+    else
+      signal.addEventListener("abort", giveUp, { once: true });
+    work.then(resolve, reject).finally(() => {
+      timers.clearTimeout(timer);
+      signal.removeEventListener("abort", giveUp);
+    });
+  });
+}
+function beforeDeadline(clock, { ms, job }, call, run) {
+  const passed = new AbortController;
+  return new Promise((resolve, reject) => {
+    const deadline = job === undefined ? `its ${ms / 1000} s deadline` : `the ${ms / 1000} s deadline of ${job}`;
+    const timer = clock.after(ms, () => {
+      const error = new Error(`${call} passed ${deadline}`);
+      reject(error);
+      passed.abort(error);
+    });
+    run(passed.signal).then((value) => {
+      timer.cancel();
+      resolve(value);
+    }, (error) => {
+      timer.cancel();
+      reject(error);
+    });
+  });
+}
+
+// node_modules/@cmodjs/core/runtime/dependencies.js
+var cmodPluginName = "cmod";
+var loadedMethod = "cmod:isLoaded";
+async function answerCall(name, api, e) {
+  const method = Object.hasOwn(api, e.method) ? api[e.method] : undefined;
+  if (method === undefined)
+    return { deny: `${name} has no method ${e.method}.` };
+  try {
+    return { value: await method(e.input) };
+  } catch (error) {
+    return { deny: `${name}: ${messageOf(error)}` };
+  }
+}
+function dependencyCalls(claude, within) {
+  const methodsOf = (to) => new Proxy({}, { get: (_methods, method) => typeof method === "string" && method !== "then" ? (input) => within(`mod.dependencies.${to}.${method}`, claude.cmod.call({ to, method, input })) : undefined });
+  return new Proxy({}, { get: (_dependencies, to) => typeof to === "string" && to !== "then" ? methodsOf(to) : undefined });
+}
+function withBareRefusals(claude) {
+  const prefix = `${claude.plugin.name}: $.cmod.call: `;
+  const call = (input) => claude.cmod.call(input).catch((error) => {
+    const message = messageOf(error);
+    throw message.startsWith(prefix) ? new Error(message.slice(prefix.length), { cause: error }) : error;
+  });
+  return { ...claude, cmod: { call } };
+}
+function answeringOwnCalls(claude, router) {
+  const name = claude.plugin.name;
+  const call = async (input) => {
+    if (input.to !== name)
+      return claude.cmod.call(input);
+    const answer = await router.dispatch("cmod.call", { ...input, caller: name }, async () => ({ deny: `${name} has no method ${input.method}.` }));
+    if (answer.deny !== undefined)
+      throw new Error(answer.deny);
+    return answer.value;
+  };
+  return { ...claude, cmod: { call } };
+}
+function stillInstalling(name) {
+  return `${name} is installing. Try again when it's ready.`;
+}
+function isStillInstalling(name, error) {
+  return messageOf(error).endsWith(stillInstalling(name));
+}
+function didNotAnswer(name) {
+  return `${name} did not answer in time, so Claude Code went on without it.`;
+}
+var overranHook = `it ran past the ${hookMs / 1000} s Claude Code gives a hook`;
+function isUnanswered(error) {
+  const refusals = [stillInstalling(""), didNotAnswer(""), `: ${overranHook}`];
+  for (let cause = error;cause !== undefined; cause = cause instanceof Error ? cause.cause : undefined) {
+    const message = messageOf(cause);
+    if (refusals.some((refusal) => message.endsWith(refusal)))
+      return true;
+  }
+  return false;
+}
+
+// node_modules/@cmodjs/core/runtime/tool-calls.js
+function toolCalls(claude, router) {
+  let mainAgentType;
+  const agentIds = new Map;
+  const noteAgent = (e) => {
+    if (e.agent_id === undefined)
+      mainAgentType = e.agent_type;
+  };
+  router.add("classic.SessionStart", (e, next) => {
+    noteAgent(e);
+    return next(e);
+  });
+  router.add("classic.UserPromptSubmit", (e, next) => {
+    noteAgent(e);
+    return next(e);
+  });
+  router.add("tool.call", async (e, next) => {
+    if (e.agentId === undefined)
+      return next(e);
+    agentIds.set(e.tool_use_id, e.agentId);
+    try {
+      return await next(e);
+    } finally {
+      agentIds.delete(e.tool_use_id);
+    }
+  });
+  return {
+    async agentOf(toolUseId) {
+      const agentId = toolUseId === undefined ? undefined : agentIds.get(toolUseId);
+      const agentType = agentId === undefined ? mainAgentType : (await claude.agent.list()).find((agent) => agent.id === agentId)?.type;
+      return { ...agentId === undefined ? {} : { agentId }, ...agentType === undefined ? {} : { agentType } };
+    }
+  };
+}
+
+// node_modules/@cmodjs/core/runtime/before.js
+function withAnswer(change, answer) {
+  if (change.type === Message && answer.output !== undefined && change.message.type === ToolResult)
+    return { ...change, message: { ...change.message, output: answer.output } };
+  if (change.type === Message && answer.text !== undefined)
+    return { ...change, message: { ...change.message, text: answer.text } };
+  if (change.type === Message && answer.input !== undefined && change.message.type === ToolCall)
+    return { ...change, message: { ...change.message, input: answer.input } };
+  if (change.type === TaskStart) {
+    const { agentType, model } = answer.owner ?? {};
+    return { ...change, task: { ...change.task, ...answer.title === undefined ? {} : { title: answer.title }, ...agentType === undefined ? {} : { agentType }, ...model === undefined ? {} : { model } } };
+  }
+  return change;
+}
+var methodOf = (prefix, event) => `${prefix}${Object.entries(sessionEvents).find(([, each]) => each === event)?.[0] ?? event}`;
+var beforeAnswerKeys = {
+  prompt: ["text", "note", "title", "refuse"],
+  note: ["text"],
+  skill: ["text"],
+  instructionFile: ["text", "refuse"],
+  attachedFile: ["text", "refuse"],
+  reply: ["text"],
+  toolCall: ["input", "result", "refuse", "note"],
+  toolResult: ["output", "isError", "note"],
+  notice: ["text"],
+  taskStart: ["prompt", "title", "owner", "isAsync", "refuse"],
+  turnEnd: ["refuse", "note"],
+  contextEnd: ["refuse", "summary"]
+};
+function foldBefore(event, change, askers, report) {
+  return foldAnswers(methodOf("before", event), beforeAnswerKeys[event], ["refuse", "result"], change, askers, report, withAnswer);
+}
+function takenAnswer(method, takes, answer) {
+  if (answer === undefined || answer === null || answer === false)
+    return;
+  if (typeof answer !== "object" || Array.isArray(answer))
+    throw new Error(`it answered ${JSON.stringify(answer)}, but ${method} takes an object or nothing: ${takes.map((key) => `{ ${key} }`).join(", ") || "no answer"}.`);
+  const unread = Object.keys(answer).filter((key) => !takes.includes(key));
+  if (unread.length > 0)
+    throw new Error(`it answered ${unread.join(" and ")}, which ${method} does not take. It takes ${takes.map((key) => `{ ${key} }`).join(", ") || "no answer"}.`);
+  return answer;
+}
+async function foldAnswers(method, takes, ends, change, askers, report, applied = (same) => same) {
+  let latest = change;
+  let result;
+  for (const ask of askers) {
+    try {
+      const answer = takenAnswer(method, takes, await ask(latest));
+      if (typeof answer !== "object" || answer === null)
+        continue;
+      const given = answer;
+      const notes = [result?.["note"], given["note"]].filter((note) => typeof note === "string");
+      result = { ...result, ...given, ...notes.length === 0 ? {} : { note: notes.join(`
+
+`) } };
+      if (ends.some((key) => given[key] !== undefined))
+        return result;
+      latest = applied(latest, answer);
+    } catch (error) {
+      report(error);
+    }
+  }
+  return result;
+}
+
+// node_modules/@cmodjs/core/runtime/device.js
+var cmodAppId = "1fd8a8ee972047c4a89640fd51048522";
+var sha256Block = 64;
+var systems = { Darwin: "darwin", Linux: "linux" };
+var machines = { arm64: "arm64", aarch64: "arm64", x86_64: "x64", amd64: "x64" };
+var platformUuid = /"IOPlatformUUID" = "([0-9A-Fa-f-]{36})"/;
+var machineId = /^[0-9a-f]{32}$/;
+var machineIdFiles = ["/etc/machine-id", "/var/lib/dbus/machine-id"];
+
+class MissingMachineId extends Error {
+}
+async function readDevice(claude) {
+  const output = async (argv) => {
+    const { exitCode, stdout, stderr } = await claude.process.run(argv);
+    if (exitCode !== 0)
+      throw new Error(`cmod could not read this computer: ${argv.join(" ")} ${formatExit(exitCode, stderr)}`);
+    return stdout.trim();
+  };
+  const [system = "", node = "", machine = ""] = (await output(["uname", "-snm"])).split(/\s+/);
+  const os = systems[system];
+  const arch = machines[machine];
+  if (os === undefined)
+    throw new Error(`cmod reads the device of macOS and Linux, and this computer runs ${system}.`);
+  if (arch === undefined)
+    throw new Error(`cmod reads the device of arm64 and x64 computers, and this one is ${machine}.`);
+  if (os === "linux")
+    return { id: await appSpecific(await linuxMachineId(claude.fs)), name: node, os, arch };
+  const [platform, name] = await Promise.all([output(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"]), output(["scutil", "--get", "LocalHostName"])]);
+  const uuid = platformUuid.exec(platform)?.[1];
+  if (uuid === undefined)
+    throw new Error("cmod could not read this computer: ioreg -rd1 -c IOPlatformExpertDevice names no IOPlatformUUID.");
+  return { id: await appSpecific(uuid.replaceAll("-", "").toLowerCase()), name, os, arch };
+}
+async function linuxMachineId(fs) {
+  for (const path of machineIdFiles) {
+    const id = (await fs.read(path).catch(ifMissing(""))).trim();
+    if (machineId.test(id))
+      return id;
+  }
+  throw new MissingMachineId(`cmod could not read this computer: neither ${machineIdFiles.join(" nor ")} holds a machine id.`);
+}
+async function appSpecific(machine) {
+  if (!machineId.test(machine))
+    throw new Error("cmod could not read this computer: its machine id is not 32 hex digits.");
+  const id = (await hmacSha256(bytesOf(machine), bytesOf(cmodAppId))).slice(0, 16);
+  id[6] = (id[6] ?? 0) & 15 | 64;
+  id[8] = (id[8] ?? 0) & 63 | 128;
+  return [...id].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+async function hmacSha256(key, message) {
+  const sha256 = async (...parts) => new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(parts.flatMap((part) => [...part]))));
+  const padded = new Uint8Array(sha256Block);
+  padded.set(key);
+  return sha256(padded.map((byte) => byte ^ 92), await sha256(padded.map((byte) => byte ^ 54), message));
+}
+function bytesOf(hex) {
+  return Uint8Array.from(hex.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
+}
+
+// node_modules/@cmodjs/core/runtime/router.js
+var unaborted = new AbortController().signal;
+function createRouter() {
+  const routes = new Map;
+  return {
+    add(event, hook, failed) {
+      const route = { hook, ...failed === undefined ? {} : { failed } };
+      routes.set(event, [...routes.get(event) ?? [], route]);
+      return {
+        remove() {
+          const chain = (routes.get(event) ?? []).filter((each) => each !== route);
+          if (chain.length === 0)
+            routes.delete(event);
+          else
+            routes.set(event, chain);
+        }
+      };
+    },
+    dispatch(event, e, next, signal = unaborted) {
+      const chain = routes.get(event);
+      const call = async (index, current) => {
+        const route = chain?.[index];
+        if (route === undefined)
+          return next(current);
+        return route.hook(current, Object.assign((passed) => call(index + 1, passed), { signal }));
+      };
+      return call(0, e);
+    },
+    dispatchFailure(event, e, error, next, called) {
+      const chain = routes.get(event);
+      const fail = async (index, current) => {
+        const route = chain?.[index];
+        if (route === undefined)
+          return next(current);
+        const answer = await route.failed?.(current, error, Object.assign((passed) => fail(index + 1, passed), { signal: unaborted, called }));
+        return answer === undefined ? fail(index + 1, current) : answer;
+      };
+      return fail(0, e);
+    }
+  };
+}
+
+// node_modules/@cmodjs/core/runtime/interfaces.js
+var styleInterface = "cmod/Style";
+var interfaceMethods = { providers: "cmod:providers", provider: "cmod:provider", provided: "cmod:provided", listen: "cmod:listenProvided", unlisten: "cmod:unlistenProvided", tell: "cmod:tellProvided", ask: "cmod:askProvided", heard: "cmod:heard" };
+var providerHoldMs = hookMs / 4;
+function checkInterfaceName(name) {
+  if (!interfaceName.test(name))
+    throw new Error(`${name} is no interface name, such as demo/Platform.`);
+}
+function methodName(name, method) {
+  return `${name}.${method}`;
+}
+function providerClient(name, identity, call, listen) {
+  return new Proxy(identity, {
+    get: (known, key) => {
+      if (typeof key !== "string" || key === "then")
+        return;
+      if (key === "mod" || key === "program" || key === "device")
+        return known[key];
+      const event = /^(on|before)([A-Z]\w*)$/.exec(key);
+      if (event === null)
+        return (...args) => call(key, args);
+      return (...args) => {
+        const { matcher, listener, options } = listenerOf(name, key, args);
+        return listen(event[1], event[2] ?? "", matcher, listener, options);
+      };
+    }
+  });
+}
+function createProviders({ name, call, changed, after, report }) {
+  const provided = new Map;
+  const heard = new Map;
+  let nextListener = 0;
+  const run = async ({ interface: named, method, args }) => {
+    const runs = provided.get(named)?.[method];
+    if (runs === undefined)
+      throw new Error(`${name} provides no ${named}.${method}.`);
+    return await runs(...args) ?? null;
+  };
+  const answer = (method, asked, caller, signal) => {
+    if (method === interfaceMethods.heard && caller === cmodPluginName)
+      return (async () => await heard.get(asked.id)?.(asked.payload, signal) ?? null)();
+    return method === interfaceMethods.provided && asked.program === undefined ? run(asked) : undefined;
+  };
+  const client = (named, identity) => providerClient(named, identity, (method, args) => {
+    const asked = { interface: named, method, args, ...identity };
+    return beforeDeadline({ after }, callDeadline, methodName(named, method), () => identity.mod === name && identity.program === undefined ? run(asked) : call(identity.program === undefined ? identity.mod : cmodPluginName, interfaceMethods.provided, asked));
+  }, (kind, event, matcher, listener, options) => {
+    const id = `${named}#${nextListener += 1}`;
+    heard.set(id, listener);
+    call(cmodPluginName, interfaceMethods.listen, { id, interface: named, kind, event, ...identity, ...matcher === undefined ? {} : { matcher: sentMatcher(matcher) }, ...options }).catch((error) => {
+      heard.delete(id);
+      report(error);
+    });
+    return {
+      remove() {
+        if (heard.delete(id))
+          call(cmodPluginName, interfaceMethods.unlisten, { id }).catch(report);
+      }
+    };
+  });
+  return {
+    provided: () => [...provided.keys()],
+    provide(named, methods) {
+      checkInterfaceName(named);
+      provided.set(named, methods);
+      changed();
+      const send = (method, event, payload) => new Promise((resolve) => after(0, () => resolve(call(cmodPluginName, method, { interface: named, event, payload }))));
+      return {
+        remove() {
+          if (provided.get(named) === methods && provided.delete(named))
+            changed();
+        },
+        tell: (event, payload) => void send(interfaceMethods.tell, event, payload).catch(report),
+        ask: (event, payload) => send(interfaceMethods.ask, event, payload)
+      };
+    },
+    async providers(named) {
+      const listed = await call(cmodPluginName, interfaceMethods.providers, { name: named });
+      return [...listed.mods.map((mod) => client(named, { mod, device: listed.device })), ...listed.programs.map((identity) => client(named, identity))];
+    },
+    answer
+  };
+}
+
+// node_modules/@cmodjs/core/runtime/programs.js
+function lastLineOf(text) {
+  const trimmed = text.trim();
+  return trimmed === "" ? undefined : trimmed.slice(trimmed.lastIndexOf(`
+`) + 1).trim();
+}
+function cmodError(stderr, command) {
+  const line = lastLineOf(stderr) ?? "";
+  const prefix = `cmod ${command}: `;
+  return line.startsWith(prefix) ? line.slice(prefix.length) : line;
+}
+async function readLines(stream, onLine) {
+  let pending = "";
+  let lastError = "";
+  let piece = await stream.next();
+  while (piece.done !== true) {
+    if (piece.value.stream === "stderr") {
+      lastError = lastLineOf(piece.value.text) ?? lastError;
+    } else {
+      const lines = `${pending}${piece.value.text}`.split(`
+`);
+      pending = lines.pop() ?? "";
+      for (const text of lines)
+        onLine(text);
+    }
+    piece = await stream.next();
+  }
+  if (pending !== "")
+    onLine(pending);
+  return { code: piece.value.code, lastError };
+}
+function spawnCmod(claude, args, session, env = {}) {
+  return claude.process.spawn({ argv: ["cmod", ...args], env: { ...env, CLAUDE_CODE_SESSION_ID: session } });
+}
+async function cmodStore(claude) {
+  return storeFolder({ HOME: await claude.env.home(), XDG_DATA_HOME: await claude.env.dataHome() });
+}
+async function newestCmodVersion(claude) {
+  const store = await cmodStore(claude);
+  return readCmodVersion({
+    list: async (folder) => (await claude.fs.list(folder).catch(ifMissing([]))).map((entry) => entry.name),
+    exists: async (path) => await claude.fs.stat(path).catch(ifMissing(undefined)) !== undefined
+  }, store);
+}
+async function runCmod(claude, args, session) {
+  const lines = [];
+  const { code, lastError } = await readLines(spawnCmod(claude, args, session), (line) => void lines.push(line));
+  if (code !== 0)
+    throw new Error(cmodError(lastError, args[0]) || `cmod ${args.slice(0, 2).join(" ")} ${formatExit(code, "")}.`);
+  return lines.join(`
+`);
+}
+function spawnedAfter(ready, spawn) {
+  let resolve = () => {
+    return;
+  };
+  let reject = () => {
+    return;
+  };
+  const result = new Promise((resolved, rejected) => {
+    resolve = resolved;
+    reject = rejected;
+  });
+  result.catch(() => {
+    return;
+  });
+  const stream = async function* () {
+    try {
+      await ready;
+      const ended = yield* spawn();
+      resolve(ended);
+      return ended;
+    } finally {
+      reject(new Error("cmod: the stream closed before the program ended."));
+    }
+  }();
+  return Object.assign(stream, { result });
+}
+function locatingPrograms(claude) {
+  let folder;
+  let names = new Set;
+  let downloading;
+  const located = (argv) => {
+    const [name, ...rest] = argv;
+    return folder !== undefined && name !== undefined && (name === "cmod" || names.has(name)) ? [`${folder}/${name}`, ...rest] : argv;
+  };
+  const waiting = (argv) => argv[0] === "cmod" ? downloading : undefined;
+  return {
+    claude: {
+      ...claude,
+      process: {
+        run: (argv, init) => {
+          const ready = waiting(argv);
+          return ready === undefined ? claude.process.run(located(argv), init) : ready.then(() => claude.process.run(located(argv), init));
+        },
+        spawn: (request) => {
+          const ready = waiting(request.argv);
+          const spawn = () => claude.process.spawn({ ...request, argv: located(request.argv) });
+          return ready === undefined ? spawn() : spawnedAfter(ready, spawn);
+        }
+      }
+    },
+    waitFor(download) {
+      const current = download.then(() => {
+        if (downloading === current)
+          downloading = undefined;
+      });
+      current.catch(() => {
+        return;
+      });
+      downloading = current;
+    },
+    async refresh() {
+      const programs = `${await cmodStore(claude)}/programs`;
+      names = new Set((await claude.fs.list(programs).catch(ifMissing([]))).map((entry) => entry.name));
+      folder = programs;
+    }
+  };
+}
+
+// node_modules/@cmodjs/core/utils/parse-shell.js
+var markerPattern = /\u0001(\d+)\u0001/g;
+var descriptorPattern = /[0-9]+(?=[<>])/y;
+var assignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/;
+var dynamicPattern = /[$`]/;
+var homePrefix2 = /^\$HOME(?=\/|$)/;
+var clusterPattern = /^-[A-Za-z0-9]{2,}$/;
+var separators = ";&|()<>";
+var redirectOperators = new Set([">", ">>", ">|", "&>", "&>>", ">&", "<", "<>", "<&", "<<<"]);
+var writeRedirects = new Set([">", ">>", ">|", "&>", "&>>", "<>"]);
+var sequenceOperators = new Set([";", "&", "&&", "||", "|", "|&"]);
+var casePatternStarts = new Set([";;", ";&", ";;&"]);
+var reservedWords = new Set(["if", "then", "else", "elif", "fi", "do", "done", "while", "until", "esac", "{", "}", "!"]);
+var shells = new Set(["sh", "bash", "zsh"]);
+var findActions = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
+var gitValuedOptions = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix", "--attr-source"]);
+var nonGetoptPrograms = new Set([
+  "find",
+  "java",
+  "javac",
+  "go",
+  "gcc",
+  "g++",
+  "clang",
+  "clang++",
+  "swift",
+  "swiftc",
+  "xcodebuild",
+  "xcrun",
+  "ffmpeg",
+  "ffprobe",
+  "openssl",
+  "plutil",
+  "defaults",
+  "security",
+  "codesign"
+]);
+var grep = {
+  valued: "efmABCdD",
+  longValued: ["--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--directories", "--devices", "--binary-files", "--label", "--include", "--exclude", "--exclude-dir", "--exclude-from"],
+  scriptOptions: ["-e", "-f", "--regexp", "--file"]
+};
+var awk = {
+  valued: "fFvi",
+  longValued: ["--file", "--field-separator", "--assign", "--include", "--source"],
+  scriptOptions: ["-f", "--file", "--source"],
+  takesAssignments: true,
+  inPlaceOptions: ["-i", "--include"]
+};
+var sed = {
+  valued: "efl",
+  optional: "iI",
+  longValued: ["--expression", "--file", "--line-length"],
+  scriptOptions: ["-e", "-f", "--expression", "--file"],
+  inPlaceOptions: ["-i", "-I", "--in-place"]
+};
+var perl = {
+  valued: "eEIMmF",
+  optional: "ixdDC",
+  scriptOptions: ["-e", "-E"],
+  inPlaceOptions: ["-i"]
+};
+var fileWriters = new Map([
+  ["tee", {}],
+  ["rm", {}],
+  ["touch", { valued: "drt", longValued: ["--date", "--reference", "--time"] }],
+  ["truncate", { valued: "sr", longValued: ["--size", "--reference"] }]
+]);
+var copyTarget = { valued: "tS", longValued: ["--target-directory", "--suffix"], targetOptions: ["-t", "--target-directory"] };
+var copyPrograms = new Map([
+  ["cp", { ...copyTarget, sources: "reads" }],
+  ["mv", { ...copyTarget, sources: "writes" }],
+  ["ln", { ...copyTarget, sources: undefined, linksHere: true }],
+  ["rsync", {
+    valued: "efBTM",
+    longValued: [
+      "--rsh",
+      "--rsync-path",
+      "--filter",
+      "--exclude",
+      "--include",
+      "--exclude-from",
+      "--include-from",
+      "--files-from",
+      "--temp-dir",
+      "--compare-dest",
+      "--copy-dest",
+      "--link-dest",
+      "--backup-dir",
+      "--suffix",
+      "--chmod",
+      "--chown",
+      "--usermap",
+      "--groupmap",
+      "--timeout",
+      "--contimeout",
+      "--bwlimit",
+      "--log-file",
+      "--log-file-format",
+      "--out-format",
+      "--password-file",
+      "--port",
+      "--sockopts",
+      "--max-size",
+      "--min-size",
+      "--max-delete",
+      "--partial-dir",
+      "--block-size",
+      "--modify-window",
+      "--iconv",
+      "--checksum-choice",
+      "--compress-choice",
+      "--compress-level",
+      "--remote-option",
+      "--info",
+      "--debug",
+      "--address",
+      "--write-batch",
+      "--only-write-batch",
+      "--read-batch",
+      "--protocol",
+      "--skip-compress"
+    ],
+    sources: "reads",
+    skipsRemote: true
+  }]
+]);
+var fetchers = new Map([
+  ["curl", {
+    valued: "AbcCdDeEFHKmoPQrTtuUwxXyYz",
+    longValued: [
+      "--url",
+      "--data",
+      "--data-raw",
+      "--data-binary",
+      "--data-urlencode",
+      "--data-ascii",
+      "--json",
+      "--form",
+      "--form-string",
+      "--header",
+      "--proxy-header",
+      "--user",
+      "--user-agent",
+      "--referer",
+      "--output",
+      "--output-dir",
+      "--cookie",
+      "--cookie-jar",
+      "--request",
+      "--proxy",
+      "--proxy-user",
+      "--preproxy",
+      "--noproxy",
+      "--max-time",
+      "--connect-timeout",
+      "--retry",
+      "--retry-delay",
+      "--retry-max-time",
+      "--range",
+      "--continue-at",
+      "--upload-file",
+      "--write-out",
+      "--cert",
+      "--cert-type",
+      "--key",
+      "--key-type",
+      "--cacert",
+      "--capath",
+      "--ciphers",
+      "--config",
+      "--dump-header",
+      "--interface",
+      "--limit-rate",
+      "--max-filesize",
+      "--max-redirs",
+      "--resolve",
+      "--connect-to",
+      "--oauth2-bearer",
+      "--aws-sigv4",
+      "--unix-socket",
+      "--abstract-unix-socket",
+      "--variable",
+      "--url-query",
+      "--trace",
+      "--trace-ascii",
+      "--stderr",
+      "--keepalive-time",
+      "--local-port",
+      "--dns-servers",
+      "--doh-url",
+      "--quote",
+      "--telnet-option",
+      "--time-cond",
+      "--speed-limit",
+      "--speed-time",
+      "--etag-save",
+      "--etag-compare",
+      "--hsts",
+      "--alt-svc",
+      "--mail-from",
+      "--mail-rcpt",
+      "--mail-auth",
+      "--pass",
+      "--proto",
+      "--proto-redir",
+      "--pubkey",
+      "--socks4",
+      "--socks4a",
+      "--socks5",
+      "--socks5-hostname"
+    ]
+  }],
+  ["wget", {
+    valued: "aoeiBtOTwQPlARDIXU",
+    longValued: [
+      "--output-file",
+      "--append-output",
+      "--execute",
+      "--input-file",
+      "--base",
+      "--tries",
+      "--output-document",
+      "--timeout",
+      "--dns-timeout",
+      "--connect-timeout",
+      "--read-timeout",
+      "--wait",
+      "--waitretry",
+      "--quota",
+      "--limit-rate",
+      "--directory-prefix",
+      "--level",
+      "--accept",
+      "--reject",
+      "--domains",
+      "--exclude-domains",
+      "--include-directories",
+      "--exclude-directories",
+      "--user-agent",
+      "--header",
+      "--user",
+      "--password",
+      "--http-user",
+      "--http-password",
+      "--post-data",
+      "--post-file",
+      "--body-data",
+      "--body-file",
+      "--method",
+      "--referer",
+      "--load-cookies",
+      "--save-cookies",
+      "--certificate",
+      "--private-key",
+      "--ca-certificate",
+      "--ca-directory",
+      "--bind-address",
+      "--cut-dirs",
+      "--default-page",
+      "--restrict-file-names",
+      "--local-encoding",
+      "--remote-encoding"
+    ]
+  }]
+]);
+var su = { valued: "cgGsw", longValued: ["--command", "--session-command", "--group", "--supp-group", "--shell", "--whitelist-environment"] };
+var suCodeOptions = ["-c", "--command", "--session-command"];
+var fileReaders = new Map([
+  ["cat", {}],
+  ["head", { valued: "nc", longValued: ["--lines", "--bytes"] }],
+  ["tail", { valued: "ncbs", longValued: ["--lines", "--bytes", "--pid", "--sleep-interval", "--max-unchanged-stats"] }],
+  ["less", { valued: "bhjkoOpPtTxyz" }],
+  ["grep", grep],
+  ["egrep", grep],
+  ["fgrep", grep],
+  ["rg", {
+    valued: "efgtTmABCjMrEd",
+    longValued: ["--regexp", "--file", "--glob", "--iglob", "--type", "--type-not", "--type-add", "--max-count", "--after-context", "--before-context", "--context", "--threads", "--max-columns", "--replace", "--encoding", "--max-depth", "--max-filesize", "--sort", "--sortr", "--pre", "--pre-glob", "--engine", "--ignore-file", "--path-separator", "--context-separator", "--field-match-separator", "--field-context-separator"],
+    scriptOptions: ["-e", "-f", "--regexp", "--file"]
+  }],
+  ["awk", awk],
+  ["gawk", awk],
+  ["sed", sed],
+  ["gsed", sed]
+]);
+var wrappers = new Map([
+  ["sudo", {
+    valued: "CDghpRrTtUu",
+    longValued: ["--close-from", "--chdir", "--group", "--host", "--prompt", "--chroot", "--role", "--type", "--command-timeout", "--other-user", "--user"],
+    stops: ["-e", "--edit", "-l", "--list", "-v", "--validate", "-V", "--version", "-K", "--remove-timestamp"],
+    folderOptions: ["-D", "--chdir"],
+    takesAssignments: true
+  }],
+  ["env", {
+    valued: "aCPSu",
+    longValued: ["--argv0", "--chdir", "--split-string", "--unset"],
+    folderOptions: ["-C", "--chdir"],
+    codeOptions: ["-S", "--split-string"],
+    takesAssignments: true
+  }],
+  ["doas", { valued: "aCu", stops: ["-C", "-L"] }],
+  ["timeout", { valued: "ks", longValued: ["--kill-after", "--signal"], leadingOperands: 1 }],
+  ["flock", { valued: "wEc", longValued: ["--timeout", "--wait", "--conflict-exit-code", "--command"], codeOptions: ["-c", "--command"], leadingOperands: 1 }],
+  ["stdbuf", { valued: "ioe", longValued: ["--input", "--output", "--error"] }],
+  ["watch", { valued: "nq", optional: "d", longValued: ["--interval", "--equexit"], shellUnless: ["-x", "--exec"] }],
+  ["nohup", {}],
+  ["nice", { valued: "n", longValued: ["--adjustment"] }],
+  ["time", { valued: "fo", longValued: ["--format", "--output"] }],
+  ["exec", { valued: "a" }],
+  ["command", { stops: ["-v", "-V"] }],
+  ["xargs", {
+    valued: "aEdILnPs",
+    optional: "eil",
+    longValued: ["--arg-file", "--delimiter", "--max-args", "--max-chars", "--max-procs", "--process-slot-var"]
+  }]
+]);
+var inlineCodeFlags = new Map([
+  ["python", ["-c"]],
+  ["python2", ["-c"]],
+  ["python3", ["-c"]],
+  ["node", ["-e", "--eval", "-p", "--print"]],
+  ["bun", ["-e", "--eval", "-p", "--print"]],
+  ["deno", ["eval"]],
+  ["ruby", ["-e"]],
+  ["perl", ["-e", "-E"]],
+  ["php", ["-r"]],
+  ["lua", ["-e"]],
+  ["osascript", ["-e"]]
+]);
+function parseShell(line) {
+  const result = { commands: [], writes: [], reads: [], fetches: [], isFullyParsed: true };
+  parseLine(line, "", result);
+  return result;
+}
+function parseLine(line, folder, result) {
+  if (line.includes("\x01")) {
+    result.isFullyParsed = false;
+    return;
+  }
+  try {
+    const { text, markers } = scan(line, 0, false);
+    walk(Dt(text, (name) => name === "" ? undefined : `$${name}`), markers, folder, result);
+  } catch (error) {
+    if (!(error instanceof SyntaxError) && !(error instanceof Error && error.message.startsWith("Bad substitution: ")))
+      throw error;
+    result.isFullyParsed = false;
+  }
+}
+function scan(source, start, isNested) {
+  const markers = [];
+  const heredocs = [];
+  const mark = (marker) => `\x01${markers.push(marker) - 1}\x01`;
+  let text = "";
+  let depth = 0;
+  let cases = 0;
+  let index = start;
+  let isWordStart = true;
+  while (index < source.length) {
+    const char = source.charAt(index);
+    const next = source.charAt(index + 1);
+    if (char === `
+`) {
+      text += " ; ";
+      index = readHeredocBodies(source, index + 1, heredocs.splice(0));
+      isWordStart = true;
+      continue;
+    }
+    if (char === " " || char === "\t") {
+      text += char;
+      index += 1;
+      isWordStart = true;
+      continue;
+    }
+    if (char === "#") {
+      if (isWordStart)
+        index = lineEnd(source, index);
+      else {
+        text += "\\#";
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "\\") {
+      if (next === "")
+        throw new SyntaxError("The line ends with a backslash.");
+      if (next !== `
+`) {
+        text += char + next;
+        isWordStart = false;
+      }
+      index += 2;
+      continue;
+    }
+    if (char === "'" || char === "$" && next === "'") {
+      const close = closingQuote(source, index + (char === "$" ? 2 : 1), "'", char === "$");
+      text += source.slice(index, close + 1);
+      index = close + 1;
+      isWordStart = false;
+      continue;
+    }
+    if (char === '"') {
+      const quoted = readDoubleQuoted(source, index, mark);
+      text += quoted.text;
+      index = quoted.end;
+      isWordStart = false;
+      continue;
+    }
+    const expansion = expansionAt(source, index);
+    if (expansion !== undefined) {
+      text += mark(expansion);
+      index = expansion.end;
+      isWordStart = false;
+      continue;
+    }
+    if ((char === "<" || char === ">") && next === "(") {
+      const close = scan(source, index + 2, true).end;
+      text += mark({ raw: source.slice(index, close + 1), code: [source.slice(index + 2, close)] });
+      index = close + 1;
+      isWordStart = false;
+      continue;
+    }
+    if (char === "(" && next === "(" && isWordStart) {
+      const end = arithmeticEnd(source, index + 2);
+      if (end !== undefined) {
+        if (substitutionsIn(source.slice(index + 2, end - 2)).length > 0)
+          throw new SyntaxError("An arithmetic command runs a substitution.");
+        index = end;
+        continue;
+      }
+    }
+    if (source.startsWith("<<<", index)) {
+      text += "<<<";
+      index += 3;
+      isWordStart = true;
+      continue;
+    }
+    if (char === "<" && next === "<") {
+      const heredoc = readHeredocOperator(source, index);
+      heredocs.push(heredoc);
+      text += ` <<< ${mark(heredoc.marker)} `;
+      index = heredoc.end;
+      isWordStart = true;
+      continue;
+    }
+    if (isWordStart) {
+      descriptorPattern.lastIndex = index;
+      const descriptor = descriptorPattern.exec(source);
+      if (descriptor !== null) {
+        index += descriptor[0].length;
+        continue;
+      }
+      if (startsWord(source, index, "case"))
+        cases += 1;
+      if (startsWord(source, index, "esac") && cases > 0)
+        cases -= 1;
+    }
+    if (char === "(")
+      depth += 1;
+    if (char === ")") {
+      if (depth > 0)
+        depth -= 1;
+      else if (cases === 0) {
+        if (!isNested)
+          throw new SyntaxError("The line closes a parenthesis it never opened.");
+        if (heredocs.length > 0)
+          throw new SyntaxError("A heredoc inside a substitution has no body.");
+        return { text, markers, end: index };
+      }
+    }
+    text += char;
+    index += 1;
+    isWordStart = separators.includes(char);
+  }
+  if (isNested)
+    throw new SyntaxError("A substitution is never closed.");
+  if (depth > 0)
+    throw new SyntaxError("A parenthesis is never closed.");
+  if (heredocs.length > 0)
+    throw new SyntaxError("A heredoc has no body.");
+  return { text, markers, end: index };
+}
+function readDoubleQuoted(source, start, mark) {
+  let text = '"';
+  let index = start + 1;
+  while (index < source.length) {
+    const char = source.charAt(index);
+    if (char === '"')
+      return { text: `${text}"`, end: index + 1 };
+    if (char === "\\") {
+      if (source.charAt(index + 1) !== `
+`)
+        text += source.slice(index, index + 2);
+      index += 2;
+      continue;
+    }
+    const expansion = expansionAt(source, index);
+    if (expansion !== undefined) {
+      text += mark(expansion);
+      index = expansion.end;
+      continue;
+    }
+    text += char;
+    index += 1;
+  }
+  throw new SyntaxError("A double quote is never closed.");
+}
+function expansionAt(source, index) {
+  if (source.startsWith("$((", index)) {
+    const end = arithmeticEnd(source, index + 3);
+    if (end !== undefined)
+      return { raw: source.slice(index, end), code: substitutionsIn(source.slice(index + 3, end - 2)), end };
+  }
+  if (source.startsWith("$(", index)) {
+    const close = scan(source, index + 2, true).end;
+    return { raw: source.slice(index, close + 1), code: [source.slice(index + 2, close)], end: close + 1 };
+  }
+  if (source.charAt(index) === "`") {
+    const close = closingQuote(source, index + 1, "`", true);
+    return { raw: source.slice(index, close + 1), code: [source.slice(index + 1, close).replace(/\\([\\`$])/g, "$1")], end: close + 1 };
+  }
+  return;
+}
+function substitutionsIn(text) {
+  const code = [];
+  let index = 0;
+  while (index < text.length) {
+    if (text.charAt(index) === "\\") {
+      index += 2;
+      continue;
+    }
+    const expansion = expansionAt(text, index);
+    if (expansion === undefined)
+      index += 1;
+    else {
+      code.push(...expansion.code);
+      index = expansion.end;
+    }
+  }
+  return code;
+}
+function arithmeticEnd(source, from) {
+  let depth = 0;
+  for (let index = from;index < source.length; index += 1) {
+    const char = source.charAt(index);
+    if (char === "(")
+      depth += 1;
+    if (char !== ")")
+      continue;
+    if (depth > 0)
+      depth -= 1;
+    else
+      return source.charAt(index + 1) === ")" ? index + 2 : undefined;
+  }
+  throw new SyntaxError("An arithmetic expansion is never closed.");
+}
+function closingQuote(source, from, quote, isEscapable) {
+  for (let index = from;index < source.length; index += 1) {
+    const char = source.charAt(index);
+    if (isEscapable && char === "\\")
+      index += 1;
+    else if (char === quote)
+      return index;
+  }
+  throw new SyntaxError(`A ${quote} quote is never closed.`);
+}
+function lineEnd(source, index) {
+  const end = source.indexOf(`
+`, index);
+  return end < 0 ? source.length : end;
+}
+function startsWord(source, index, word) {
+  return source.startsWith(word, index) && /^$|[\s;&|()<>]/.test(source.charAt(index + word.length));
+}
+function readHeredocOperator(source, index) {
+  let end = index + 2;
+  const stripsTabs = source.charAt(end) === "-";
+  if (stripsTabs)
+    end += 1;
+  while (source.charAt(end) === " " || source.charAt(end) === "\t")
+    end += 1;
+  let delimiter = "";
+  let isQuoted = false;
+  while (end < source.length && !/[\s;&|()<>]/.test(source.charAt(end))) {
+    const char = source.charAt(end);
+    if (char === "'" || char === '"') {
+      const close = closingQuote(source, end + 1, char, char === '"');
+      delimiter += source.slice(end + 1, close);
+      isQuoted = true;
+      end = close + 1;
+    } else if (char === "\\") {
+      delimiter += source.charAt(end + 1);
+      isQuoted = true;
+      end += 2;
+    } else {
+      delimiter += char;
+      end += 1;
+    }
+  }
+  if (delimiter === "")
+    throw new SyntaxError("A heredoc has no delimiter.");
+  return { delimiter, stripsTabs, isQuoted, marker: { raw: "", code: [] }, end };
+}
+function readHeredocBodies(source, from, heredocs) {
+  let index = from;
+  for (const heredoc of heredocs) {
+    const lines = [];
+    for (;; ) {
+      if (index >= source.length)
+        throw new SyntaxError(`The heredoc ${heredoc.delimiter} never ends.`);
+      const end = lineEnd(source, index);
+      const line = heredoc.stripsTabs ? source.slice(index, end).replace(/^\t+/, "") : source.slice(index, end);
+      index = end + 1;
+      if (line === heredoc.delimiter)
+        break;
+      lines.push(line);
+    }
+    heredoc.marker.raw = lines.join(`
+`);
+    heredoc.marker.code = heredoc.isQuoted ? [] : substitutionsIn(heredoc.marker.raw);
+  }
+  return index;
+}
+function walk(tokens, markers, start, result) {
+  let folder = start;
+  const subshells = [];
+  let command = newCommand(undefined);
+  let caseState;
+  for (let index = 0;index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (typeof token !== "string" && "comment" in token)
+      throw new SyntaxError("The line holds a comment the scanner left.");
+    if (isWordToken(token)) {
+      const word = wordOf(token, markers, folder, result);
+      if (caseState === "header") {
+        if (word.text === "in")
+          caseState = "pattern";
+      } else if (caseState === "pattern") {
+        if (word.text === "esac")
+          caseState = undefined;
+      } else if (word.text === "case" && command.words.every((earlier) => reservedWords.has(earlier.text))) {
+        caseState = "header";
+      } else
+        command.words.push(word);
+      continue;
+    }
+    const operator = token.op;
+    if (redirectOperators.has(operator)) {
+      const target = tokens[index + 1];
+      if (target === undefined || !isWordToken(target))
+        throw new SyntaxError(`The redirection ${operator} has no target.`);
+      index += 1;
+      command.redirects.push({ operator, target: wordOf(target, markers, folder, result) });
+      continue;
+    }
+    if (caseState !== undefined) {
+      if (caseState === "pattern" && operator === ")")
+        caseState = undefined;
+      continue;
+    }
+    const following = tokens[index + 1];
+    if (operator === "(" && command.words.length === 1 && following !== undefined && !isWordToken(following) && "op" in following && following.op === ")") {
+      command = newCommand(undefined);
+      index += 1;
+      continue;
+    }
+    const before = result.commands.length;
+    folder = finish(command, operator, folder, result);
+    const writer = result.commands.length > before ? result.commands.length - 1 : undefined;
+    command = newCommand(operator === "|" || operator === "|&" ? { writer } : undefined);
+    if (operator === "(")
+      subshells.push(folder);
+    else if (operator === ")") {
+      const outer = subshells.pop();
+      if (outer === undefined)
+        throw new SyntaxError("The line closes a subshell it never opened.");
+      folder = outer;
+    } else if (casePatternStarts.has(operator))
+      caseState = "pattern";
+    else if (!sequenceOperators.has(operator))
+      throw new SyntaxError(`The parser does not know the operator ${operator}.`);
+  }
+  finish(command, ";", folder, result);
+}
+function newCommand(pipe) {
+  return { words: [], redirects: [], pipe };
+}
+function isWordToken(token) {
+  return typeof token === "string" || "op" in token && token.op === "glob";
+}
+function wordOf(token, markers, folder, result) {
+  const raw = typeof token === "string" ? token : token.pattern;
+  for (const match of raw.matchAll(markerPattern)) {
+    for (const code of markers[Number(match[1])].code)
+      parseLine(code, folder, result);
+  }
+  return {
+    text: raw.replace(markerPattern, (_, index) => markers[Number(index)].raw),
+    isGlob: typeof token !== "string",
+    isDynamic: /[$\u0001]/.test(ft(raw))
+  };
+}
+function finish(command, operator, folder, result) {
+  for (const redirect of command.redirects)
+    addRedirect(redirect, folder, result);
+  const words = withoutPrefixes(command.words);
+  const [first, ...args] = words;
+  if (first === undefined || first.text === "for" || first.text === "select")
+    return folder;
+  const here = command.redirects.findLast((redirect) => redirect.operator === "<<<");
+  const stdin = here !== undefined ? { type: "text", text: here.target.text } : command.pipe !== undefined ? { type: "pipe" } : undefined;
+  const reader = result.commands.length;
+  const changed = addCommand(first, args, folder, stdin, result);
+  const read = result.commands[reader];
+  const writer = command.pipe?.writer;
+  if (read !== undefined && writer !== undefined && here === undefined)
+    result.commands[reader] = { ...read, input: writer };
+  const isPiped = command.pipe !== undefined || operator === "|" || operator === "|&" || operator === "&";
+  return changed === undefined || isPiped ? folder : changed;
+}
+function withoutPrefixes(words) {
+  let start = 0;
+  for (;; ) {
+    const text = words[start]?.text;
+    if (text === undefined)
+      break;
+    if (text === "function")
+      start += 2;
+    else if (reservedWords.has(text) || assignmentPattern.test(text))
+      start += 1;
+    else
+      break;
+  }
+  return words.slice(start);
+}
+function addRedirect({ operator, target }, folder, result) {
+  if (operator === "<" || operator === "<>")
+    addPath(result, "reads", target, folder);
+  if (writeRedirects.has(operator) || operator === ">&" && !/^([0-9]+|-)$/.test(target.text))
+    addPath(result, "writes", target, folder);
+}
+function addCommand(first, args, folder, stdin, result) {
+  if (first.isDynamic || first.isGlob)
+    result.isFullyParsed = false;
+  const program = ft(first.text);
+  if (program === "git")
+    addGit(first, args, folder, result);
+  else if (program === "find")
+    addFind(first, args, folder, result);
+  else if (wrappers.has(program))
+    addWrapper(first, program, args, folder, stdin, result);
+  else {
+    const flags = expandFlags(program, args);
+    const runner = result.commands.push({ argv: [first.text, ...flags], folder }) - 1;
+    addEffects(program, args, flags, folder, stdin, result);
+    runBy(runner, result);
+    if (program === "cd")
+      return changedFolder(args, folder);
+  }
+  return;
+}
+function addGit(first, args, folder, result) {
+  let index = 0;
+  let gitFolder = folder;
+  for (let text = args[0]?.text;text?.startsWith("-") === true; text = args[index]?.text) {
+    if (text === "-C")
+      gitFolder = joinFolder(gitFolder, args[index + 1]?.text ?? "");
+    if (text === "-c" && /^alias\.[^=]*=\s*!/i.test(args[index + 1]?.text ?? ""))
+      result.isFullyParsed = false;
+    index += gitValuedOptions.has(text) ? 2 : 1;
+  }
+  result.commands.push({ argv: [first.text, ...expandFlags("git", args.slice(index))], folder: gitFolder });
+}
+function addFind(first, args, folder, result) {
+  const own = [];
+  const actions = [];
+  for (let index = 0;index < args.length; index += 1) {
+    const text = args[index].text;
+    if (!findActions.has(text)) {
+      own.push(text);
+      continue;
+    }
+    const end = args.findIndex((word, at) => at > index && (word.text === ";" || word.text === "+"));
+    actions.push(args.slice(index + 1, end < 0 ? args.length : end));
+    index = end < 0 ? args.length : end;
+  }
+  const runner = result.commands.push({ argv: [first.text, ...own], folder }) - 1;
+  const starts = findStarts(args);
+  if (own.includes("-delete"))
+    for (const start of starts)
+      addPath(result, "writes", start, folder);
+  for (const action of actions)
+    addFindAction(action, starts, folder, result);
+  runBy(runner, result);
+}
+function addFindAction(action, starts, folder, result) {
+  const [first, ...args] = action;
+  if (first === undefined)
+    return;
+  const reads = result.reads.length;
+  const writes = result.writes.length;
+  addCommand(first, args, folder, undefined, result);
+  if (!action.some((word) => word.text.includes("{}")))
+    return;
+  result.reads.splice(reads);
+  result.writes.splice(writes);
+  for (const start of starts) {
+    const found = { commands: [], reads: result.reads, writes: result.writes, fetches: [], isFullyParsed: true };
+    const [foundFirst, ...foundArgs] = action.map((word) => foundWord(word, start));
+    addCommand(foundFirst, foundArgs, folder, undefined, found);
+    if (!found.isFullyParsed)
+      result.isFullyParsed = false;
+  }
+}
+function foundWord(word, start) {
+  if (!word.text.includes("{}"))
+    return word;
+  return { text: word.text.replaceAll("{}", start.text), isGlob: word.isGlob || start.isGlob, isDynamic: word.isDynamic || start.isDynamic };
+}
+function findStarts(args) {
+  let index = 0;
+  for (let text = args[0]?.text;text === "-D" || /^-([HLP]|O\d*)$/.test(text ?? ""); text = args[index]?.text)
+    index += text === "-D" ? 2 : 1;
+  const end = args.findIndex((word, at) => at >= index && /^[-(!),]/.test(word.text));
+  const starts = args.slice(index, end < 0 ? args.length : end);
+  return starts.length > 0 ? starts : [literal(".")];
+}
+function addWrapper(first, program, args, folder, stdin, result) {
+  const wrapper = wrappers.get(program);
+  if (program === "xargs" && stdin?.type !== "text")
+    result.isFullyParsed = false;
+  const { options, operands } = readArguments(args, wrapper, true);
+  let start = args.length - operands.length;
+  if (options.some((option) => wrapper.stops?.includes(option.name) === true))
+    start = args.length;
+  start += wrapper.leadingOperands ?? 0;
+  while (wrapper.takesAssignments === true && assignmentPattern.test(args[start]?.text ?? ""))
+    start += 1;
+  const hasTrailingCode = wrapper.codeOptions?.includes(args[start]?.text ?? "") === true;
+  const runner = result.commands.push({ argv: [first.text, ...expandFlags(program, args.slice(0, start))], folder }) - 1;
+  const innerFolder = options.findLast((option) => wrapper.folderOptions?.includes(option.name) === true)?.value;
+  const wrappedFolder = innerFolder === undefined ? folder : joinFolder(folder, innerFolder.text);
+  const code = hasTrailingCode ? args[start + 1] : options.findLast((option) => wrapper.codeOptions?.includes(option.name) === true)?.value;
+  const rest = args.slice(hasTrailingCode ? start + 2 : start);
+  const isShell = wrapper.shellUnless !== undefined && !options.some((option) => wrapper.shellUnless?.includes(option.name) === true);
+  const [innerFirst, ...innerArgs] = rest;
+  if (code !== undefined || isShell)
+    parseLine([...code === undefined ? [] : [code], ...rest].map((word) => word.text).join(" "), wrappedFolder, result);
+  else if (innerFirst !== undefined)
+    addCommand(innerFirst, innerArgs, wrappedFolder, stdin, result);
+  runBy(runner, result);
+}
+function runBy(runner, result) {
+  for (const command of result.commands.slice(runner + 1))
+    command.runner ??= runner;
+}
+function addEffects(program, args, flags, folder, stdin, result) {
+  const fileProgram = fileReaders.get(program);
+  const fileWriter = fileWriters.get(program);
+  const copyProgram = copyPrograms.get(program);
+  const fetcher = fetchers.get(program);
+  const inlineFlags = inlineCodeFlags.get(program);
+  if (program === "eval")
+    result.isFullyParsed = false;
+  else if (shells.has(program))
+    addShell(args, folder, stdin, result);
+  else if (program === "ssh")
+    addSsh(args, stdin, result);
+  else if (program === "su")
+    addSu(args, folder, result);
+  else if (program === "source" || program === ".")
+    addPath(result, "reads", readArguments(args, {}, true).operands[0], folder);
+  else if (program === "dd")
+    for (const word of args.filter((arg) => arg.text.startsWith("of=")))
+      addPath(result, "writes", { ...word, text: word.text.slice(3) }, folder);
+  else if (fileWriter !== undefined)
+    for (const operand of readArguments(args, fileWriter, false).operands)
+      addPath(result, "writes", operand, folder);
+  else if (copyProgram !== undefined)
+    addCopy(copyProgram, args, folder, result);
+  else if (fileProgram !== undefined)
+    addFileArguments(fileProgram, args, folder, result);
+  else if (fetcher !== undefined)
+    addFetches(fetcher, args, result);
+  else if (inlineFlags !== undefined) {
+    if (program === "perl" && readArguments(args, perl, false).options.some((option) => option.name === "-i"))
+      addFileArguments(perl, args, folder, result);
+    const script = args.find((word) => !word.text.startsWith("-") || word.text === "-");
+    const readsCodeFromPipe = stdin?.type === "pipe" && (script === undefined || script.text === "-");
+    if (flags.some((flag) => inlineFlags.includes(flag)) || stdin?.type === "text" || readsCodeFromPipe)
+      result.isFullyParsed = false;
+  }
+}
+function addShell(args, folder, stdin, result) {
+  const { options, operands } = readArguments(args, { valued: "oO", longValued: ["--rcfile", "--init-file"] }, true);
+  const script = operands[0];
+  if (options.some((option) => option.name === "-c")) {
+    if (script !== undefined)
+      parseLine(script.text, folder, result);
+  } else if (script === undefined || options.some((option) => option.name === "-s"))
+    addStdinCode(stdin, folder, result);
+}
+function addSsh(args, stdin, result) {
+  const { operands } = readArguments(args, { valued: "BbcDEeFIiJLlmOoPpQRSWw" }, true);
+  const remote = operands.slice(1);
+  if (remote.length > 0)
+    parseLine(remote.map((word) => word.text).join(" "), "~", result);
+  else if (operands.length > 0)
+    addStdinCode(stdin, "~", result);
+}
+function addSu(args, folder, result) {
+  const code = readArguments(args, su, false).options.findLast((option) => suCodeOptions.includes(option.name))?.value;
+  if (code !== undefined)
+    parseLine(code.text, folder, result);
+}
+function addFetches(fetcher, args, result) {
+  const { options, operands } = readArguments(args, fetcher, false);
+  const urls = [...options.filter((option) => option.name === "--url").flatMap((option) => option.value === undefined ? [] : [option.value]), ...operands];
+  for (const url of urls)
+    result.fetches.push(/^[a-z][a-z0-9+.-]*:\/\//i.test(url.text) ? url.text : `http://${url.text}`);
+}
+function addStdinCode(stdin, folder, result) {
+  if (stdin?.type === "text")
+    parseLine(stdin.text, folder, result);
+  if (stdin?.type === "pipe")
+    result.isFullyParsed = false;
+}
+function addCopy(program, args, folder, result) {
+  const { options, operands } = readArguments(args, program, false);
+  const target = options.findLast((option) => program.targetOptions?.includes(option.name) === true)?.value;
+  const only = operands[0];
+  if (program.linksHere === true && target === undefined && operands.length === 1 && only !== undefined) {
+    addPath(result, "writes", { ...only, text: ft(only.text) }, folder);
+    return;
+  }
+  const destination = target ?? operands.at(-1);
+  const sources = target === undefined ? operands.slice(0, -1) : operands;
+  if (destination === undefined || sources.length === 0)
+    return;
+  const isLocal = (word) => program.skipsRemote !== true || !/^[^/]*:/.test(word.text);
+  for (const source of sources.filter(isLocal)) {
+    if (program.sources !== undefined)
+      addPath(result, program.sources, source, folder);
+    if (isLocal(destination) && !source.isGlob && !destination.isGlob)
+      addPathText(result, "writes", `${destination.text.replace(/\/+$/, "")}/${ft(source.text)}`, folder);
+  }
+  if (isLocal(destination))
+    addPath(result, "writes", destination, folder);
+}
+function addFileArguments(program, args, folder, result) {
+  const { options, operands } = readArguments(args, program, false);
+  const inPlace = options.find((option) => program.inPlaceOptions?.includes(option.name) === true && (program !== awk || option.value?.text === "inplace"));
+  let files = operands;
+  if (program === sed && inPlace !== undefined && inPlace.value === undefined) {
+    const suffix = files[0]?.text;
+    const hasScriptOption = options.some((option) => program.scriptOptions?.includes(option.name) === true);
+    if (suffix === "" || !hasScriptOption && suffix !== undefined && /^\.[\w.-]*$/.test(suffix))
+      files = files.slice(1);
+  }
+  if (program.scriptOptions !== undefined && !options.some((option) => program.scriptOptions?.includes(option.name) === true))
+    files = files.slice(1);
+  if (program.takesAssignments === true)
+    files = files.filter((file) => !assignmentPattern.test(file.text));
+  for (const file of files)
+    addPath(result, inPlace === undefined ? "reads" : "writes", file, folder);
+}
+function readArguments(args, spec, stopsAtOperand) {
+  const options = [];
+  const operands = [];
+  for (let index = 0;index < args.length; index += 1) {
+    const word = args[index];
+    const text = word.text;
+    if (text === "--") {
+      operands.push(...args.slice(index + 1));
+      break;
+    }
+    if (word.isGlob || text === "-" || !text.startsWith("-")) {
+      if (stopsAtOperand) {
+        operands.push(...args.slice(index));
+        break;
+      }
+      operands.push(word);
+      continue;
+    }
+    if (text.startsWith("--")) {
+      const equals = text.indexOf("=");
+      if (equals >= 0)
+        options.push({ name: text.slice(0, equals), value: literal(text.slice(equals + 1)) });
+      else if (spec.longValued?.includes(text) === true) {
+        options.push({ name: text, value: args[index + 1] });
+        index += 1;
+      } else
+        options.push({ name: text, value: undefined });
+      continue;
+    }
+    for (let at = 1;at < text.length; at += 1) {
+      const letter = text.charAt(at);
+      const rest = text.slice(at + 1);
+      if (spec.optional?.includes(letter) === true) {
+        options.push({ name: `-${letter}`, value: rest === "" ? undefined : literal(rest) });
+        break;
+      }
+      if (spec.valued?.includes(letter) === true) {
+        if (rest !== "")
+          options.push({ name: `-${letter}`, value: literal(rest) });
+        else {
+          options.push({ name: `-${letter}`, value: args[index + 1] });
+          index += 1;
+        }
+        break;
+      }
+      options.push({ name: `-${letter}`, value: undefined });
+    }
+  }
+  return { options, operands };
+}
+function expandFlags(program, args) {
+  const texts = args.map((word) => word.text);
+  if (nonGetoptPrograms.has(program))
+    return texts;
+  const spec = fileReaders.get(program) ?? wrappers.get(program);
+  const takesValue = `${spec?.valued ?? ""}${spec?.optional ?? ""}`;
+  const end = texts.indexOf("--");
+  return texts.flatMap((text, index) => end >= 0 && index > end || !clusterPattern.test(text) ? [text] : expandCluster(text, takesValue));
+}
+function expandCluster(cluster, takesValue) {
+  const flags = [];
+  for (let index = 1;index < cluster.length; index += 1) {
+    const letter = cluster.charAt(index);
+    if (takesValue.includes(letter) && index < cluster.length - 1)
+      return [...flags, `-${cluster.slice(index)}`];
+    flags.push(`-${letter}`);
+  }
+  return flags;
+}
+function changedFolder(args, folder) {
+  const target = args.find((word) => !word.text.startsWith("-") || word.text === "-");
+  if (target === undefined)
+    return "~";
+  return joinFolder(folder, target.text === "-" ? "$OLDPWD" : target.text);
+}
+function addPath(result, access, word, folder) {
+  if (word !== undefined && !word.isGlob)
+    addPathText(result, access, word.text, folder);
+}
+function addPathText(result, access, path, folder) {
+  if (path === "" || path.startsWith("/dev/"))
+    return;
+  const joined = joinFolder(folder, path);
+  if (dynamicPattern.test(joined.replace(homePrefix2, "")))
+    result.isFullyParsed = false;
+  result[access].push(joined);
+}
+function joinFolder(folder, path) {
+  return folder === "" || /^(\/|~|\$HOME(\/|$))/.test(path) ? path : `${folder}/${path}`;
+}
+function literal(text) {
+  return { text, isGlob: false, isDynamic: false };
+}
+
+// node_modules/@cmodjs/core/utils/call-effects.js
+function callEffects(use, workspace) {
+  const { fs } = workspace;
+  const absolute = (path, folder = workspace.cwd) => ve(folder, expandHome(path, workspace.home, workspace.configRoot));
+  const access = (path) => ({ path: absolute(path), contents: undefined });
+  const effects = { shell: undefined, reads: [], writes: [], urls: [], subagent: undefined };
+  if (use.tool === "Bash") {
+    const line = textField(use, "command");
+    const parsed = parseShell(line);
+    const commands = parsed.commands.map(({ argv, folder }) => ({ argv, folder: absolute(folder) }));
+    effects.shell = { line, commands, isFullyParsed: parsed.isFullyParsed };
+    effects.reads = parsed.reads.map(access);
+    effects.writes = parsed.writes.map(access);
+    effects.urls = parsed.fetches;
+  } else if (use.tool === "PowerShell") {
+    effects.shell = { line: textField(use, "command"), commands: [], isFullyParsed: false };
+  } else if (use.tool === "Edit") {
+    const path = absolute(textField(use, "file_path"));
+    effects.writes = [{ path, contents: once(() => editedContents(use, path, fs)) }];
+  } else if (use.tool === "Write") {
+    const path = absolute(textField(use, "file_path"));
+    const content = textField(use, "content");
+    effects.writes = [{ path, contents: once(async () => contentsOf(content, await previousContentOf(path, fs))) }];
+  } else if (use.tool === "NotebookEdit") {
+    const path = absolute(textField(use, "notebook_path"));
+    effects.writes = [{ path, contents: once(async () => contentsOf(undefined, await previousContentOf(path, fs))) }];
+  } else if (use.tool === "Read") {
+    effects.reads = [access(textField(use, "file_path"))];
+  } else if (use.tool === "Grep") {
+    effects.reads = [access(optionalTextField(use, "path") ?? "")];
+  } else if (use.tool === "Glob") {
+    const folder = absolute(optionalTextField(use, "path") ?? "");
+    effects.reads = [{ path: absolute(textField(use, "pattern"), folder), contents: undefined }];
+  } else if (use.tool === "WebFetch") {
+    effects.urls = [textField(use, "url")];
+  } else if (use.tool === "Agent") {
+    effects.subagent = optionalTextField(use, "subagent_type") ?? "general-purpose";
+  }
+  return effects;
+}
+async function editedContents(use, path, fs) {
+  const previousContent = await previousContentOf(path, fs);
+  const oldString = textField(use, "old_string");
+  const newString = textField(use, "new_string");
+  if (oldString === "")
+    return contentsOf(previousContent === undefined || previousContent === "" ? newString : undefined, previousContent);
+  if (previousContent === undefined || !previousContent.includes(oldString))
+    return contentsOf(undefined, previousContent);
+  const content = fieldOf(use, "replace_all") === true ? previousContent.split(oldString).join(newString) : previousContent.replace(oldString, () => newString);
+  return contentsOf(content, previousContent);
+}
+async function previousContentOf(path, fs) {
+  const stat = await fs.stat(path).catch(ifMissing(undefined));
+  return stat?.kind === "file" ? fs.read(path) : undefined;
+}
+function contentsOf(content, previousContent) {
+  return { ...content === undefined ? {} : { content }, ...previousContent === undefined ? {} : { previousContent } };
+}
+function once(load) {
+  let loaded;
+  return () => loaded ??= load();
+}
+function fieldOf(use, name) {
+  return use.input[name];
+}
+
+class InvalidCall extends Error {
+}
+function textField(use, name) {
+  const value = fieldOf(use, name);
+  if (typeof value !== "string")
+    throw new InvalidCall(`The ${use.tool} call has no text field ${name}.`);
+  return value;
+}
+function optionalTextField(use, name) {
+  return fieldOf(use, name) === undefined ? undefined : textField(use, name);
+}
+
+// node_modules/@cmodjs/core/runtime/hooks.js
+function classicHook(event, hook, report) {
+  const routed = async (e, next) => {
+    const ours = await Promise.resolve().then(() => hook(e, next.signal)).catch((error) => {
+      report({ id: `hook:${event}`, message: `The ${event} listener failed`, error });
+      return;
+    });
+    if (ours === undefined)
+      return next(e);
+    return mergeClassic(await next(e), ours);
+  };
+  return routed;
+}
+function classicFailure(failed) {
+  const routed = async (e, error, next) => {
+    const ours = await failed(e, error);
+    return ours === undefined ? undefined : mergeClassic(await next(e), ours);
+  };
+  return routed;
+}
+var frontmatter = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+var baseDirectoryLine = /^Base directory for this skill: [^\n]*\n\n/;
+function userSkillHook(claude) {
+  return async (e, next) => {
+    const { name, root } = claude.plugin;
+    if (!e.skill.startsWith(`${name}:`))
+      return next(e);
+    const skill = e.skill.slice(name.length + 1);
+    const skills = `${root}/skills`;
+    if (!await claude.fs.exists(skills) || !(await claude.fs.list(skills)).some((entry) => entry.name === skill))
+      return next(e);
+    if ((await claude.fs.stat(`${skills}/${skill}`)).kind !== "dir")
+      return next(e);
+    const env = { HOME: await claude.env.home(), CLAUDE_CONFIG_DIR: await claude.env.configHome() };
+    for (const { folder } of configFolders(env, name, await claude.session.root()).toReversed()) {
+      const path = `${folder}/skills/${skill}/SKILL.md`;
+      if (await claude.fs.exists(path))
+        return { text: `${baseDirectoryLine.exec(e.text)?.[0] ?? ""}${(await claude.fs.read(path)).replace(frontmatter, "")}` };
+    }
+    return next(e);
+  };
+}
+async function callFiles(name, claude, folders, use, cwd) {
+  try {
+    const { home, configRoot } = await folders;
+    if (home === undefined)
+      throw new Error("HOME is not set, so ~ in a path has no meaning.");
+    const { shell, reads, writes } = callEffects(use, { cwd, home, ...configRoot === undefined ? {} : { configRoot }, fs: claude.fs });
+    const known = (accesses) => accesses.map(({ path }) => path).filter((path) => shell === undefined || !dynamicPattern.test(path));
+    const unchecked = (path) => (error) => {
+      if (!isMissing(error))
+        claude.ui.warn("call:files", `${name}: the ${use.tool} call reads ${path}, which could not be checked: ${messageOf(error)}`);
+      return;
+    };
+    const read = await Promise.all(known(reads).map(async (path) => (await claude.fs.stat(path).catch(unchecked(path)))?.kind === "file" ? [path] : []));
+    return { read: read.flat(), changed: known(writes) };
+  } catch (error) {
+    if (!(error instanceof InvalidCall))
+      claude.ui.warn("call:files", `${name}: the ${use.tool} call lists no files: ${messageOf(error)}`);
+    return { read: [], changed: [] };
+  }
+}
+function mergeClassic(below, ours) {
+  const merged = { ...below, ...ours };
+  const context = [...below["additionalContext"] ?? [], ...ours["additionalContext"] ?? []];
+  if (context.length > 0)
+    merged["additionalContext"] = context;
+  return merged;
+}
+
+// node_modules/@cmodjs/core/runtime/sessions.js
+var conversationMethods = {
+  sessions: "cmod:sessions",
+  session: "cmod:session",
+  search: "cmod:search",
+  messages: "cmod:messages",
+  turns: "cmod:turns",
+  contexts: "cmod:contexts",
+  tasks: "cmod:tasks",
+  goal: "cmod:goal",
+  updateGoal: "cmod:updateGoal",
+  subscribe: "cmod:subscribe",
+  watchBefore: "cmod:watchBefore",
+  act: "cmod:act",
+  changed: "cmod:changed",
+  before: "cmod:before",
+  sessionColor: "cmod:sessionColor"
+};
+function subagentTranscript(sessionTranscript, task) {
+  return sessionTranscript?.endsWith(".jsonl") === true ? `${sessionTranscript.slice(0, -".jsonl".length)}/subagents/agent-${task}.jsonl` : undefined;
+}
+var sessionFields = { id: true, title: true, color: true, project: true, cwd: true, transcriptPath: true, model: true, startedAt: true, lastAt: true, forkedFrom: true, isRunning: true, agentType: true, visitedAt: true, device: true, status: true, waitingFor: true, contextPercent: true, lastTurn: true };
+async function usageOf(claude) {
+  const [model, usage] = await Promise.all([claude.session.model(), claude.session.usage()]);
+  const { tokens, window, percent } = usage.context;
+  const rateLimits = usage.rateLimits.map(({ kind, percentUsed, resetsAt }) => ({ type: kind, percent: percentUsed, ...resetsAt === undefined ? {} : { resetsAt } }));
+  return { model, contextWindow: { ...tokens === undefined ? {} : { tokenCount: tokens }, size: window, ...percent === undefined ? {} : { percent } }, rateLimits, ...usage.cost === undefined ? {} : { cost: { usd: usage.cost.usd } } };
+}
+function payloadOf(change) {
+  if (change.type === Message)
+    return change.message;
+  if ("turn" in change)
+    return change.turn;
+  if ("context" in change)
+    return change.context;
+  if ("task" in change) {
+    const { id, title, agentType, model, openedBy, openedAt, closedAt, isBackground, forkedFrom } = change.task;
+    const owner = { id, title, ...agentType === undefined ? {} : { agentType }, ...model === undefined ? {} : { model }, ...forkedFrom === undefined ? {} : { forkedFrom }, startedAt: openedAt };
+    return { id, title, openedBy, openedAt, ...closedAt === undefined ? {} : { closedAt }, ...isBackground === true ? { isBackground } : {}, owner };
+  }
+  if ("usage" in change)
+    return change.usage;
+  return change.goal;
+}
+function isHeardBy(event, matcher, change) {
+  const named = change.type === Message ? event === Message || event === change.message.type : event === change.type;
+  return named && (matcher === undefined || matches(payloadOf(change), matcher));
+}
+function taskOfChange(change) {
+  if (change.type === Message)
+    return change.message.task;
+  if (change.type === TaskStart || change.type === TaskEnd)
+    return change.task.id === "" ? change.task.parent : change.task.id;
+  if (change.type === TurnStart || change.type === TurnEnd)
+    return change.turn.prompt.task;
+  if (change.type === ContextStart || change.type === ContextEnd)
+    return change.context.task;
+  if (change.type === GoalChange)
+    return change.goal.task;
+  return;
+}
+function ownerOfChange(change) {
+  if (change.type === TaskStart || change.type === TaskEnd)
+    return change.task.parent;
+  return taskOfChange(change);
+}
+function contextOfChange(change) {
+  if (change.type === Message)
+    return change.message.context;
+  if (change.type === TurnStart || change.type === TurnEnd)
+    return change.turn.context;
+  if (change.type === ContextStart || change.type === ContextEnd)
+    return change.context.number;
+  if (change.type === TaskStart || change.type === TaskEnd)
+    return change.task.context;
+  return;
+}
+function isInScope(scope, session, change, isUnder) {
+  if (scope.session !== undefined && scope.session !== session)
+    return false;
+  const task = taskOfChange(change);
+  if (scope.isAgent === true)
+    return (change.type === TaskStart || change.type === TaskEnd ? change.task.parent : task) === scope.task;
+  if (scope.task !== undefined && (task === undefined || !isUnder(task, scope.task)))
+    return false;
+  if (scope.context !== undefined && (contextOfChange(change) !== scope.context || ownerOfChange(change) !== scope.task))
+    return false;
+  if (scope.turn === undefined)
+    return true;
+  if (change.type === Message)
+    return change.message.turn === scope.turn;
+  return (change.type === TurnStart || change.type === TurnEnd) && change.turn.prompt.id === scope.turn;
+}
+function withoutPermissionCheck(name, hearer) {
+  return `${name}: ${hearer} hears Claude Code's permission check, so hooks/register.ts must call registerPermissionCheck(addHook) after registerMod.`;
+}
+function createSessionsClient({ name, claude, report, hookOn, routeOn, permissionRoutes }) {
+  const call = (method, input) => claude.cmod.call({ to: cmodPluginName, method, input });
+  const listening = new Map;
+  const deciding = new Map;
+  const queued = new Set;
+  const parents = new Map;
+  const readingParents = new Map;
+  const known = new Map;
+  let current = { id: "", title: "", project: "", cwd: "", model: "", startedAt: "", lastAt: "", isRunning: true };
+  let told = { session: "" };
+  const ownOnly = (method) => new Error(`${name}: ${method} works only in a mod's own session.`);
+  const colored = ({ color: _color, ...data }) => told.session === data.id && told.color !== undefined ? { ...data, color: told.color } : data;
+  const keyOf = (scope) => scope.session ?? current.id;
+  const subscribe = (key) => {
+    if (queued.has(key))
+      return;
+    queued.add(key);
+    Promise.resolve().then(async () => {
+      queued.delete(key);
+      const heard = (from) => [...from.get(key) ?? []].map(({ event, matcher, options, scope }) => ({ event, matcher: matcher === undefined ? undefined : sentMatcher(matcher), scope, ...options.onFailure === "refuse" ? { onFailure: "refuse" } : {}, ...options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs } }));
+      const tracksTasks = [...listening.get(key) ?? [], ...deciding.get(key) ?? []].some(({ scope }) => scope.task !== undefined || scope.isGoal === true);
+      const subscriptions = [...heard(listening), ...tracksTasks ? [{ event: TaskStart }] : []];
+      await call(conversationMethods.subscribe, { session: key, subscriptions }).catch((error) => report(`sessions:${key}`, `Hears nothing from session ${key}`, error));
+      await call(conversationMethods.watchBefore, { session: key, subscriptions: heard(deciding) }).catch((error) => report(`before:${key}`, `Changes nothing in session ${key}`, error));
+    });
+  };
+  const parentsOf = (session) => {
+    const known = parents.get(session);
+    if (known !== undefined)
+      return known;
+    const reading = readingParents.get(session);
+    if (reading !== undefined)
+      return reading;
+    const read = call(conversationMethods.tasks, { session, all: true }).then((tasks) => {
+      const tree = new Map(tasks.map((task) => [task.id, task.parent]));
+      parents.set(session, tree);
+      return tree;
+    }).finally(() => readingParents.delete(session));
+    readingParents.set(session, read);
+    return read;
+  };
+  const isUnderIn = (tree) => (task, ancestor) => {
+    for (let at = task, steps = 0;at !== undefined && steps < 64; at = tree?.get(at), steps += 1)
+      if (at === ancestor)
+        return true;
+    return false;
+  };
+  const inScope = ({ scope }, session, change) => {
+    if (scope.task === undefined || scope.isAgent === true)
+      return isInScope(scope, session, change, isUnderIn(undefined));
+    const tree = parentsOf(session);
+    if (tree instanceof Map)
+      return isInScope(scope, session, change, isUnderIn(tree));
+    return tree.then((read) => isInScope(scope, session, change, isUnderIn(read)), (error) => {
+      report(`tasks:${session}`, "Could not read the tasks it listens under", error);
+      return false;
+    });
+  };
+  const remember = (session, change) => {
+    if (change.type !== TaskStart)
+      return;
+    parents.get(session)?.set(change.task.id, change.task.parent);
+    readingParents.get(session)?.then((tree) => tree.set(change.task.id, change.task.parent), (error) => claude.ui.warn("tasks:read", `${name}: the tasks of ${session} stay unread until the next change: ${messageOf(error)}`));
+  };
+  const add = (into, scope, event, method, args, onChange) => {
+    const key = keyOf(scope);
+    const entry = { scope, event, method, ...listenerOf(name, method, args) };
+    const set = into.get(key) ?? new Set;
+    set.add(entry);
+    into.set(key, set);
+    onChange(key);
+    return {
+      remove() {
+        for (const [at, held] of into) {
+          if (!held.delete(entry))
+            continue;
+          if (held.size === 0)
+            into.delete(at);
+          onChange(at);
+          return;
+        }
+      }
+    };
+  };
+  const refusalOf = (options, takes, error) => options.onFailure === "refuse" && takes.includes("refuse") ? { refuse: `${name}: ${messageOf(error)}` } : undefined;
+  const invoke = (method, options, cancel, run, takes = []) => withinTime(claude.clock, method, options, cancel, run).catch((error) => {
+    if (cancel.aborted || error instanceof PassedTimeout && !method.startsWith("before"))
+      return;
+    report(`session:${method}`, `The ${method} listener failed`, error);
+    return refusalOf(options, takes, error);
+  });
+  const decidersOf = (session, event) => [...deciding.get(session) ?? []].filter((entry) => entry.event === event);
+  const decides = async (entry, session, change) => (entry.matcher === undefined || matches(payloadOf(change), entry.matcher)) && await inScope(entry, session, change);
+  const combined = async (session, event, change, cancel) => {
+    const askers = decidersOf(session, event).map((entry) => async (latest) => {
+      if (!await decides(entry, session, latest))
+        return;
+      const payload = await payloadFor(session, latest);
+      return invoke(entry.method, entry.options, cancel, async (time) => takenAnswer(entry.method, beforeAnswerKeys[event], await entry.listener(payload, time)), beforeAnswerKeys[event]);
+    });
+    const answer = await foldBefore(event, change, askers, (error) => report(`session:${methodOf("before", event)}`, `The ${methodOf("before", event)} listener failed`, error));
+    return answer?.note === undefined ? answer : { ...answer, note: modNote(name, answer.note) };
+  };
+  const eventMethods = (scopeOf, hasBefore, ended) => {
+    const method = (into, named, event) => (...args) => {
+      if (ended !== undefined)
+        throw new Error(`${name}: ${ended} has ended, so its ${named} never fires. Listen on its Session.`);
+      const scope = scopeOf();
+      if (routeOn === undefined || keyOf(scope) !== current.id)
+        throw ownOnly(named);
+      return add(into, scope, event, named, args, subscribe);
+    };
+    return Object.fromEntries([
+      ...Object.entries(sessionEvents).map(([named, event]) => [`on${named}`, method(listening, `on${named}`, event)]),
+      ...hasBefore ? beforeEvents.map((named) => [`before${named}`, method(deciding, `before${named}`, sessionEvents[named])]) : []
+    ]);
+  };
+  let folders;
+  const withFiles = async (message) => {
+    if (message.type !== ToolCall && message.type !== ToolResult)
+      return message;
+    folders ??= Promise.all([claude.env.home(), claude.env.configHome()]).then(([home, configRoot]) => ({ home, configRoot }));
+    return { ...message, files: await callFiles(name, claude, folders, { tool: message.name, input: message.input }, message.cwd) };
+  };
+  const messagesFrom = async (method, input) => Promise.all((await call(method, input)).map(withFiles));
+  const searched = (request, matcher) => ({
+    async* [Symbol.asyncIterator]() {
+      let before = request["before"];
+      for (;; ) {
+        const page = await messagesFrom(conversationMethods.search, { ...request, ...before === undefined ? {} : { before } });
+        for (const message of page)
+          if (matcher === undefined || matches(message, matcher))
+            yield message;
+        const last = page.at(-1);
+        if (last === undefined || page.length < searchLimit)
+          return;
+        before = { session: last.session, id: last.id };
+      }
+    }
+  });
+  const recordPart = (scope, ended) => ({
+    search: (text, matcher) => searched({ text, ...scope }, matcher),
+    ...eventMethods(() => scope, true, ended)
+  });
+  const turnOf = (scope, data) => {
+    const task = data.prompt.task ?? scope.task;
+    return {
+      ...data,
+      ...recordPart({ ...scope, ...task === undefined ? {} : { task }, turn: data.prompt.id }, data.closedAt === undefined ? undefined : `turn ${data.prompt.id}`),
+      messages: () => messagesFrom(conversationMethods.messages, { session: scope.session, turn: data.prompt.id, ...task === undefined ? {} : { task } }),
+      abort: async () => {
+        if (data.closedAt !== undefined)
+          throw new Error(`${name}: turn ${data.prompt.id} has ended, so there is nothing to abort.`);
+        const session = scope.session ?? current.id;
+        await act(session, "abort", { turn: data.prompt.id }, task === undefined ? undefined : { session, task });
+      }
+    };
+  };
+  const contextOf = (scope, data) => {
+    const owned = { ...scope.session === undefined ? {} : { session: scope.session }, ...data.task === undefined ? {} : { task: data.task } };
+    return {
+      ...data,
+      ...recordPart({ ...owned, context: data.number }, data.closedAt === undefined ? undefined : `context ${data.number}`),
+      turns: async () => (await call(conversationMethods.turns, { ...owned, context: data.number })).map((turn) => turnOf(owned, turn))
+    };
+  };
+  const taskOf = (session, data) => {
+    const record = data.isBackground === true ? { session: data.id } : { session, task: data.id };
+    return {
+      id: data.id,
+      title: data.title,
+      openedBy: data.openedBy,
+      openedAt: data.openedAt,
+      ...data.closedAt === undefined ? {} : { closedAt: data.closedAt },
+      ...data.status === undefined ? {} : { status: data.status },
+      ...data.name === undefined ? {} : { name: data.name },
+      ...data.spawnedBy === undefined ? {} : { spawnedBy: data.spawnedBy },
+      ...data.isBackground === true ? { isBackground: true } : {},
+      owner: ownerOf(session, data),
+      ...recordPart({ session, task: data.id }),
+      search: (text, matcher) => searched({ text, ...record }, matcher),
+      tasks: async () => (await call(conversationMethods.tasks, record)).map((task) => taskOf(record.session, task)),
+      messages: () => messagesFrom(conversationMethods.messages, record)
+    };
+  };
+  const goalOf = (where) => ({
+    search: (text, matcher) => searched({ text, ...where() }, matcher),
+    ...eventMethods(() => ({ ...where(), isGoal: true }), true),
+    text: async () => (await call(conversationMethods.goal, where())).text,
+    tasks: async () => {
+      const { session = current.id, task } = where();
+      return (await call(conversationMethods.tasks, { session, ...task === undefined ? {} : { task } })).map((each) => taskOf(session, each));
+    },
+    update: async ({ text }) => {
+      if (text.trim() === "")
+        throw new Error(`${name}: a goal needs text.`);
+      const { session = current.id, task } = where();
+      await call(conversationMethods.updateGoal, { session, ...task === undefined ? {} : { task }, text });
+    }
+  });
+  const payloadFor = async (session, change) => {
+    const scope = { session };
+    if (change.type === Message)
+      return withFiles(change.message);
+    if ("turn" in change)
+      return turnOf(scope, change.turn);
+    if ("context" in change)
+      return contextOf(scope, change.context);
+    if ("task" in change)
+      return taskOf(session, change.task);
+    if ("usage" in change)
+      return change.usage;
+    const { task } = change.goal;
+    return goalOf(() => ({ session, ...task === undefined ? {} : { task } }));
+  };
+  const act = (session, action, input, owned) => call(conversationMethods.act, { session: owned?.session ?? session, action, input, ...owned === undefined ? {} : { task: owned.task } });
+  const sendHere = async ({ type, text, as }) => {
+    if (type === Note) {
+      if (as !== undefined)
+        throw new Error(`${name}: a Note is always from this mod, so it takes no as.`);
+      const added = await claude.session.append({ message: { type: "user", content: [{ type: "text", text: modNote(name, text) }] } });
+      if (added.deny !== undefined)
+        throw new Error(`${name}: Claude Code refused the note: ${added.deny}`);
+      return;
+    }
+    const submitted = await claude.prompt.submit({ text, ...as === Person ? { asUser: true } : {} });
+    if ("drop" in submitted && typeof submitted.drop === "string")
+      throw new Error(`${name}: Claude Code dropped the prompt: ${submitted.drop}`);
+  };
+  const surfacesHere = async () => [...await claude.session.surfaces()];
+  const sessionOf = (read, owned, isOwner = owned !== undefined, hears = true) => {
+    const id = () => read().id;
+    const isHere = () => owned === undefined && id() === current.id;
+    const scope = () => owned === undefined ? { session: id(), isAgent: true } : { session: owned.session, task: owned.task, isAgent: true };
+    const where = () => owned === undefined ? { session: id() } : { session: owned.session, task: owned.task };
+    const turnsOf = async (options = {}) => (await call(conversationMethods.turns, { ...where(), ...options })).map((turn) => turnOf(where(), turn));
+    const contextsOf = async () => (await call(conversationMethods.contexts, where())).map((context) => contextOf(where(), context));
+    const data = Object.defineProperties({}, Object.fromEntries(Object.keys(sessionFields).map((key) => [key, { get: () => read()[key], enumerable: true, configurable: true }])));
+    const session = Object.assign(data, {
+      search: (text, matcher) => recordPart(scope()).search(text, matcher),
+      ...hears ? eventMethods(scope, true) : {},
+      goal: goalOf(where),
+      context: async () => {
+        const all = await contextsOf();
+        const last = all.at(-1);
+        if (last === undefined)
+          throw new Error(`${name}: session ${id()} has no context yet.`);
+        return last;
+      },
+      contexts: contextsOf,
+      turn: async () => {
+        const [last] = await turnsOf({ last: 1 });
+        return last?.closedAt === undefined ? last : undefined;
+      },
+      turns: turnsOf,
+      messages: (options = {}) => messagesFrom(conversationMethods.messages, { ...where(), ...options }),
+      usage: async () => isHere() ? usageOf(claude) : act(id(), "usage", null, owned),
+      surfaces: async () => isHere() ? surfacesHere() : act(id(), "surfaces", null, owned),
+      async send(message) {
+        if (message.text.trim() === "")
+          throw new Error(`${name}: send needs text.`);
+        if (isHere() && message.as !== Session)
+          return sendHere(message);
+        await act(id(), "send", message, owned);
+      },
+      async end() {
+        await act(id(), "end", null, owned);
+      },
+      async visit(at) {
+        await act(id(), "visit", at ?? new Date().toISOString(), owned);
+      }
+    });
+    if (isOwner)
+      return session;
+    const started = async (starting) => taskOf(id(), await starting.catch((error) => Promise.reject(new Error(`${name}: ${messageOf(error)}`))));
+    return Object.assign(session, {
+      startTask: (task) => started(task.isBackground === true || task.device !== undefined ? act(id(), "startBackgroundTask", task) : isHere() ? spawnTask(claude, task) : act(id(), "startTask", task)),
+      fork: (task) => started(isHere() && task.isBackground !== true && task.at === undefined ? spawnTask(claude, task, current.id) : act(id(), "fork", task)),
+      delete: async () => {
+        await act(id(), "delete", null);
+      },
+      callTool: async (toolCall) => await withFiles(await act(id(), "callTool", toolCall))
+    });
+  };
+  const ownerOf = (session, data) => {
+    const parent = session === current.id ? current : known.get(session);
+    const isBackground = data.isBackground === true;
+    const transcriptPath = isBackground ? known.get(data.id)?.transcriptPath : subagentTranscript(parent?.transcriptPath, data.id);
+    return sessionOf(() => ({
+      id: data.id,
+      title: data.title,
+      project: parent?.project ?? "",
+      ...data.agentType === undefined ? {} : { agentType: data.agentType },
+      model: data.model ?? "",
+      cwd: parent?.cwd ?? "",
+      ...transcriptPath === undefined ? {} : { transcriptPath },
+      isRunning: data.closedAt === undefined && (isBackground || (parent?.isRunning ?? true)),
+      startedAt: data.openedAt,
+      lastAt: data.closedAt ?? data.openedAt,
+      ...data.forkedFrom === undefined ? {} : { forkedFrom: data.forkedFrom }
+    }), isBackground ? undefined : { session, task: data.id }, true);
+  };
+  const processListeners = new Map;
+  const processHearers = (method, payload) => [...processListeners.get(method) ?? []].filter(({ matcher, isEveryAgent }) => (payload["task"] === undefined || isEveryAgent) && (matcher === undefined || matches(payload, matcher)));
+  const raise = async (method, payload, cancel) => {
+    const heard = processHearers(method, payload);
+    if (!method.startsWith("before")) {
+      await Promise.all(heard.map(({ listener, options }) => invoke(method, options, cancel, (time) => listener(payload, time))));
+      return;
+    }
+    const takes = takesOf(method);
+    const askers = heard.map(({ listener, options }) => () => invoke(method, options, cancel, async (time) => takenAnswer(method, takes, await listener(payload, time)), takes));
+    return foldAnswers(method, takes, ["refuse"], undefined, askers, (error) => report(`session:${method}`, `The ${method} listener failed`, error));
+  };
+  const takesOf = (method) => answerKeys[method.slice("before".length)] ?? [];
+  const refusalFor = (method, payload, error) => processHearers(method, payload).map((entry) => refusalOf(entry.options, takesOf(method), error)).find((answer) => answer !== undefined);
+  const commandRun = async (e) => {
+    const source = (await claude.command.list()).find((command) => command.name === e.command)?.source;
+    return { session: current.id, cwd: current.cwd, name: e.command, args: e.args, ...defined({ source }), from: senderOf(e.origin, false) };
+  };
+  const commandListeners = { beforeRun: new Set, onRun: new Set };
+  for (const [method, held] of Object.entries(commandListeners))
+    processListeners.set(method, held);
+  routeOn?.("command.run", async (e, next) => {
+    if (commandListeners.beforeRun.size === 0 && commandListeners.onRun.size === 0)
+      return next(e);
+    const run = await commandRun(e);
+    const answer = commandListeners.beforeRun.size === 0 ? undefined : await raise("beforeRun", run, next.signal);
+    if (typeof answer?.["refuse"] === "string")
+      return { text: answer["refuse"] };
+    if (typeof answer?.["result"] === "string")
+      return { text: answer["result"], ...typeof answer["exitCode"] === "number" ? { exitCode: answer["exitCode"] } : {} };
+    const args = typeof answer?.["args"] === "string" ? answer["args"] : e.args;
+    const ran = await next(args === e.args ? e : { ...e, args });
+    raise("onRun", { ...run, args }, next.signal);
+    return typeof answer?.["note"] === "string" ? { ...ran, context: [...ran.context ?? [], modNote(name, answer["note"])] } : ran;
+  }, async (e, error) => {
+    const refusal = commandListeners.beforeRun.size === 0 ? undefined : refusalFor("beforeRun", await commandRun(e), error);
+    return refusal === undefined ? undefined : { text: refusal.refuse };
+  });
+  const listenTo = (method, named) => {
+    if (hookOn === undefined || routeOn === undefined)
+      throw ownOnly(method);
+    const isBefore = method.startsWith("before");
+    if (named === "PermissionCheck" || named === "PermissionRequest") {
+      const routes = permissionRoutes?.();
+      if (routes === undefined)
+        throw new Error(withoutPermissionCheck(name, method));
+      return routes(method, { name, raise, refusalFor, hookOn, routeOn, current: () => current });
+    }
+    const event = processEvents[named];
+    const hook = (isBefore ? event.before : undefined) ?? event.on;
+    if (method === "beforeSessionStart")
+      routeOn("session.compact", trackCompaction);
+    if (method === "beforeModelChange")
+      hookOn(event.on, () => {
+        const notes = modelNotes.splice(0);
+        return notes.length === 0 ? undefined : { additionalContext: notes };
+      });
+    const failed = (input, error) => {
+      const refusal = refusalFor(method, processPayloadOf(named, input), error);
+      return refusal === undefined ? undefined : hookAnswerOf(name, named, refusal);
+    };
+    return hookOn(hook, async (input, signal) => {
+      const payload = processPayloadOf(named, input);
+      if (named === "SessionStart" && payload["source"] === "compact") {
+        if (!isBefore)
+          return;
+        const task = compacting?.agentId;
+        const model = task === undefined ? await claude.session.model() : undefined;
+        const answer = await raise(method, { ...payload, ...defined({ task, model, title: current.title || undefined }) }, signal);
+        if (answer === undefined)
+          return;
+        return hookAnswerOf(name, named, task === undefined ? answer : defined({ note: answer["note"] }));
+      }
+      if (!isBefore) {
+        raise(method, payload, signal);
+        return;
+      }
+      if (named === "ModelChange")
+        modelNotes.splice(0);
+      const answer = await raise(method, payload, signal);
+      if (answer === undefined)
+        return;
+      if (named === "ModelChange" && typeof answer["note"] === "string" && answer["refuse"] === undefined)
+        modelNotes.push(modNote(name, answer["note"]));
+      return hookAnswerOf(name, named, answer);
+    }, isBefore ? failed : undefined);
+  };
+  const modelNotes = [];
+  let compacting;
+  const trackCompaction = async (e, next) => {
+    compacting = e;
+    try {
+      return await next(e);
+    } finally {
+      if (compacting === e)
+        compacting = undefined;
+    }
+  };
+  const listen = (method, args, isEveryAgent = false) => {
+    const heard = listenerOf(name, method, args);
+    const entry = { ...heard, options: method === "beforePermissionRequest" ? { ...heard.options, onFailure: "refuse" } : heard.options, isEveryAgent };
+    const held = processListeners.get(method) ?? new Set;
+    if (!processListeners.has(method)) {
+      listenTo(method, method.replace(/^(on|before)/, ""));
+      processListeners.set(method, held);
+    }
+    held.add(entry);
+    return { remove: () => void held.delete(entry) };
+  };
+  const processMethods = () => Object.fromEntries(Object.entries(processEvents).flatMap(([named, event]) => [`on${named}`, ..."before" in event ? [`before${named}`] : []]).map((method) => [method, (...args) => listen(method, args)]));
+  const here = sessionOf(() => current);
+  const currentSession = Object.assign(here, processMethods(), {
+    goal: Object.assign(here.goal, { beforeSessionStart: (...args) => listen("beforeSessionStart", args, true) }),
+    async scrollTo(message, options) {
+      const { deny } = await claude.ui.scroll({ to: { requestId: message.id }, ...options?.block === undefined ? {} : { block: options.block } });
+      if (deny !== undefined)
+        throw new Error(`${name}: Claude Code did not scroll to the message: ${deny}`);
+    },
+    caption: (toolCall, text) => claude.ui.notice(toolCall.callId, text)
+  });
+  const failedBefore = (session, event, change, error) => {
+    const asked = decidersOf(session, event).filter((entry) => isInScope(entry.scope, session, change, isUnderIn(parents.get(session))) && (entry.matcher === undefined || matches(payloadOf(change), entry.matcher)));
+    return asked.map((entry) => refusalOf(entry.options, beforeAnswerKeys[event], error)).find((answer) => answer !== undefined);
+  };
+  const listed = (data) => {
+    if (data.id !== current.id) {
+      known.set(data.id, data);
+      return sessionOf(() => known.get(data.id) ?? data, undefined, false, false);
+    }
+    current = { ...current, title: current.title || data.title, device: data.device };
+    return currentSession;
+  };
+  return {
+    sessions: {
+      get current() {
+        return currentSession;
+      },
+      list: async (scope = {}) => (await call(conversationMethods.sessions, scope)).map(listed),
+      get: async (id) => id === current.id ? currentSession : listed(await call(conversationMethods.session, { session: id })),
+      search: (text, matcher, options = {}) => searched({ text, ...searchOptionsOf(options) }, matcher)
+    },
+    changed(session, change, cancel) {
+      remember(session, change);
+      let payload;
+      for (const entry of listening.get(session) ?? []) {
+        const { event, method, matcher, listener, options } = entry;
+        const deliver = () => {
+          payload ??= payloadFor(session, change);
+          payload.then((heard) => invoke(method, options, cancel, (time) => listener(heard, time))).catch((error) => report(`session:${method}`, `The ${method} listener failed`, error));
+        };
+        const isHeard = isHeardBy(event, matcher, change) && inScope(entry, session, change);
+        if (isHeard === true)
+          deliver();
+        else if (isHeard !== false)
+          isHeard.then((isIn) => isIn && deliver());
+      }
+    },
+    answerBefore: combined,
+    failedBefore,
+    raise,
+    listen,
+    turn: (data) => turnOf({ session: current.id }, data),
+    follow(next) {
+      const moved = next.id !== current.id && current.id !== "";
+      const previous = current.id;
+      current = colored({ device: current.device, ...next, title: next.title || (next.id === current.id ? current.title : ""), isRunning: true, lastAt: new Date().toISOString() });
+      if (!moved)
+        return;
+      for (const into of [listening, deciding]) {
+        const kept = into.get(previous);
+        if (kept === undefined)
+          continue;
+        into.delete(previous);
+        for (const entry of kept)
+          if (entry.scope.session === previous)
+            entry.scope = { ...entry.scope, session: current.id };
+        into.set(current.id, new Set([...into.get(current.id) ?? [], ...kept]));
+      }
+      parents.delete(previous);
+      subscribe(previous);
+      subscribe(current.id);
+    },
+    recolor(next) {
+      told = next;
+      current = colored(current);
+    }
+  };
+}
+var recordOf = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+var defined = (fields) => Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+var placementOf = (input) => defined({ session: input["session_id"], task: input["agent_id"], agentType: input["agent_type"], cwd: input["cwd"], permissionMode: input["permission_mode"] });
+var mcpServerOf = (server) => server === undefined ? undefined : { name: String(recordOf(server)["name"]), source: String(recordOf(server)["source"]) };
+var modelChangeOf = (input) => ({
+  model: input["to_model"],
+  previous: input["from_model"],
+  requested: input["requested_model"] ?? undefined,
+  source: input["source"],
+  contextTokenCount: input["context_tokens"],
+  isCacheWarm: input["prompt_cache_warm"],
+  cacheTtl: input["cache_ttl"],
+  cacheWriteUsd: input["estimated_cache_write_usd"],
+  pricing: input["pricing"]
+});
+var answerKeys = {
+  Run: ["args", "note", "result", "exitCode", "refuse"],
+  ProjectSetup: ["note"],
+  SessionStart: ["note", "title", "reloadSkills", "firstPrompt"],
+  ModelChange: ["ask", "refuse", "note"],
+  WorktreeCreate: ["result"],
+  Elicitation: ["refuse"],
+  ElicitationResponse: ["refuse"],
+  PermissionCheck: ["allow", "ask", "refuse", "note"],
+  PermissionRequest: ["allow", "input", "updates", "refuse", "interrupt"],
+  PermissionDenial: ["retry"],
+  ToolBatch: ["note"],
+  TodoCreate: ["refuse"],
+  TodoComplete: ["refuse"],
+  ReplyDisplay: ["text"]
+};
+var todoOf = (input) => ({ id: input["task_id"], subject: input["task_subject"], description: input["task_description"], teammate: input["teammate_name"] });
+var processFields = {
+  ProjectSetup: (input) => ({ trigger: input["trigger"] }),
+  SessionStart: (input) => ({
+    source: input["source"],
+    model: input["model"],
+    title: input["session_title"] || undefined,
+    idleSeconds: input["seconds_since_last_response"],
+    contextTokenCount: input["context_tokens"],
+    isCacheWarm: input["prompt_cache_likely_expired"] === undefined ? undefined : input["prompt_cache_likely_expired"] !== true,
+    cacheWriteUsd: input["estimated_cache_write_usd"]
+  }),
+  SessionEnd: (input) => ({ reason: input["reason"] === "prompt_input_exit" ? "exit" : input["reason"] }),
+  ModelChange: modelChangeOf,
+  CwdChange: (input) => ({ cwd: input["new_cwd"] ?? input["cwd"], previous: input["old_cwd"] }),
+  DirectoryAdd: (input) => ({ directory: input["directory"], source: input["source"] === "slash_command" ? "command" : "sdk" }),
+  WorktreeCreate: (input) => ({ name: input["name"] }),
+  WorktreeRemove: (input) => ({ path: input["worktree_path"] }),
+  Notification: (input) => ({ text: input["message"], title: input["title"], type: input["notification_type"] }),
+  Elicitation: (input) => ({ id: input["elicitation_id"], server: input["mcp_server_name"], text: input["message"], mode: input["mode"], url: input["url"], schema: input["requested_schema"] }),
+  ElicitationResponse: (input) => ({ id: input["elicitation_id"], server: input["mcp_server_name"], mode: input["mode"], action: input["action"], content: input["content"] }),
+  PermissionRequest: (input) => ({ name: input["tool_name"], input: recordOf(input["tool_input"]), suggestions: input["permission_suggestions"] ?? [], mcpServer: mcpServerOf(input["mcp_server"]) }),
+  PermissionDenial: (input) => ({ name: input["tool_name"], input: recordOf(input["tool_input"]), callId: input["tool_use_id"], reason: input["reason"], mcpServer: mcpServerOf(input["mcp_server"]) }),
+  ToolBatch: (input) => ({
+    calls: (Array.isArray(input["tool_calls"]) ? input["tool_calls"] : []).map((call) => {
+      const fields = recordOf(call);
+      return defined({ callId: fields["tool_use_id"], name: fields["tool_name"], input: recordOf(fields["tool_input"]), output: fields["tool_response"] });
+    })
+  }),
+  TodoCreate: todoOf,
+  TodoComplete: todoOf,
+  ReplyDisplay: (input) => ({ replyId: input["message_id"], index: input["index"], isLast: input["final"], text: input["delta"] })
+};
+async function spawnTask(claude, task, forkedFrom) {
+  if (task.title.trim() === "")
+    throw new Error("a task needs a title.");
+  const { name, agentType, model, cwd } = forkedFrom === undefined ? task : { prompt: task.prompt, title: task.title, agentType: forkAgentType };
+  const started = await claude.agent.spawn({
+    prompt: task.prompt,
+    description: task.title,
+    ...name === undefined ? {} : { name },
+    ...agentType === undefined ? {} : { subagentType: agentType },
+    ...model === undefined ? {} : { model },
+    ...cwd === undefined ? {} : { cwd }
+  });
+  if (started.deny !== undefined)
+    throw new Error(`Claude Code refused the task: ${started.deny}`);
+  if (started.agentId === undefined)
+    throw new Error("Claude Code answered without starting a task.");
+  return { id: started.agentId, title: task.title, ...forkedFrom === undefined ? { agentType: agentType ?? "general-purpose" } : { forkedFrom }, model: started.model, openedBy: "", openedAt: new Date().toISOString() };
+}
+function processPayloadOf(named, input) {
+  const fields = recordOf(input);
+  return { ...placementOf(fields), ...defined(processFields[named](fields)) };
+}
+function hookAnswerOf(name, named, answer) {
+  const refuse = typeof answer["refuse"] === "string" ? answer["refuse"] : undefined;
+  const note = typeof answer["note"] === "string" ? [modNote(name, answer["note"])] : undefined;
+  if (named === "SessionStart")
+    return defined({ additionalContext: note, sessionTitle: answer["title"], reloadSkills: answer["reloadSkills"] === true ? true : undefined, initialUserMessage: answer["firstPrompt"] });
+  if (named === "ModelChange") {
+    if (refuse !== undefined)
+      return { permissionDecision: "deny", permissionDecisionReason: refuse };
+    return typeof answer["ask"] === "string" ? { permissionDecision: "ask", permissionDecisionReason: answer["ask"] } : undefined;
+  }
+  if (named === "ProjectSetup")
+    return defined({ additionalContext: note });
+  if (named === "WorktreeCreate")
+    return defined({ worktreePath: answer["result"] });
+  if (named === "PermissionDenial")
+    return answer["retry"] === true ? { retry: true } : undefined;
+  if (named === "ToolBatch")
+    return defined({ additionalContext: note });
+  if (named === "ReplyDisplay")
+    return defined({ displayContent: answer["text"] });
+  return refuse === undefined ? undefined : { block: refuse };
+}
+function searchOptionsOf({ running, since, everyProject, before }) {
+  return {
+    ...running === undefined ? {} : { running },
+    ...since === undefined ? {} : { since },
+    ...everyProject === undefined ? {} : { everyProject },
+    ...before === undefined ? {} : { before: { session: before.session, id: before.id } }
+  };
+}
+
+// node_modules/@cmodjs/core/runtime/conversations.js
+var relayKinds = new Set(["act", "goal", "taskEnd"]);
+
+// node_modules/@cmodjs/core/runtime/announce.js
+var announcementMs = 1e4;
+async function announcementOf(claude, plugin, added, openSettings) {
+  const manifest = jsonOf(await claude.fs.read(`${plugin.root}/.claude-plugin/plugin.json`).catch(ifMissing(undefined)));
+  const { program, hotkeys } = plugin.steps;
+  const rules = (await claude.fs.list(`${plugin.root}/rules`).catch(ifMissing([]))).filter((entry) => entry.kind === "file" && entry.name.endsWith(".md")).map((entry) => entry.name.slice(0, -".md".length)).toSorted();
+  const lines = [
+    isObject(manifest) && typeof manifest["description"] === "string" ? manifest["description"] : undefined,
+    added.length > 0 ? `Adds ${listed(added)}.` : undefined,
+    rules.length > 0 ? `Adds ${rules.length} ${rules.length === 1 ? "rule" : "rules"}: ${listed(rules)}.` : undefined,
+    program === undefined ? undefined : `Installed the ${program} program.`,
+    ...Object.values(hotkeys ?? {}).flatMap(({ title, default: combo }) => combo === undefined ? [] : [`Binds ${combo} to ${title}.`])
+  ].filter((line) => line !== undefined);
+  return { message: "Installed", ...lines.length === 0 ? {} : { description: lines.join(`
+`) }, action: { label: "Settings", onClick: () => openSettings() } };
+}
+function jsonOf(text) {
+  try {
+    return text === undefined ? undefined : JSON.parse(text);
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      return;
+    throw error;
+  }
+}
+
+// node_modules/@cmodjs/core/runtime/bound.js
+var current;
+function bind(imports) {
+  current = imports;
+}
+function bound() {
+  if (current === undefined)
+    throw new Error("A mod's imports work once its setup runs. Call them from setup or from a hook, never at the top of a module.");
+  return current;
+}
+
+// node_modules/@cmodjs/core/runtime/engine.js
+var engines = new WeakMap;
+function keepEngine(mod, engine) {
+  engines.set(mod, engine);
+}
+function engineOf(mod) {
+  const engine = engines.get(mod);
+  if (engine === undefined)
+    throw new Error("This mod has not started, so it reaches no Claude Code calls yet.");
+  return engine;
+}
+
+// node_modules/@cmodjs/core/utils/metadata.js
+class MetadataError extends Error {
+  line;
+  constructor(line, message) {
+    super(`line ${line}: ${message}`);
+    this.line = line;
+  }
+}
+var markdown = ["md", "markdown", "mdx"];
+var hashComments = ["sh", "bash", "zsh", "fish", "py", "rb", "pl", "r", "yaml", "yml", "toml", "ps1", "nu", "tcl", "mk", "conf", "cfg", "env"];
+var slashComments = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "go", "rs", "swift", "kt", "kts", "java", "c", "h", "cc", "cpp", "hpp", "cs", "scala", "dart", "zig", "jsonc", "json5"];
+var dashComments = ["lua", "sql", "hs", "elm"];
+var hashCommentNames = ["Makefile", "Dockerfile", "Brewfile", "Gemfile", "Rakefile", "Justfile", "justfile"];
+var sidecarSuffix = ".meta";
+function formatOf(path, firstLine) {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  const extension = dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
+  if (markdown.includes(extension))
+    return { type: "frontmatter" };
+  if (hashComments.includes(extension) || hashCommentNames.includes(name))
+    return { type: "comment", prefix: "#" };
+  if (slashComments.includes(extension))
+    return { type: "comment", prefix: "//" };
+  if (dashComments.includes(extension))
+    return { type: "comment", prefix: "--" };
+  if (extension === "" && firstLine?.startsWith("#!") === true)
+    return { type: "comment", prefix: "#" };
+  return { type: "sidecar" };
+}
+function readMetadata(text, format) {
+  const lines = text.split(`
+`);
+  if (format.type === "comment") {
+    const region = commentRegion(lines, format.prefix);
+    return { metadata: region === undefined ? {} : asRecord(mapEntries(region.lines, region.start + 2, 0)) };
+  }
+  const region = format.type === "frontmatter" ? frontmatterRegion(lines) : { start: -1, end: lines.length, lines };
+  if (region === undefined)
+    return { metadata: {} };
+  const block = metadataBlock(region);
+  const name = format.type === "frontmatter" ? topLevelScalar(region, "name") : undefined;
+  return { metadata: block === undefined ? {} : asRecord(block.entries), ...name === undefined ? {} : { name } };
+}
+function writeMetadata(text, format, metadata) {
+  const lines = text.split(`
+`);
+  const entries = Object.entries(metadata);
+  if (format.type === "comment") {
+    const { prefix } = format;
+    const block = entries.length === 0 ? [] : [`${prefix} /// metadata`, ...entries.map(([key, value]) => `${prefix} ${scalar(key)}: ${scalar(value)}`), `${prefix} ///`];
+    const region = commentRegion(lines, prefix);
+    if (region !== undefined)
+      return [...lines.slice(0, region.start), ...block, ...lines.slice(region.end + 1)].join(`
+`);
+    if (block.length === 0)
+      return text;
+    const at = lines[0]?.startsWith("#!") === true ? 1 : 0;
+    return [...lines.slice(0, at), ...block, ...lines.slice(at)].join(`
+`);
+  }
+  const map = entries.length === 0 ? [] : ["metadata:", ...entries.map(([key, value]) => `  ${scalar(key)}: ${scalar(value)}`)];
+  if (format.type === "sidecar") {
+    const block = metadataBlock({ start: -1, end: lines.length, lines });
+    const rest = block === undefined ? lines : [...lines.slice(0, block.start), ...lines.slice(block.end)];
+    const kept = rest.join(`
+`).trim();
+    return [...kept === "" ? [] : [kept], ...map].join(`
+`) + (map.length === 0 && kept === "" ? "" : `
+`);
+  }
+  const region = frontmatterRegion(lines);
+  if (region === undefined)
+    return map.length === 0 ? text : ["---", ...map, "---", ...lines].join(`
+`);
+  const block = metadataBlock(region);
+  const inner = block === undefined ? [...region.lines, ...map] : [...lines.slice(region.start + 1, block.start), ...map, ...lines.slice(block.end, region.end)];
+  if (inner.every((line) => line.trim() === ""))
+    return lines.slice(region.end + 1).join(`
+`);
+  return [...lines.slice(0, region.start + 1), ...inner, ...lines.slice(region.end)].join(`
+`);
+}
+function frontmatterRegion(lines) {
+  if (lines[0]?.replace(/^\uFEFF/, "").trimEnd() !== "---")
+    return;
+  const end = lines.findIndex((line, index) => index > 0 && line.trimEnd() === "---");
+  if (end === -1)
+    throw new MetadataError(1, "the frontmatter starts with --- and never ends. Close it with a --- line.");
+  return { start: 0, end, lines: lines.slice(1, end) };
+}
+function commentRegion(lines, prefix) {
+  const start = lines.findIndex((line) => line.trimEnd() === `${prefix} /// metadata`);
+  if (start === -1)
+    return;
+  const content = [];
+  for (let index = start + 1;index < lines.length; index += 1) {
+    const line = (lines[index] ?? "").trimEnd();
+    if (line === `${prefix} ///`)
+      return { start, end: index, lines: content };
+    if (line !== prefix && !line.startsWith(`${prefix} `))
+      break;
+    content.push(line.slice(prefix.length + 1));
+  }
+  throw new MetadataError(start + 1, `the metadata block never ends. Close it with a "${prefix} ///" line.`);
+}
+function metadataBlock(region) {
+  const at = region.lines.findIndex((line) => /^metadata\s*:/.test(line));
+  if (at === -1)
+    return;
+  const lineNumber = region.start + 2 + at;
+  const rest = withoutComment((region.lines[at] ?? "").replace(/^metadata\s*:/, "")).trim();
+  const start = region.start + 1 + at;
+  if (rest.startsWith("{"))
+    return { start, end: start + 1, entries: flowEntries(rest, lineNumber) };
+  if (rest !== "")
+    throw new MetadataError(lineNumber, "metadata holds a single value. Write a map of names to text, such as metadata: { mymod.key: value }.");
+  let index = at + 1;
+  while (index < region.lines.length && (/^\s/.test(region.lines[index] ?? "") || (region.lines[index] ?? "").trim() === ""))
+    index += 1;
+  while (index > at + 1 && (region.lines[index - 1] ?? "").trim() === "")
+    index -= 1;
+  const children = region.lines.slice(at + 1, index);
+  return { start, end: region.start + 1 + index, entries: mapEntries(children, lineNumber + 1, indentOf(children)) };
+}
+function indentOf(lines) {
+  const first = lines.find((line) => line.trim() !== "" && !line.trim().startsWith("#"));
+  return first === undefined ? 0 : /^\s*/.exec(first)?.[0].length ?? 0;
+}
+function mapEntries(lines, firstLine, indent) {
+  const entries = [];
+  lines.forEach((raw, index) => {
+    const lineNumber = firstLine + index;
+    const line = withoutComment(raw);
+    if (line.trim() === "")
+      return;
+    const depth = /^\s*/.exec(line)?.[0].length ?? 0;
+    if (depth !== indent)
+      throw new MetadataError(lineNumber, "a metadata value holds a list or a map. Each value is one line of text, and a list is one space-separated text.");
+    const body = line.trim();
+    if (body.startsWith("- "))
+      throw new MetadataError(lineNumber, "metadata holds a list. Write a map of names to text, and a list as one space-separated text.");
+    entries.push(entryOf(body, lineNumber));
+  });
+  return entries;
+}
+function flowEntries(text, lineNumber) {
+  if (!text.endsWith("}"))
+    throw new MetadataError(lineNumber, "the metadata map starts with { and does not end on the same line. Close it with }, or write one entry per line.");
+  const body = text.slice(1, -1).trim();
+  if (body === "")
+    return [];
+  return splitOutsideQuotes(body, ",", lineNumber).map((part) => part.trim()).filter((part) => part !== "").map((part) => entryOf(part, lineNumber));
+}
+function entryOf(text, lineNumber) {
+  const [keyText, ...rest] = splitOutsideQuotes(text, ":", lineNumber, true);
+  if (keyText === undefined || rest.length === 0)
+    throw new MetadataError(lineNumber, `"${text}" has no ":". Write each entry as name: value.`);
+  const valueText = rest.join(":").trim();
+  if (valueText.startsWith("{") || valueText.startsWith("[") || valueText === "|" || valueText === ">")
+    throw new MetadataError(lineNumber, `${keyText.trim()} holds a list or a map. Each value is one line of text, and a list is one space-separated text.`);
+  return { key: unquoted(keyText.trim(), lineNumber), value: unquoted(valueText, lineNumber) };
+}
+function splitOutsideQuotes(text, separator, lineNumber, needsSpace = false) {
+  const parts = [];
+  let quote;
+  let current = "";
+  for (let index = 0;index < text.length; index += 1) {
+    const char = text[index];
+    if (quote !== undefined) {
+      current += char;
+      if (char === "\\" && quote === '"') {
+        current += text[index + 1] ?? "";
+        index += 1;
+      } else if (char === quote)
+        quote = undefined;
+      continue;
+    }
+    const before = current.trimEnd().at(-1);
+    if ((char === '"' || char === "'") && (before === undefined || before === ":"))
+      quote = char;
+    const next = text[index + 1];
+    if (char === separator && (!needsSpace || next === undefined || next === " " || next === "\t")) {
+      parts.push(current);
+      current = "";
+      if (needsSpace) {
+        parts.push(text.slice(index + 1));
+        return parts;
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (quote !== undefined)
+    throw new MetadataError(lineNumber, `a ${quote === '"' ? "double" : "single"} quote never closes.`);
+  parts.push(current);
+  return parts;
+}
+function withoutComment(line) {
+  let quote;
+  for (let index = 0;index < line.length; index += 1) {
+    const char = line[index];
+    if (quote !== undefined) {
+      if (char === "\\" && quote === '"')
+        index += 1;
+      else if (char === quote)
+        quote = undefined;
+      continue;
+    }
+    if (char === '"' || char === "'")
+      quote = char;
+    if (char === "#" && (index === 0 || /\s/.test(line[index - 1] ?? "")))
+      return line.slice(0, index);
+  }
+  return line;
+}
+function unquoted(text, lineNumber) {
+  if (text.startsWith('"')) {
+    if (!text.endsWith('"') || text.length < 2)
+      throw new MetadataError(lineNumber, `${text} opens a double quote that never closes.`);
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      if (!(error instanceof SyntaxError))
+        throw error;
+      throw new MetadataError(lineNumber, `${text} is not a double-quoted text. Escape a " inside it as \\".`);
+    }
+  }
+  if (text.startsWith("'")) {
+    if (!text.endsWith("'") || text.length < 2)
+      throw new MetadataError(lineNumber, `${text} opens a single quote that never closes.`);
+    return text.slice(1, -1).replaceAll("''", "'");
+  }
+  return text;
+}
+function topLevelScalar(region, key) {
+  const at = region.lines.findIndex((line) => line.startsWith(`${key}:`));
+  if (at === -1)
+    return;
+  const text = withoutComment((region.lines[at] ?? "").slice(key.length + 1)).trim();
+  if (text === "")
+    return;
+  try {
+    return unquoted(text, region.start + 2 + at);
+  } catch (error) {
+    if (error instanceof MetadataError)
+      return;
+    throw error;
+  }
+}
+function asRecord(entries) {
+  return Object.freeze(Object.fromEntries(entries.map(({ key, value }) => [key, value])));
+}
+var plain = /^[A-Za-z0-9_./+~$%^()=\\][^#]*$/;
+var special = /^(true|false|yes|no|on|off|null|~|[-+]?(\d[\d_]*)?\.?\d+([eE][-+]?\d+)?|0x[0-9a-fA-F]+|\.inf|\.nan)$/i;
+function scalar(text) {
+  const isPlain = plain.test(text) && text === text.trim() && !text.includes(": ") && !text.endsWith(":") && !text.includes(" #") && !special.test(text) && !/["',{}[\]]/.test(text);
+  return isPlain ? text : JSON.stringify(text);
+}
+
+// node_modules/@cmodjs/core/runtime/metadata.js
+var skippedFolders = [".git", "node_modules"];
+var ownKey = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+function resolvedPath(path, places) {
+  const configured = /^~\/\.claude(?=\/|$)/.exec(path);
+  if (configured !== null && places.configRoot !== undefined)
+    return ve(`${places.configRoot}${path.slice(configured[0].length)}`);
+  const prefix = homePrefix.exec(path)?.[0];
+  if (prefix !== undefined) {
+    if (places.home === undefined)
+      throw new Error(`${path} starts with ${prefix}, and HOME is not set. Start Claude Code with HOME set.`);
+    return ve(expandHome(path, places.home, places.configRoot));
+  }
+  return path.startsWith("/") ? ve(path) : ve(places.projectRoot(), path);
+}
+function createModFiles({ name, claude, places, report }) {
+  const prefix = `${name}.`;
+  const cache = new Map;
+  const logged = new Set;
+  const own = (all) => Object.freeze(Object.fromEntries(Object.entries(all).flatMap(([key, value]) => key.startsWith(prefix) ? [[key.slice(prefix.length), value]] : [])));
+  const locate = async (path) => {
+    const stat = await claude.fs.stat(path, { resolve: true });
+    if (stat.kind !== "file")
+      throw new Error(`${path} is not a file, so it holds no metadata.`);
+    const realPath = stat.realPath ?? path;
+    const extensionless = !realPath.slice(realPath.lastIndexOf("/") + 1).includes(".");
+    const firstLine = extensionless ? (await claude.fs.read(realPath)).split(`
+`, 1)[0] : undefined;
+    const format = formatOf(realPath, firstLine);
+    const holder = format.type === "sidecar" ? `${realPath}${sidecarSuffix}` : realPath;
+    const sidecar = format.type === "sidecar" ? await claude.fs.stat(holder).catch(ifMissing(undefined)) : undefined;
+    return { realPath, format, holder, signature: `${stat.mtimeMs}:${stat.size}:${sidecar?.kind === "file" ? `${sidecar.mtimeMs}:${sidecar.size}` : ""}` };
+  };
+  const textOf = async (holder) => (await claude.fs.stat(holder).catch(ifMissing(undefined)))?.kind === "file" ? claude.fs.read(holder) : "";
+  const skipped = (path, value) => (error) => {
+    if (isMissing(error))
+      return value;
+    const reason = `${name}: fs.find skipped ${path}: ${messageOf(error)}`;
+    if (!logged.has(reason))
+      claude.ui.warn("fs:find", reason);
+    logged.add(reason);
+    return value;
+  };
+  const readEntry = async (path) => {
+    const located = await locate(path);
+    const cached = cache.get(path);
+    if (cached?.signature === located.signature)
+      return cached.read;
+    let read;
+    try {
+      const { metadata, name: declared } = readMetadata(await textOf(located.holder), located.format);
+      read = { metadata, ...declared === undefined ? {} : { name: declared } };
+    } catch (error) {
+      if (!(error instanceof MetadataError))
+        throw error;
+      const failure = `${located.holder} ${error.message}`;
+      read = { metadata: {}, error: failure };
+      if (!logged.has(failure))
+        report({ id: `metadata:${located.holder}`, message: `Skips the metadata of ${located.holder}`, description: failure });
+      logged.add(failure);
+    }
+    cache.set(path, { signature: located.signature, read });
+    return read;
+  };
+  const matchesOf = async (pattern) => {
+    const absolute = resolvedPath(pattern, places);
+    const scanned = $s.scan(absolute);
+    if (!scanned.isGlob)
+      return (await claude.fs.stat(absolute).catch(skipped(absolute, undefined)))?.kind === "file" ? [absolute] : [];
+    const isMatch = $s(absolute, { dot: true });
+    const entersSkipped = skippedFolders.filter((folder) => scanned.glob.split("/").includes(folder));
+    const maxDepth = scanned.glob.includes("**") ? Number.POSITIVE_INFINITY : scanned.glob.split("/").length;
+    const found = [];
+    const visited = new Set;
+    const walk = async (folder, depth) => {
+      const real = (await claude.fs.stat(folder, { resolve: true }).catch(skipped(folder, undefined)))?.realPath ?? folder;
+      if (visited.has(real))
+        return;
+      visited.add(real);
+      const entries = await claude.fs.list(folder).catch(skipped(folder, []));
+      await Promise.all(entries.map(async (entry) => {
+        const path = `${folder}/${entry.name}`;
+        const kind = entry.isLink === true ? (await claude.fs.stat(path).catch(skipped(path, undefined)))?.kind : entry.kind;
+        if (kind === "file" && isMatch(path))
+          found.push(path);
+        if (kind !== "dir" || depth + 1 >= maxDepth)
+          return;
+        if (skippedFolders.includes(entry.name) && !entersSkipped.includes(entry.name))
+          return;
+        await walk(path, depth + 1);
+      }));
+    };
+    const base = scanned.base === "" ? "/" : scanned.base;
+    if ((await claude.fs.stat(base).catch(skipped(base, undefined)))?.kind === "dir")
+      await walk(base, 0);
+    return found;
+  };
+  return {
+    async find(glob) {
+      const patterns = typeof glob === "string" ? [glob] : glob;
+      const paths = [...new Set((await Promise.all(patterns.map(matchesOf))).flat())].sort();
+      const kept = paths.filter((path) => !(path.endsWith(sidecarSuffix) && paths.includes(path.slice(0, -sidecarSuffix.length))));
+      return Promise.all(kept.map(async (path) => {
+        const read = await readEntry(path).catch((error) => ({ metadata: {}, error: `${path} ${messageOf(error)}` }));
+        return { path, ...read.name === undefined ? {} : { name: read.name }, metadata: own(read.metadata), ...read.error === undefined ? {} : { error: read.error } };
+      }));
+    },
+    async read(path) {
+      const read = await readEntry(resolvedPath(path, places));
+      if (read.error !== undefined)
+        throw new Error(`${name}: ${read.error}`);
+      return own(read.metadata);
+    },
+    async update(path, change) {
+      const given = resolvedPath(path, places);
+      const located = await locate(given);
+      const text = await textOf(located.holder);
+      let all;
+      try {
+        all = readMetadata(text, located.format).metadata;
+      } catch (error) {
+        throw new Error(`${name}: ${located.holder} ${messageOf(error)}`, { cause: error });
+      }
+      const edited = { ...own(all) };
+      change(edited);
+      for (const [key, value] of Object.entries(edited)) {
+        if (!ownKey.test(key))
+          throw new Error(`${name}: the metadata key "${key}" is not a name. Use letters, digits, "_", ".", and "-".`);
+        if (typeof value !== "string")
+          throw new Error(`${name}: the metadata key "${key}" holds ${JSON.stringify(value)}. Each value is text, and a list is one space-separated text.`);
+        if (value.includes(`
+`))
+          throw new Error(`${name}: the metadata key "${key}" holds a line break. Each value is one line of text.`);
+      }
+      const next = {};
+      for (const [key, value] of Object.entries(all)) {
+        if (!key.startsWith(prefix))
+          next[key] = value;
+        else if (Object.hasOwn(edited, key.slice(prefix.length)))
+          next[key] = edited[key.slice(prefix.length)];
+      }
+      for (const [key, value] of Object.entries(edited))
+        next[`${prefix}${key}`] = value;
+      if (JSON.stringify(next) === JSON.stringify(all))
+        return;
+      await claude.fs.write(located.holder, writeMetadata(text, located.format, next));
+      cache.delete(given);
+    }
+  };
+}
+
+// node_modules/@cmodjs/core/options.js
+var optionKey = /^[A-Za-z_]\w*$/;
+function checkOptions(name, options) {
+  for (const [key, declared] of Object.entries(options)) {
+    const at = `${name}: options.${key}`;
+    if (!optionKey.test(key))
+      throw new Error(`${at} is not an option name. Use letters, digits, and _, starting with a letter, as Claude Code passes each option on as CLAUDE_PLUGIN_OPTION_${key.toUpperCase()}.`);
+    if (declared.title.trim() === "")
+      throw new Error(`${at} needs a title, the label /config shows.`);
+    if (declared.type === "choice" && (declared.choices ?? []).length === 0)
+      throw new Error(`${at} is a choice with no choices. Give option.choice(['a', 'b'], { ... }).`);
+    if (declared.type === "choice" && declared.default !== undefined && !(declared.choices ?? []).includes(declared.default))
+      throw new Error(`${at} defaults to ${String(declared.default)}, which is not one of its choices: ${(declared.choices ?? []).join(", ")}.`);
+  }
+  return options;
+}
+function projectOptionsOf(name, declared, text) {
+  let file;
+  try {
+    file = JSON.parse(text);
+  } catch (error) {
+    return { values: {}, ignored: [`is not JSON (${messageOf(error)}). Fix the file; ${name} uses its other options until then.`] };
+  }
+  if (!isObject(file))
+    return { values: {}, ignored: ['is not a JSON object. Write one, such as { "branch": "main" }.'] };
+  const values = {};
+  const ignored = [];
+  for (const [key, value] of Object.entries(file)) {
+    const option = declared[key];
+    if (option === undefined)
+      ignored.push(`sets ${key}, which ${name} does not declare. ${Object.keys(declared).length === 0 ? "Remove it." : `Remove it, or use one of: ${Object.keys(declared).join(", ")}.`}`);
+    else if (option.type === "secret")
+      ignored.push(`sets ${key}, a secret, and a project file is committed for everyone to read. Remove it. ${secretFix}`);
+    else {
+      const misfit = fitsOption(option, value);
+      if (misfit === undefined)
+        values[key] = value;
+      else
+        ignored.push(`sets ${key} to ${JSON.stringify(value)}, and ${option.title} ${misfit}.`);
+    }
+  }
+  return { values, ignored };
+}
+function isUnset(value) {
+  return value === undefined || value === "" || Array.isArray(value) && value.length === 0;
+}
+function fitsOption(declared, value) {
+  const type = declared.type;
+  if (type === "toggle")
+    return typeof value === "boolean" ? undefined : "takes true or false";
+  if (type === "number") {
+    if (typeof value !== "number" || !Number.isFinite(value))
+      return "takes a number";
+    if (declared.min !== undefined && value < declared.min)
+      return `takes ${declared.min} or more`;
+    if (declared.max !== undefined && value > declared.max)
+      return `takes ${declared.max} or less`;
+    return;
+  }
+  if (type === "list")
+    return Array.isArray(value) && value.every((item) => typeof item === "string") ? undefined : "takes a list of text";
+  if (typeof value !== "string")
+    return "takes text";
+  if (type === "choice" && !(declared.choices ?? []).includes(value))
+    return `takes one of: ${(declared.choices ?? []).join(", ")}`;
+  return;
+}
+
+// node_modules/@cmodjs/core/ui/elements.js
+var unbuilt = Symbol("an element built outside a render");
+var drawing;
+var lowerings = new Map;
+function hostComponent(name, canonical, lower) {
+  lowerings.set(name, lower);
+  return (props) => elementNamed(name, canonical(props));
+}
+function elementNamed(name, props) {
+  return drawing === undefined ? { [unbuilt]: { name, props } } : build(drawing, name, props);
+}
+function drawWith(table, draw, markdown) {
+  const outer = drawing;
+  const current = { table, markdown };
+  drawing = current;
+  try {
+    return built(current, draw());
+  } finally {
+    drawing = outer;
+  }
+}
+function element(name) {
+  return (props) => elementNamed(name, props);
+}
+function build(current, name, props) {
+  const lower = lowerings.get(name);
+  if (lower !== undefined)
+    return lower(props);
+  const ready = "children" in props ? { ...props, children: built(current, props.children) } : props;
+  if (name === "Markdown" && current.markdown !== undefined)
+    return current.markdown(ready);
+  return current.table[name](ready);
+}
+function built(current, value) {
+  if (Array.isArray(value))
+    return value.map((child) => built(current, child));
+  if (typeof value !== "object" || value === null || !(unbuilt in value))
+    return value;
+  const { name, props } = value[unbuilt];
+  return build(current, name, props);
+}
+function drawKeyed(keyPrefix, draw) {
+  const outer = drawing;
+  drawing = undefined;
+  try {
+    return keyed(draw(), keyPrefix);
+  } finally {
+    drawing = outer;
+  }
+}
+function keyed(value, keyPrefix) {
+  if (Array.isArray(value))
+    return value.map((each) => keyed(each, keyPrefix));
+  if (typeof value !== "object" || value === null || !(unbuilt in value))
+    return value;
+  const { name, props } = value[unbuilt];
+  const prefixed = Object.fromEntries(Object.entries(props).map(([field, each]) => [field, field === "key" && typeof each === "string" ? `${keyPrefix}${each}` : keyed(each, keyPrefix)]));
+  return { [unbuilt]: { name, props: prefixed } };
+}
+var elementKey = "$cmodElement";
+var handlerKey = "$cmodHandler";
+function elementData(value, numberOf) {
+  if (typeof value === "function")
+    return { [handlerKey]: numberOf(value) };
+  if (Array.isArray(value))
+    return value.map((each) => elementData(each, numberOf));
+  if (typeof value !== "object" || value === null)
+    return value;
+  if (unbuilt in value) {
+    const { name, props } = value[unbuilt];
+    if (name === "Client")
+      throw new Error("Client draws only in panes and styles.");
+    return { [elementKey]: name, props: elementData(props, numberOf) };
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype)
+    throw new Error("a widget draws only the elements of ui/elements.js and ui/components.js, text, numbers, and plain objects.");
+  return Object.fromEntries(Object.entries(value).map(([key, each]) => [key, elementData(each, numberOf)]));
+}
+function elementOf(data, keyPrefix, press) {
+  if (Array.isArray(data))
+    return data.map((each) => elementOf(each, keyPrefix, press));
+  if (typeof data !== "object" || data === null)
+    return data;
+  const fields = data;
+  if (typeof fields[handlerKey] === "number") {
+    const handler = fields[handlerKey];
+    return (...args) => press(handler, JSON.parse(JSON.stringify(args)));
+  }
+  const name = fields[elementKey];
+  if (name === undefined)
+    return Object.fromEntries(Object.entries(fields).map(([key, each]) => [key, elementOf(each, keyPrefix, press)]));
+  if (typeof name !== "string" || !(Object.hasOwn(constructors, name) || lowerings.has(name)))
+    throw new Error(`a widget drew ${String(name)}, which is not an element of ui/elements.js or ui/components.js.`);
+  const props = elementOf(fields["props"], keyPrefix, press);
+  const keyed = typeof props["key"] === "string" ? { ...props, key: `${keyPrefix}${props["key"]}` } : props;
+  return Object.hasOwn(constructors, name) ? constructors[name](keyed) : elementNamed(name, keyed);
+}
+var focusable = new Set(["Button", "Input", "Select"]);
+function drawsFocusable(data, key) {
+  if (typeof data !== "object" || data === null)
+    return false;
+  if (Array.isArray(data))
+    return data.some((each) => drawsFocusable(each, key));
+  const fields = data;
+  const props = fields["props"];
+  if (focusable.has(fields[elementKey]) && props?.["key"] === key)
+    return true;
+  return Object.values(fields).some((each) => drawsFocusable(each, key));
+}
+function forClaudeCode(table, surface, open) {
+  const { Button: button, Link: link, Image: image, Svg: svg, Raster: raster } = table;
+  const opening = (props) => {
+    const { href, ...rest } = props;
+    if (typeof href !== "string")
+      return button(props);
+    const { label, children } = rest;
+    const hasChildren = children !== undefined && !(Array.isArray(children) && children.length === 0);
+    if (surface !== "terminal" && href.startsWith("https:"))
+      return link({ href, ...typeof label === "string" ? { label } : {}, ...hasChildren ? { children } : {} });
+    return button({ ...rest, onPress: (press) => open(href, press) });
+  };
+  const named = (draw) => ({ label, ...rest }) => draw({ alt: label, ...rest });
+  return { ...table, Button: opening, Image: named(image), Svg: named(svg), Raster: ({ label, ...rest }) => raster(rest) };
+}
+var Box = element("Box");
+var Text = element("Text");
+var Button = element("Button");
+var Link = element("Link");
+var Code = element("Code");
+var Markdown = element("Markdown");
+var Input = element("Input");
+var Select = element("Select");
+var Image = element("Image");
+var Svg = element("Svg");
+var Raster = element("Raster");
+var Client = element("Client");
+var constructors = { Box, Text, Button, Link, Code, Markdown, Input, Select, Image, Svg, Raster };
+
+// node_modules/@cmodjs/core/runtime/buttons.js
+function filledButton({ key, label, hotkey, variant = "secondary", onPress }) {
+  const isPrimary = variant === "primary";
+  return Button({
+    plain: true,
+    key,
+    label,
+    variant,
+    ...hotkey === undefined ? {} : { hotkey },
+    onPress,
+    children: Text({ backgroundColor: isPrimary ? "claude" : "userMessageBackground", color: isPrimary ? "inverseText" : "text", bold: isPrimary, children: ` ${label} ` })
+  });
+}
+
+// node_modules/@cmodjs/core/ui/areas.js
+var BelowPrompt = "belowPrompt";
+var Working = "working";
+var TurnEnd2 = "turnEnd";
+var Dashboard = "dashboard";
+
+// node_modules/@cmodjs/core/ui/panes.js
+var partId = /^[A-Za-z0-9_-]{1,64}$/;
+var sizeKeys = ["columns", "rows"];
+function checkPart(name, kind, id, title, takenBy) {
+  if (!partId.test(id))
+    throw new Error(`${name}: "${id}" is not a ${kind} id. Use 1 to 64 letters, digits, "_", or "-".`);
+  if (title.trim() === "")
+    throw new Error(`${name}: the ${kind} "${id}" needs a title, the label its tab shows.`);
+  if (takenBy !== undefined)
+    throw new Error(`${name}: the ${takenBy} "${id}" is already added. Give the ${kind} another id.`);
+}
+function checkPane(name, pane, takenBy) {
+  checkPart(name, "pane", pane.id, pane.title, takenBy);
+  for (const key of sizeKeys) {
+    const size = pane[key];
+    if (typeof size !== "function" && size !== undefined && (!Number.isInteger(size) || size <= 0))
+      throw new Error(`${name}: the pane "${pane.id}" has ${key} ${size}. Use a whole number above 0, or leave it out.`);
+  }
+}
+
+// node_modules/@cmodjs/core/ui/styles.js
+var ToolGroup = "toolGroup";
+var ToolProgress = "toolProgress";
+var CommandOutput = "commandOutput";
+var AskUserQuestion = "askUserQuestion";
+var components = {
+  prompt: "UserMessage",
+  reply: "AssistantMessage",
+  toolCall: "ToolUse",
+  toolResult: "ToolResult",
+  notice: "InfoNotice",
+  [ToolGroup]: "ToolGroup",
+  [ToolProgress]: "ToolProgress",
+  [CommandOutput]: "CommandOutput",
+  [AskUserQuestion]: "AskUserQuestion",
+  [Working]: "Spinner",
+  [TurnEnd2]: "TurnDuration"
+};
+function componentOf(kind) {
+  return typeof kind === "string" && Object.hasOwn(components, kind) ? components[kind] : undefined;
+}
+function nameOf(kind) {
+  return typeof kind === "string" ? `${kind.charAt(0).toUpperCase()}${kind.slice(1)}` : kind.name;
+}
+
+// node_modules/@cmodjs/core/runtime/ui.js
+var partMethods = {
+  list: "cmod:parts",
+  draw: "cmod:draw",
+  press: "cmod:press",
+  shown: "cmod:shown",
+  changed: "cmod:partsChanged",
+  stylers: "cmod:markdownStylers"
+};
+var stalePress = "that button drew before the last redraw. Press the one it shows now.";
+var unmeasuredColumns = 80;
+function viewportColumns(e) {
+  return e.viewport?.columns ?? unmeasuredColumns;
+}
+function styledAt(e, columns = viewportColumns(e)) {
+  return { surface: e.surface, columns: Math.max(columns, 0) };
+}
+async function openLink(claude, href, surface) {
+  if (surface === "terminal") {
+    const [browser, sshConnection, display, waylandDisplay] = await Promise.all([claude.env.browser(), claude.env.sshConnection(), claude.env.display(), claude.env.waylandDisplay()]);
+    const os = browser || sshConnection ? "" : (await claude.process.run(["uname", "-s"])).stdout.trim().toLowerCase();
+    const command = browserCommand({ os, browser, sshConnection, display, waylandDisplay }, href);
+    if (command !== undefined && (await claude.process.run(command)).exitCode === 0)
+      return "opened";
+  }
+  const copied = await claude.ui.copy({ text: href, surface });
+  if (!copied.isCopied)
+    throw new Error(`cmod could not open ${href} or copy it: ${copied.reason}`);
+  return "copied";
+}
+var bullet = "⏺";
+function paneSize(pane, state) {
+  const size = {};
+  for (const key of sizeKeys) {
+    const wanted = pane[key];
+    const value = typeof wanted === "function" ? wanted(state) : wanted;
+    if (value === undefined)
+      continue;
+    if (!Number.isInteger(value) || value <= 0)
+      throw new Error(`the pane "${pane.id}" gets ${key} ${value} from its state. Return a whole number above 0, or undefined for Claude Code's default.`);
+    size[key] = value;
+  }
+  return size;
+}
+function times(count) {
+  return count === 1 ? "1 time" : `${count} times`;
+}
+function pieceProps(props, given, isFirst) {
+  const merged = { ...props, ...given };
+  return isFirst || !("isFirstOfReply" in merged) ? merged : { ...merged, isFirstOfReply: false };
+}
+function laterKeys(key) {
+  let used = 0;
+  return () => key === undefined ? undefined : `${key}:${used += 1}`;
+}
+function inheriting(props, draw, laterKey = laterKeys(props.key)) {
+  const { dimColor, onLinkPress, pressableLinks } = props;
+  const inherited = { ...dimColor === undefined ? {} : { dimColor }, ...onLinkPress === undefined ? {} : { onLinkPress }, ...pressableLinks === undefined ? {} : { pressableLinks } };
+  let isKeyTaken = false;
+  const keyOf = (left) => {
+    if (left.key !== undefined)
+      return left.key;
+    if (isKeyTaken)
+      return laterKey();
+    isKeyTaken = true;
+    return props.key;
+  };
+  return (left) => {
+    const key = keyOf(left);
+    return draw({ ...inherited, ...key === undefined ? {} : { key }, ...left });
+  };
+}
+function threw(error) {
+  return `threw, so Claude Code draws its own: ${messageOf(error)}`;
+}
+async function drawComponent(table, draw, drawDefault) {
+  const calls = [];
+  let first;
+  try {
+    first = drawWith(table, () => draw(({ children, ...props }) => {
+      const drawing = table.Box({});
+      calls.push({ given: props, drawing });
+      return drawing;
+    }));
+  } catch (error) {
+    return { failure: threw(error) };
+  }
+  if (calls.length === 0)
+    return { drawing: first, isClaudesRow: false };
+  const whole = calls.findIndex((call) => call.drawing === first);
+  const pieces = await Promise.all(calls.map(({ given }, index) => drawDefault(given, index === whole)));
+  let used = 0;
+  let second;
+  try {
+    second = drawWith(table, () => draw(() => pieces[used++] ?? Box({})));
+  } catch (error) {
+    return { failure: threw(error) };
+  }
+  if (used !== pieces.length)
+    return { failure: `used Default ${times(pieces.length)}, then ${times(used)}, so Claude Code draws its own. A render must draw the same for the same props.` };
+  return { drawing: second, isClaudesRow: whole >= 0 };
+}
+function drawPieces(pieces, place) {
+  const spaced = pieces.map(({ drawing, isClaudesRow }, index) => (index > 0 || place === "inReply") && !isClaudesRow ? Box({ marginTop: 1, children: drawing }) : drawing);
+  const column = (drawings) => Box({ flexDirection: "column", children: drawings });
+  const [opening, ...rest] = spaced;
+  if (place !== "opensReply" || opening === undefined)
+    return column(spaced);
+  if (pieces[0]?.isClaudesRow !== true)
+    return Box({ children: [Box({ minWidth: 2, children: Text({ color: "text", children: bullet }) }), column(spaced)] });
+  return column([opening, Box({ paddingLeft: 2, children: column(rest) })]);
+}
+function merged(updates) {
+  const parts = updates.findLast((update) => update.parts !== undefined)?.parts;
+  const requests = updates.flatMap((update) => update.requests ?? []);
+  const isRedrawn = updates.some((update) => update.redraw === true);
+  const isStart = updates.some((update) => update.isStart === true);
+  return { ...parts === undefined ? {} : { parts }, ...isRedrawn ? { redraw: true } : {}, ...requests.length === 0 ? {} : { requests }, ...isStart ? { isStart } : {} };
+}
+var keptDrawInputs = 200;
+function createUi({ name, claude, router, report, announce, mod, borrowed, nextDraw, provided }) {
+  const panes = new Map;
+  const paneLogs = new Map;
+  const openPanes = new Set;
+  const paneStates = new Map;
+  const syncPanes = async () => {
+    const listed = new Map((await claude.ui.panes()).map((open) => [open.id, open]));
+    for (const id of panes.keys()) {
+      const open = listed.get(id);
+      if (open?.isPlaced === true)
+        openPanes.add(id);
+      else
+        openPanes.delete(id);
+      if (open === undefined)
+        paneStates.delete(id);
+      else
+        paneStates.set(id, { isShown: open.isShown, isFocused: open.isFocused });
+    }
+  };
+  const readPanes = () => syncPanes().catch((error) => claude.ui.warn("panes:read", `${name} keeps its panes' open, shown, and focused state from before: ${messageOf(error)}`));
+  const requestedSizes = new Map;
+  const styles = new Set;
+  const markdownRenders = new Map;
+  let read;
+  let stylers = [];
+  let stylersSeen = 0;
+  let isRouted = false;
+  let isResizeQueued = false;
+  const widgets = new Map;
+  const widgetAreas = new Map;
+  const parts = new Map;
+  let shownParts = { open: [], shown: null, isFocused: false };
+  const draws = new Map;
+  const latestDraws = new Map;
+  const failedDraws = new Set;
+  let beforeStart = [];
+  let askedDepth = 0;
+  const askedCalls = new Set;
+  let unheldRequests = 0;
+  let collected;
+  let collecting = 0;
+  let queued;
+  const partList = () => {
+    const provides = [...provided(), ...markdownRenders.size > 0 ? [styleInterface] : []];
+    return {
+      widgets: [...widgets.values()].map(({ id, title, areas: listed, place }) => ({ id, title, areas: listed, ...place === undefined ? {} : { place } })),
+      pages: [...parts.values()].map(({ init: { id, title }, place }) => ({ id, title, ...place === undefined ? {} : { place } })),
+      ...provides.length === 0 ? {} : { provides }
+    };
+  };
+  const hear = (listed, isRestyled) => {
+    if (!Array.isArray(listed))
+      return;
+    const heard = listed.filter((styler) => typeof styler === "string" && styler !== name);
+    if (!isRestyled && heard.join("\x00") === stylers.join("\x00"))
+      return;
+    stylers = heard;
+    stylersSeen += 1;
+    if (name === cmodPluginName || panes.size > 0)
+      claude.ui.invalidate("ui.render");
+  };
+  const treeOf = (render, handlers) => {
+    const drawn = render();
+    return drawn === undefined ? null : elementData(drawn, (run) => handlers.push(run) - 1);
+  };
+  const isAnyDrawingChanged = () => {
+    for (const [key, inputs] of latestDraws) {
+      if (key === "markdown")
+        continue;
+      for (const sent of inputs.values()) {
+        const handlers = [];
+        try {
+          if (JSON.stringify(treeOf(sent.render, handlers)) !== sent.tree)
+            return true;
+        } catch (error) {
+          claude.ui.warn(`drawing:${key}`, `${name}: the ${key} drawing threw, so the cmod plugin asks for it again: ${messageOf(error)}`);
+          return true;
+        }
+        const latest = sent.draws.at(-1);
+        if (latest !== undefined && draws.has(latest))
+          draws.set(latest, { id: key, handlers });
+      }
+    }
+    return false;
+  };
+  const withNeededRedraw = ({ redraw, ...update }) => redraw === true && isAnyDrawingChanged() ? { ...update, redraw } : update;
+  const send = (update) => {
+    if (collected !== undefined)
+      return void collected.push(update);
+    if (beforeStart !== undefined)
+      return void beforeStart.push(update);
+    const isAsked = askedDepth > 0;
+    if (queued !== undefined && !isAsked)
+      return void queued.push(update);
+    const batch = [update];
+    if (!isAsked)
+      queued = batch;
+    const tell = async () => {
+      if (queued === batch)
+        queued = undefined;
+      const needed = withNeededRedraw(merged(batch));
+      if (Object.keys(needed).length === 0)
+        return;
+      const input = { ...needed, ...isAsked ? { isAsked: true } : {} };
+      return claude.cmod.call({ to: cmodPluginName, method: partMethods.changed, input }).then((answer) => {
+        if (isAsked && input.requests !== undefined && !(isObject(answer) && answer["isHeld"] === true))
+          unheldRequests += 1;
+        if (isObject(answer) && name !== cmodPluginName)
+          hear(answer["stylers"], false);
+      }, (error) => {
+        claude.ui.warn("parts:tell", `${name}: the cmod plugin did not hear about its widgets, views, and pages: ${messageOf(error)}`);
+      });
+    };
+    if (!isAsked)
+      return Promise.resolve().then(tell);
+    const told = tell().finally(() => askedCalls.delete(told));
+    askedCalls.add(told);
+    return told;
+  };
+  const asked = async (run) => {
+    askedDepth += 1;
+    try {
+      const value = await run();
+      while (askedCalls.size > 0)
+        await Promise.allSettled(askedCalls);
+      return value;
+    } finally {
+      askedDepth -= 1;
+    }
+  };
+  const collect = async (run) => {
+    collecting += 1;
+    collected ??= [];
+    try {
+      await run();
+    } finally {
+      collecting -= 1;
+    }
+    const mine = collected;
+    collected = collecting === 0 ? undefined : [];
+    return withNeededRedraw(merged(mine));
+  };
+  const logOnce = (what) => {
+    let hasLogged = false;
+    return (failure) => {
+      if (!hasLogged)
+        report({ id: `draw:${what}`, message: `The ${what} failed`, description: failure });
+      hasLogged = true;
+    };
+  };
+  const renderOf = (type) => markdownRenders.get(type);
+  const drawnBlock = (piece, at, drawClaudes, keyPrefix, table) => {
+    if ("text" in piece)
+      return drawClaudes({ text: piece.text });
+    const { render, props: block } = piece;
+    const draw = () => drawKeyed(keyPrefix, () => render.Component({ ...block, ...at, Default: ({ source = block.source }) => drawClaudes({ text: source }) }));
+    try {
+      return table === undefined ? draw() : drawWith(table, draw, drawClaudes);
+    } catch (error) {
+      render.log(threw(error));
+      return drawClaudes({ text: block.source });
+    }
+  };
+  const othersFrom = (table, at, from, unkeyedScope) => (props, laterKey = laterKeys(props.key)) => {
+    if (from >= stylers.length)
+      return table.Markdown(props);
+    const scope = props.key ?? unkeyedScope();
+    for (const [index, styler] of stylers.entries()) {
+      if (index < from)
+        continue;
+      const cached = `${stylersSeen}\x00${at.surface}\x00${at.columns}\x00${props.text}`;
+      const next = othersFrom(table, at, index + 1, unkeyedScope);
+      const drawn = drawWith(table, () => borrowed(styler, cached, { markdown: props.text, ...at }, scope), inheriting(props, (part) => next(part, laterKey), laterKey));
+      if (drawn !== undefined)
+        return drawn;
+    }
+    return table.Markdown(props);
+  };
+  const markdownIn = (table, at) => {
+    const reader = read;
+    let unkeyed = 0;
+    const unkeyedScope = () => String(unkeyed++);
+    const others = othersFrom(table, at, 0, unkeyedScope);
+    if (reader === undefined)
+      return stylers.length === 0 ? undefined : others;
+    return (props) => {
+      const pieces = reader(props.text, renderOf);
+      if (pieces.every((piece) => ("text" in piece)))
+        return others(props);
+      const scope = props.key ?? unkeyedScope();
+      const laterKey = laterKeys(props.key);
+      const drawClaudes = inheriting(props, (part) => others(part, laterKey), laterKey);
+      const drawings = pieces.map((piece, index) => drawnBlock(piece, at, drawClaudes, `${scope}:${index}:`, table));
+      return drawPieces(drawings.map((drawing) => ({ drawing, isClaudesRow: false })), "pane");
+    };
+  };
+  const markdownDrawing = (text, at) => {
+    const pieces = read === undefined ? [] : read(text, renderOf);
+    if (pieces.every((piece) => ("text" in piece)))
+      return Markdown({ text });
+    return drawPieces(pieces.map((piece, index) => ({ drawing: drawnBlock(piece, at, Markdown, `${index}:`), isClaudesRow: false })), "pane");
+  };
+  const routeMarkdown = (createReader) => {
+    if (read !== undefined)
+      return;
+    const reader = createReader();
+    read = reader;
+    router.add("ui.render", async (e, next) => {
+      if (e.component !== "AssistantMessage")
+        return next(e);
+      const pieces = reader(e.props.text, renderOf, e.requestId);
+      if (pieces.every((piece) => ("text" in piece)))
+        return next(e);
+      const table = claude.ui.resolve(e);
+      const drawClaudes = (text, isFirst) => next({ ...e, props: pieceProps(e.props, { text }, isFirst) });
+      const drawn = await Promise.all(pieces.map(async (piece, index) => {
+        if ("text" in piece)
+          return { drawing: await drawClaudes(piece.text, index === 0), isClaudesRow: true };
+        const { render, props: block } = piece;
+        const component = await drawComponent(table, (Default) => drawKeyed(`${index}:`, () => render.Component({ ...block, ...styledAt(e), id: e.requestId, Default })), ({ source = block.source }, isClaudesRow) => drawClaudes(source, index === 0 && isClaudesRow));
+        if (!("failure" in component))
+          return component;
+        render.log(component.failure);
+        return { drawing: await drawClaudes(block.source, index === 0), isClaudesRow: true };
+      }));
+      return drawWith(table, () => drawPieces(drawn, e.props.isFirstOfReply ? "opensReply" : "inReply"));
+    });
+  };
+  const openAt = (pane, size, focus) => {
+    requestedSizes.set(pane.id, size);
+    const { id, title, closeOnEscape, holdToasts } = pane;
+    return claude.ui.open({ id, title, ...size, ...closeOnEscape === true ? { closeOnEscape } : {}, ...holdToasts === true ? { holdToasts } : {}, ...focus === true ? { focus } : {} });
+  };
+  const resize = async (pane) => {
+    try {
+      const size = paneSize(pane, mod().state);
+      const requested = requestedSizes.get(pane.id);
+      if (requested?.columns === size.columns && requested?.rows === size.rows)
+        return;
+      await openAt(pane, size);
+    } catch (error) {
+      claude.ui.warn(`pane:resize:${pane.id}`, `${name}: the ${pane.title} pane kept its size: ${messageOf(error)}`);
+    }
+  };
+  const handle = async (pane, handler, run) => {
+    try {
+      await run();
+    } catch (error) {
+      report({ id: `pane:${pane.id}:${handler}`, message: `The ${pane.title} pane's ${handler} threw`, error });
+    }
+  };
+  const routePanes = () => {
+    if (isRouted)
+      return;
+    isRouted = true;
+    router.add("ui.render", (e, next) => {
+      const added = panes.get(e.requestId);
+      if (added === undefined || e.component !== "Pane")
+        return next(e);
+      const { init } = added;
+      openPanes.add(init.id);
+      paneStates.set(init.id, { isShown: true, isFocused: e.props.isFocused });
+      readPanes();
+      const table = claude.ui.resolve(e);
+      try {
+        return drawWith(table, () => init.render(mod(), { ...e.props, surface: e.surface, params: added.params }), markdownIn(table, styledAt(e, e.props.bodyColumns)));
+      } catch (error) {
+        paneLogs.get(init.id)?.(`threw: ${messageOf(error)}`);
+        return drawWith(table, () => Text({ color: "error", children: `The ${init.title} pane could not draw: ${messageOf(error)}` }));
+      }
+    });
+    router.add("ui.scroll", async (e, next) => {
+      const init = panes.get(e.requestId)?.init;
+      const moved = await next(e);
+      if (init?.onScroll === undefined || e.component !== "Pane" || moved.deny !== undefined)
+        return moved;
+      await handle(init, "onScroll", () => init.onScroll?.(mod(), e));
+      return moved;
+    });
+    router.add("ui.close", async (e, next) => {
+      openPanes.delete(e.id);
+      paneStates.delete(e.id);
+      const closed = await next(e);
+      await readPanes();
+      const init = panes.get(e.id)?.init;
+      if (init?.onClose !== undefined)
+        await handle(init, "onClose", () => init.onClose?.(mod(), e));
+      return closed;
+    });
+  };
+  const scrollIn = (id, target, options) => claude.ui.scroll({ to: target, in: id, ...options?.block === undefined ? {} : { block: options.block } }).then(({ deny }) => {
+    if (deny !== undefined)
+      throw new Error(`${name}: Claude Code did not scroll ${id}: ${deny}`);
+  });
+  const addPane = (init) => {
+    checkPane(name, init, panes.has(init.id) ? "pane" : undefined);
+    const added = { init, params: undefined };
+    panes.set(init.id, added);
+    paneLogs.set(init.id, logOnce(`${init.title} pane`));
+    announce(`the ${init.title} pane`);
+    routePanes();
+    const sized = init;
+    const pane = {
+      id: init.id,
+      get isOpen() {
+        return openPanes.has(init.id);
+      },
+      get isShown() {
+        return paneStates.get(init.id)?.isShown ?? false;
+      },
+      get isFocused() {
+        return paneStates.get(init.id)?.isFocused ?? false;
+      },
+      get params() {
+        return added.params;
+      },
+      async open(...[options]) {
+        if (options !== undefined && "params" in options)
+          added.params = options.params;
+        const { isPlaced } = await openAt(sized, paneSize(sized, mod().state), options?.focus);
+        if (isPlaced)
+          openPanes.add(init.id);
+        await syncPanes();
+        claude.ui.invalidate("ui.render");
+      },
+      async close() {
+        await claude.ui.close({ id: init.id });
+        openPanes.delete(init.id);
+        paneStates.delete(init.id);
+        await syncPanes();
+      },
+      toggle: (options) => openPanes.has(init.id) ? pane.close() : pane.open(options),
+      scrollTo: (target, options) => scrollIn(init.id, target, options),
+      async focus(key) {
+        const { deny } = await claude.ui.focus({ requestId: init.id, key });
+        if (deny !== undefined)
+          throw new Error(`${name}: Claude Code did not focus "${key}" in the ${init.title} pane: ${deny}`);
+      },
+      remove() {
+        if (panes.get(init.id) !== added)
+          return;
+        panes.delete(init.id);
+        paneLogs.delete(init.id);
+        if (openPanes.has(init.id))
+          claude.ui.close({ id: init.id }).catch((error) => claude.ui.warn(`pane:close:${init.id}`, `${name}: the ${init.title} pane stayed open: ${messageOf(error)}`));
+        openPanes.delete(init.id);
+        paneStates.delete(init.id);
+      }
+    };
+    return pane;
+  };
+  const openEntry = (id) => shownParts.open.find((each) => each.id === id);
+  const takenBy = (id) => widgets.has(id) ? "widget" : parts.get(id)?.kind;
+  const addPart = (kind, init, place) => {
+    checkPart(name, kind, init.id, init.title, takenBy(init.id));
+    const added = { init, kind, place, params: undefined };
+    const key = `${kind}:${init.id}`;
+    let requested;
+    parts.set(init.id, added);
+    announce(place === "settings" ? `the ${init.title} view in Settings` : `the ${init.title} ${kind}`);
+    send({ parts: partList() });
+    const part = {
+      id: init.id,
+      get isOpen() {
+        if (requested?.[0] === shownParts)
+          return requested[1];
+        return place === "settings" ? shownParts.shown === init.id : openEntry(init.id) !== undefined;
+      },
+      get isShown() {
+        return [shownParts.shown, ...shownParts.inApps ?? []].includes(init.id);
+      },
+      get isFocused() {
+        return shownParts.shown === init.id && shownParts.isFocused;
+      },
+      get params() {
+        return openEntry(init.id)?.params ?? added.params;
+      },
+      async open(...[options]) {
+        if (options !== undefined && "params" in options)
+          added.params = options.params;
+        requested = [shownParts, true];
+        await send({ requests: [{ open: init.id, ...added.params === undefined ? {} : { params: added.params }, ...options?.focus === true ? { focus: true } : {} }] });
+      },
+      toggle: (options) => part.isOpen ? part.close() : part.open(options),
+      close: async () => {
+        requested = [shownParts, false];
+        await send({ requests: [{ close: init.id }] });
+      },
+      scrollTo: async (target, options) => {
+        await send({ requests: [{ scroll: init.id, to: target, ...options?.block === undefined ? {} : { block: options.block } }] });
+      },
+      focus: async (focused) => {
+        const latest = [...latestDraws.get(key)?.values() ?? []].at(-1);
+        if (latest === undefined || !drawsFocusable(treeOf(latest.render, []), focused))
+          throw new Error(`${name}: the ${init.title} ${kind} draws no Button, Input, or Select with the key "${focused}".`);
+        await send({ requests: [{ focus: init.id, key: focused }] });
+      },
+      remove() {
+        if (parts.get(init.id) !== added)
+          return;
+        parts.delete(init.id);
+        forgetDraws(key);
+        send({ parts: partList(), requests: [{ close: init.id }] });
+      }
+    };
+    return part;
+  };
+  const addWidget = (init) => {
+    checkPart(name, "widget", init.id, init.title, takenBy(init.id));
+    widgets.set(init.id, init);
+    announce(`the ${init.title} widget`);
+    send({ parts: partList() });
+    return {
+      id: init.id,
+      get area() {
+        return widgetAreas.get(init.id);
+      },
+      remove() {
+        if (widgets.get(init.id) !== init)
+          return;
+        widgets.delete(init.id);
+        widgetAreas.delete(init.id);
+        forgetDraws(`widget:${init.id}`);
+        send({ parts: partList() });
+      }
+    };
+  };
+  const addStyle = ({ kind, render }) => {
+    const markdown = typeof kind === "string" ? undefined : kind;
+    const component = componentOf(kind);
+    if (markdown === undefined && component === undefined)
+      throw new Error(`${name}: ${String(kind)} is not a kind styles.add draws, such as ToolCall or CodeBlock.`);
+    const feature = `the style of ${nameOf(kind)}`;
+    if (styles.has(feature))
+      throw new Error(`${name}: ${feature} is already added. Add one style per kind.`);
+    styles.add(feature);
+    announce(feature);
+    const Component = (props) => render(mod(), props);
+    const stop = (subscription) => () => {
+      subscription?.remove();
+      if (markdown !== undefined && markdownRenders.delete(markdown.markdown))
+        send({ parts: partList() });
+      styles.delete(feature);
+      claude.ui.invalidate("ui.render");
+    };
+    if (markdown !== undefined) {
+      markdownRenders.set(markdown.markdown, { Component, log: logOnce(`${nameOf(kind)} style`) });
+      routeMarkdown(markdown.createReader);
+      send({ parts: partList() });
+      return { kind, remove: stop() };
+    }
+    const log = logOnce(`${nameOf(kind)} style`);
+    const drawing = router.add("ui.render", async (e, next) => {
+      if (e.component !== component)
+        return next(e);
+      const table = claude.ui.resolve(e);
+      const drawn = await drawComponent(table, (Default) => Component({ ...e.props, ...styledAt(e), id: e.requestId, Default }), (given, isClaudesRow) => next({ ...e, props: pieceProps(e.props, given, isClaudesRow) }));
+      if ("failure" in drawn) {
+        log(drawn.failure);
+        return next(e);
+      }
+      if (e.component !== "AssistantMessage")
+        return drawn.drawing;
+      return drawWith(table, () => drawPieces([drawn], e.props.isFirstOfReply ? "opensReply" : "inReply"));
+    });
+    return { kind, remove: stop(drawing) };
+  };
+  const forgetDraws = (key) => {
+    for (const kept of latestDraws.get(key)?.values() ?? [])
+      for (const draw of kept.draws)
+        draws.delete(draw);
+    latestDraws.delete(key);
+  };
+  const drawPart = (key, title, input, render, drawFailure = () => {
+    return;
+  }) => {
+    let handlers = [];
+    let tree;
+    try {
+      tree = treeOf(render, handlers);
+      failedDraws.delete(key);
+    } catch (error) {
+      if (!failedDraws.has(key))
+        report({ id: key, message: `The ${title} could not draw`, error });
+      failedDraws.add(key);
+      handlers = [];
+      tree = treeOf(() => drawFailure(error), handlers);
+    }
+    const number = nextDraw();
+    const inputs = latestDraws.get(key) ?? new Map;
+    latestDraws.set(key, inputs);
+    const drawnFor = JSON.stringify("turn" in input ? { ...input, turn: input.turn.prompt.id } : input);
+    const earlier = inputs.get(drawnFor)?.draws ?? [];
+    const kept = [...earlier, number].slice(-2);
+    for (const draw of earlier)
+      if (!kept.includes(draw))
+        draws.delete(draw);
+    inputs.delete(drawnFor);
+    inputs.set(drawnFor, { draws: kept, tree: JSON.stringify(tree), render });
+    const [oldest] = inputs;
+    if (inputs.size > keptDrawInputs && oldest !== undefined) {
+      for (const draw of oldest[1].draws)
+        draws.delete(draw);
+      inputs.delete(oldest[0]);
+    }
+    draws.set(number, { id: key, handlers });
+    return { draw: number, tree };
+  };
+  const draw = (input) => {
+    if ("markdown" in input)
+      return drawPart("markdown", "markdown style", input, () => markdownDrawing(input.markdown, { surface: input.surface, columns: input.columns }));
+    if ("page" in input) {
+      const { page, ...props } = input;
+      const added = parts.get(page);
+      if (added === undefined)
+        throw new Error(`${name} has no view or page ${page}.`);
+      const title = `${added.init.title} ${added.kind}`;
+      return drawPart(`${added.kind}:${page}`, title, input, () => added.init.render(mod(), props), (error) => Text({ color: "error", children: `The ${title} could not draw: ${messageOf(error)}` }));
+    }
+    const { widget: id, turn, ...given } = input;
+    const widget = widgets.get(id);
+    if (widget === undefined || !widget.areas.includes(given.area))
+      return null;
+    widgetAreas.set(id, given.area);
+    const context = given.area === TurnEnd2 && turn !== undefined ? { ...given, turn } : given;
+    return drawPart(`widget:${id}`, `${widget.title} widget`, input, () => widget.render(mod(), context));
+  };
+  const press = async ({ draw: drawn, handler, args }, caller) => {
+    const known = draws.get(drawn);
+    const run = known?.handlers[handler];
+    if (known === undefined || run === undefined)
+      throw new Error(`${name}: ${stalePress}`);
+    if (caller !== cmodPluginName && known.id !== "markdown")
+      throw new Error(`${name}: ${caller} pressed a button only the cmod plugin draws.`);
+    const pressed = async () => {
+      try {
+        await run(...args);
+      } catch (error) {
+        report({ id: known.id, message: "Its button failed", error, isCritical: true });
+      }
+    };
+    if (caller === cmodPluginName)
+      return collect(pressed);
+    await pressed();
+    return null;
+  };
+  return {
+    panes: { add: addPane },
+    views: { add: (init) => addPart("view", init, "sidebar") },
+    pages: { add: (init) => addPart("page", init) },
+    settings: {
+      add: (init) => addPart("view", init, "settings"),
+      open: async () => {
+        await send({ requests: [{ settings: true }] });
+      }
+    },
+    widgets: { add: addWidget },
+    styles: { add: addStyle },
+    asked,
+    async answerInput(run, passInput) {
+      const before = unheldRequests;
+      const answer = await asked(run);
+      if (unheldRequests > before)
+        await passInput();
+      return answer;
+    },
+    answer(method, input, caller) {
+      const isMarkdown = method === partMethods.draw && isObject(input) && typeof input["markdown"] === "string";
+      if (caller !== cmodPluginName && !isMarkdown && method !== partMethods.press)
+        return;
+      if (method === partMethods.list)
+        return Promise.resolve({ value: partList() });
+      if (method === partMethods.draw)
+        return Promise.resolve().then(() => ({ value: draw(input) }));
+      if (method === partMethods.press)
+        return press(input, caller).then((value) => ({ value }));
+      if (method === partMethods.shown) {
+        shownParts = input;
+        return Promise.resolve({ value: null });
+      }
+      if (method === partMethods.stylers) {
+        hear(input, true);
+        return Promise.resolve({ value: null });
+      }
+      return;
+    },
+    markdownIn,
+    restyled: (stylers) => hear(stylers, true),
+    relisted() {
+      send({ parts: partList() });
+    },
+    started() {
+      const held = merged(beforeStart ?? []);
+      beforeStart = undefined;
+      send({ ...held, parts: partList(), isStart: true });
+    },
+    changed() {
+      if (widgets.size > 0 || parts.size > 0)
+        send({ redraw: true });
+      if (panes.size === 0 && styles.size === 0)
+        return;
+      claude.ui.invalidate("ui.render");
+      if (isResizeQueued)
+        return;
+      isResizeQueued = true;
+      Promise.resolve().then(() => {
+        isResizeQueued = false;
+        for (const { init } of panes.values()) {
+          if (openPanes.has(init.id))
+            resize(init);
+        }
+      });
+    },
+    async restorePanes() {
+      if (panes.size > 0)
+        await syncPanes();
+    }
+  };
+}
+
+// node_modules/@cmodjs/core/runtime/installer.js
+var installView = "cmod:install";
+var keptDraws = 8;
+function createInstaller(name, claude, waiting, nextDraw) {
+  let question;
+  let isOpen = false;
+  let isSeen = false;
+  let waitingForShow = [];
+  let collected;
+  const draws = new Map;
+  const send = async (update) => {
+    if (collected !== undefined)
+      return void collected.push(update);
+    await withBareRefusals(claude()).cmod.call({ to: cmodPluginName, method: partMethods.changed, input: update });
+  };
+  const log = (what) => (error) => claude().ui.warn("installer:page", `${name}: ${what}: ${messageOf(error)}`);
+  const open = (isAsked) => send({ requests: [{ open: installView, focus: true }], ...isAsked ? { isAsked: true } : {} });
+  const show = async (next, build, cancelled) => {
+    question?.cancel();
+    const answer = new Promise((resolve) => {
+      let isAnswered = false;
+      const done = (value) => {
+        if (isAnswered)
+          return;
+        isAnswered = true;
+        waiting.hide();
+        claude().clock.after(0, () => resolve(value));
+      };
+      question = { ...build(done), cancel: () => done(cancelled) };
+    });
+    waiting.show(() => open(true), next);
+    if (isOpen) {
+      await send({ redraw: true }).catch(log("the installer did not redraw"));
+    } else {
+      isOpen = true;
+      await open(false).catch((error) => {
+        isOpen = false;
+        waiting.hide();
+        throw error;
+      });
+    }
+    for (const resolve of waitingForShow)
+      resolve();
+    waitingForShow = [];
+    return answer;
+  };
+  const redraw = () => void send({ redraw: true }).catch(log("the installer did not redraw"));
+  const actions = (...buttons) => Box({ gap: 2, flexShrink: 0, children: buttons });
+  const dialog = (title, ...children) => Box({ flexDirection: "column", gap: 1, children: [title, ...children] });
+  const draw = (props) => {
+    if (question === undefined && !isOpen)
+      claude().clock.after(0, () => void send({ requests: [{ close: installView }] }).catch(log("a leftover install view stayed open")));
+    const handlers = [];
+    const tree = elementData(question?.draw(props) ?? Text({ dimColor: true, children: `${name} needs nothing from you now.` }), (run) => handlers.push(run) - 1);
+    const drawn = nextDraw();
+    draws.set(drawn, handlers);
+    for (const kept of draws.keys())
+      if (draws.size > keptDraws)
+        draws.delete(kept);
+    return { draw: drawn, tree };
+  };
+  const collect = async (run) => {
+    const outer = collected;
+    const mine = [];
+    collected = mine;
+    try {
+      await run();
+    } finally {
+      collected = outer;
+    }
+    return merged(mine);
+  };
+  const press = async ({ draw: drawn, handler, args }) => {
+    const run = draws.get(drawn)?.[handler];
+    if (run === undefined)
+      throw new Error(`${name}: ${stalePress}`);
+    return collect(() => run(...args));
+  };
+  return {
+    answer(method, input) {
+      const { page, ...props } = isObject(input) ? input : {};
+      if (method === partMethods.draw && page === installView)
+        return Promise.resolve({ value: draw({ ...props, params: undefined }) });
+      if (method === partMethods.press && isObject(input) && typeof input["draw"] === "number" && draws.has(input["draw"]))
+        return press(input).then((value) => ({ value }));
+      return;
+    },
+    hear(shown) {
+      if (shown.open.some((each) => each.id === installView)) {
+        isSeen = isOpen;
+        return;
+      }
+      if (!isSeen)
+        return;
+      isOpen = false;
+      isSeen = false;
+      question?.cancel();
+    },
+    options(missing, save) {
+      const saved = new Map;
+      const failures = new Map;
+      return show(`Enter ${missing.length === 1 ? "one setting" : `${missing.length} settings`}`, (answer) => ({
+        draw: () => dialog(Text({ bold: true, children: `Set up ${name}` }), Text({ children: `${name} needs ${missing.length === 1 ? "one setting" : `${missing.length} settings`}:` }), ...missing.map(([key, option]) => {
+          const label = Box({ flexDirection: "column", children: [Text({ bold: true, children: option.title }), ...option.description === "" ? [] : [Text({ dimColor: true, wrap: "wrap", children: option.description })]] });
+          if (option.type === "secret") {
+            return Box({ flexDirection: "column", children: [label, Text({ dimColor: true, wrap: "wrap", children: `${secretFix} Then press Next.` }), filledButton({ key: `secret:${key}`, label: "Open /config", onPress: () => void claude().command.run({ command: "config" }) })] });
+          }
+          const failure = failures.get(key);
+          const field = Input({
+            key: `option:${key}`,
+            label: "Value",
+            placeholder: option.type === "choice" ? (option.choices ?? []).join(", ") : option.type === "toggle" ? "true or false" : option.type === "list" ? "comma-separated" : "",
+            value: saved.get(key) ?? "",
+            submitLabel: "save",
+            onSubmit: (value) => void save(key, value).then((refused) => {
+              if (refused === undefined) {
+                saved.set(key, value);
+                failures.delete(key);
+              } else
+                failures.set(key, refused);
+            }).catch((error) => failures.set(key, messageOf(error))).finally(redraw)
+          });
+          const status = failure !== undefined ? [Text({ color: "error", wrap: "wrap", children: failure })] : saved.has(key) ? [Text({ color: "success", children: "✓ saved" })] : [];
+          return Box({ flexDirection: "column", children: [label, field, ...status] });
+        }), actions(filledButton({ key: "next", hotkey: "x", variant: "primary", label: "Next", onPress: () => answer(true) }), filledButton({ key: "not-now", hotkey: "n", label: "Not now", onPress: () => answer(false) })))
+      }), false);
+    },
+    step(mod, step, index, total) {
+      let notice;
+      return show(`Step ${index} of ${total}: ${step.title}`, (answer) => ({
+        draw: (props) => {
+          let body;
+          try {
+            body = step.render(mod, props);
+          } catch (error) {
+            body = Text({ color: "error", wrap: "wrap", children: `The ${step.title} step could not draw: ${messageOf(error)}` });
+          }
+          const next = async () => {
+            try {
+              if (await step.isDone(mod))
+                return answer(true);
+              notice = { color: "warning", text: `Finish ${step.title} first.` };
+            } catch (error) {
+              notice = { color: "error", text: `The ${step.title} step's isDone failed: ${messageOf(error)}` };
+            }
+            await send({ redraw: true });
+          };
+          return dialog(Text({ children: [Text({ bold: true, children: step.title }), Text({ dimColor: true, children: `  (${index} of ${total})` })] }), body, ...notice === undefined ? [] : [Text({ color: notice.color, wrap: "wrap", children: notice.text })], actions(filledButton({ key: "next", hotkey: "x", variant: "primary", label: index === total ? "Finish" : "Next", onPress: () => void next() }), filledButton({ key: "not-now", hotkey: "n", label: "Not now", onPress: () => answer(false) })));
+        }
+      }), false);
+    },
+    async close() {
+      question?.cancel();
+      question = undefined;
+      if (!isOpen)
+        return;
+      isOpen = false;
+      isSeen = false;
+      await send({ requests: [{ close: installView }] }).catch(log("the install view stayed open"));
+    },
+    changed() {
+      if (question !== undefined && isOpen)
+        redraw();
+    },
+    shown: () => new Promise((resolve) => void waitingForShow.push(resolve)),
+    collect
+  };
+}
+
+// node_modules/@cmodjs/core/runtime/options.js
+class MissingOptions extends Error {
+  keys;
+  titles;
+  constructor(keys, titles) {
+    super(`it needs ${listed(titles)}`);
+    this.keys = keys;
+    this.titles = titles;
+  }
+}
+function createOptions({ name, declared, fromClaude, claude, report, changed }) {
+  let values = merged2(declared, fromClaude, {}, new Set);
+  let locked;
+  let loadedRoot;
+  const readLocked = async () => {
+    if (Object.keys(declared).length === 0)
+      return new Set;
+    const rows = await claude.config.list().catch((error) => {
+      claude.ui.warn("options:config", `${name} could not read /config, so a project's options.json may override a value your organization set: ${messageOf(error)}`);
+      return [];
+    });
+    return new Set(rows.filter((row) => row.isLocked && row.key.startsWith(`${name}.`)).map((row) => row.key.slice(name.length + 1)));
+  };
+  const readProject = async (root) => {
+    const path = `${projectConfigFolder(root, name)}/options.json`;
+    if (!await claude.fs.exists(path))
+      return {};
+    const { values: kept, ignored } = projectOptionsOf(name, declared, await claude.fs.read(path));
+    for (const reason of ignored)
+      report({ id: `options:${path} ${reason}`, message: `Ignores part of ${path}`, description: `${path} ${reason}` });
+    return kept;
+  };
+  return {
+    get values() {
+      return values;
+    },
+    get missing() {
+      return Object.entries(declared).filter(([key, option]) => option.default === undefined && isUnset(values[key])).map(([key]) => key);
+    },
+    async load(root) {
+      if (Object.keys(declared).length === 0)
+        return;
+      locked ??= await readLocked();
+      const project = await readProject(root);
+      const isFirst = loadedRoot === undefined;
+      loadedRoot = root;
+      const next = merged2(declared, fromClaude, project, locked);
+      if (!isFirst && JSON.stringify(next) === JSON.stringify(values))
+        return;
+      values = next;
+      if (!isFirst)
+        changed();
+    }
+  };
+}
+function merged2(declared, fromClaude, project, locked) {
+  return Object.freeze(Object.fromEntries(Object.entries(declared).map(([key, option]) => [key, valueOf(key, option, fromClaude[key], project, locked)])));
+}
+function valueOf(key, option, own, project, locked) {
+  if (locked.has(key))
+    return own;
+  if (Object.hasOwn(project, key))
+    return project[key];
+  if (!isUnset(own) && fitsOption(option, own) === undefined)
+    return Array.isArray(own) ? Object.freeze([...own]) : own;
+  return option.default ?? (option.type === "list" ? Object.freeze([]) : option.type === "number" ? undefined : "");
+}
+
+// node_modules/@cmodjs/core/runtime/state.js
+var lifetimes = ["memory", "session", "project", "global"];
+var keptProjects = 20;
+var listeners = new WeakMap;
+function sessionKeyOf(name, key, session) {
+  return `${name}.${key}.sessions.${session}`;
+}
+function createState({ name, initial, session, root, claude, report, changed: redraw, forkParent }) {
+  const changed = () => {
+    redraw();
+    for (const listener of listeners.get(state) ?? [])
+      listener();
+  };
+  const declared = declaredGroups(name, initial);
+  const current = copied(declared);
+  let projectRoot = root;
+  let sessionId = session;
+  let turn = Promise.resolve();
+  const inTurn = (task) => {
+    const run = turn.then(task);
+    turn = Promise.allSettled([run]);
+    return run;
+  };
+  const ownersKey = (lifetime, key) => lifetime === "project" ? `${name}.${key}.projects.` : sessionKeyOf(name, key, "");
+  const storeKey = (lifetime, key, owner) => lifetime === "global" ? `${name}.${key}` : `${ownersKey(lifetime, key)}${owner}`;
+  const read = (lifetime, key, owner) => claude.store.get(storeKey(lifetime, key, owner));
+  const write = async (lifetime, key, value, owner) => {
+    if (lifetime !== "project")
+      return claude.store.set(storeKey(lifetime, key, owner), value);
+    await claude.store.delete(storeKey(lifetime, key, owner));
+    await claude.store.set(storeKey(lifetime, key, owner), value);
+    const owners = (await claude.store.keys()).filter((stored) => stored.startsWith(ownersKey(lifetime, key)));
+    for (const oldest of owners.slice(0, -keptProjects))
+      await claude.store.delete(oldest);
+  };
+  const transcriptsKey = `${name}.$transcripts.`;
+  const forgetEndedSessions = async (current) => {
+    const stored = await claude.store.keys();
+    const ended = async (recorded) => {
+      const transcript = await claude.store.get(recorded);
+      return typeof transcript !== "string" || !await claude.fs.exists(transcript);
+    };
+    const owners = stored.filter((key) => key.startsWith(transcriptsKey) && key !== `${transcriptsKey}${current}`);
+    await Promise.all(owners.map(async (recorded) => {
+      if (!await ended(recorded))
+        return;
+      const owner = recorded.slice(transcriptsKey.length);
+      await Promise.all(stored.filter((key) => key.startsWith(`${name}.`) && key.endsWith(`.sessions.${owner}`)).map((value) => claude.store.delete(value)));
+      await claude.store.delete(recorded);
+    }));
+  };
+  const loadGroups = async (only, next) => {
+    const loaded = [];
+    for (const lifetime of only) {
+      for (const key of Object.keys(declared[lifetime]))
+        loaded.push([lifetime, key, lifetime === "memory" ? undefined : await read(lifetime, key, lifetime === "project" ? next.root : next.session)]);
+    }
+    projectRoot = next.root;
+    sessionId = next.session;
+    for (const [lifetime, key, saved] of loaded)
+      current[lifetime][key] = saved === undefined ? declared[lifetime][key] : frozen(name, `${lifetime}.${key}`, saved);
+    changed();
+  };
+  const copySession = async (from, to) => {
+    for (const key of Object.keys(declared.session)) {
+      const saved = await read("session", key, from);
+      if (saved !== undefined)
+        await write("session", key, saved, to);
+    }
+  };
+  const hasSaved = async (owner) => (await claude.store.keys()).some((key) => key.startsWith(`${name}.`) && key.endsWith(`.sessions.${owner}`));
+  const group = (lifetime) => new Proxy(current[lifetime], {
+    set(target, key, value) {
+      if (typeof key !== "string")
+        throw new Error(`${name}: mod.state.${lifetime} keys are text, not ${String(key)}.`);
+      if (!Object.hasOwn(declared[lifetime], key))
+        throw new Error(`${name}: mod.state.${lifetime}.${key} is not declared. Add it to state.${lifetime} in defineMod with its starting value.`);
+      if (Object.is(target[key], value))
+        return true;
+      target[key] = frozen(name, `${lifetime}.${key}`, value);
+      if (lifetime !== "memory") {
+        const owner = lifetime === "project" ? projectRoot : sessionId;
+        inTurn(() => write(lifetime, key, value, owner)).catch((error) => {
+          report({ id: `state:${lifetime}.${key}`, message: `Could not keep state.${lifetime}.${key}`, error });
+        });
+      }
+      changed();
+      return true;
+    }
+  });
+  const state = Object.freeze(Object.fromEntries(Object.keys(initial).map((lifetime) => [lifetime, group(lifetime)])));
+  return {
+    state,
+    get root() {
+      return projectRoot;
+    },
+    changed,
+    load: () => inTurn(async () => {
+      if (Object.keys(declared.session).length > 0 && !await hasSaved(sessionId)) {
+        const parent = await forkParent();
+        if (parent !== undefined)
+          await copySession(parent, sessionId);
+      }
+      return loadGroups(lifetimes, { root: projectRoot, session: sessionId });
+    }),
+    moveTo: (nextRoot) => inTurn(async () => nextRoot === projectRoot ? undefined : loadGroups(["project"], { root: nextRoot, session: sessionId })),
+    switchSession: (nextSession, source, transcript) => inTurn(async () => {
+      if (Object.keys(declared.session).length > 0) {
+        await claude.store.set(`${transcriptsKey}${nextSession}`, transcript);
+        forgetEndedSessions(nextSession).catch((error) => report({ id: "state:sessions", message: "Could not forget the session values of ended sessions", error }));
+      }
+      if (nextSession === sessionId)
+        return;
+      if (source === "fork")
+        await copySession(sessionId, nextSession);
+      return loadGroups(["memory", "session"], { root: projectRoot, session: nextSession });
+    })
+  };
+}
+function declaredGroups(name, initial) {
+  const groups = { memory: {}, session: {}, project: {}, global: {} };
+  for (const [lifetime, values] of Object.entries(initial)) {
+    if (!isLifetime(lifetime))
+      throw new Error(`${name}: state.${lifetime} is not a lifetime. Put each value in state.memory, state.session, state.project, or state.global.`);
+    if (!isPlainObject(values))
+      throw new Error(`${name}: state.${lifetime} is not an object of values. Write state: { ${lifetime}: { key: value } }.`);
+    for (const [key, value] of Object.entries(values))
+      groups[lifetime][key] = frozen(name, `${lifetime}.${key}`, value);
+  }
+  return groups;
+}
+function copied(groups) {
+  return { memory: { ...groups.memory }, session: { ...groups.session }, project: { ...groups.project }, global: { ...groups.global } };
+}
+function isLifetime(group) {
+  return lifetimes.includes(group);
+}
+function frozen(name, path, value) {
+  const isArray = Array.isArray(value);
+  if (!isArray && !isPlainObject(value))
+    return value;
+  const copy = isArray ? value.map((item) => frozen(name, path, item)) : Object.fromEntries(Object.entries(value).map(([field, item]) => [field, frozen(name, path, item)]));
+  const example = isArray ? `mod.state.${path} = [...mod.state.${path}, item]` : `mod.state.${path} = { ...mod.state.${path}, field: value }`;
+  const refuse = () => {
+    throw new Error(`${name}: mod.state.${path} cannot change in place. Assign it a new value, such as ${example}, so the mod redraws and keeps it.`);
+  };
+  return new Proxy(Object.freeze(copy), { set: refuse, defineProperty: refuse, deleteProperty: refuse });
+}
+function isPlainObject(value) {
+  if (typeof value !== "object" || value === null)
+    return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+// node_modules/@cmodjs/core/runtime/toaster.js
+var failedMethod = "cmod:failed";
+var githubRepository = /^https:\/\/github\.com\/([^/]+\/[^/#?]+?)(?:\.git)?(?:\/issues)?\/?$/;
+var linkLimit = 2048;
+var hiddenKey = "cmod:hidden-failures";
+var failedCallMs = 30000;
+var logAgainMs = [1e4, 60000, 300000];
+var defaultDuration = 4000;
+var visibleToasts = 3;
+var columnGap = 2;
+var nameColumn = 16;
+var spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+var spinnerMs = 100;
+var spinFrames = 1e4 / spinnerMs;
+var still = "…";
+var icons = {
+  default: { glyph: " " },
+  success: { glyph: "✓", color: "success" },
+  info: { glyph: "ℹ", color: "suggestion" },
+  warning: { glyph: "⚠", color: "warning" },
+  error: { glyph: "✗", color: "error" }
+};
+function createToaster(claude, name, version) {
+  const entries = new Map;
+  const hidden = new Map;
+  const sent = new Map;
+  claude.store.get(hiddenKey).then((saved) => {
+    if (typeof saved !== "object" || saved === null)
+      return;
+    for (const [id, hides] of Object.entries(saved))
+      if (typeof hides === "string" && !hidden.has(id))
+        hidden.set(id, hides);
+  }, (error) => warn("hidden:read", `${name}: could not read the failures you hid: ${messageOf(error)}`));
+  let lastId = 0;
+  let frame = 0;
+  let spinning;
+  let isHeld = false;
+  let showsAll = false;
+  let bandId;
+  const isLoading = (entry) => entry.type === "loading" || entry.trying !== undefined;
+  const isSpinning = (entry) => entry.spinsFrom !== undefined && frame - entry.spinsFrom < spinFrames;
+  const changed = () => {
+    for (const entry of entries.values())
+      entry.spinsFrom = isLoading(entry) ? entry.spinsFrom ?? frame : undefined;
+    const spins = [...entries.values()].some(isSpinning);
+    if (spins && spinning === undefined) {
+      spinning = claude.clock.every(spinnerMs, () => {
+        frame += 1;
+        changed();
+      });
+    }
+    if (!spins && spinning !== undefined) {
+      spinning.cancel();
+      spinning = undefined;
+    }
+    if (entries.size <= visibleToasts)
+      showsAll = false;
+    claude.ui.invalidate("ui.render");
+  };
+  const disarm = (entry) => {
+    entry.timer?.cancel();
+    entry.timer = undefined;
+  };
+  const arm = (entry) => {
+    const duration = entry.options.duration ?? defaultDuration;
+    if (entry.timer !== undefined || entry.type === "loading" || entry.isOpen || !Number.isFinite(duration))
+      return;
+    entry.timer = claude.clock.after(duration, () => {
+      entry.timer = undefined;
+      if (isHeld)
+        arm(entry);
+      else
+        dismiss(entry.id);
+    });
+  };
+  const dismiss = (id) => {
+    if (id === undefined)
+      sent.clear();
+    else
+      sent.delete(String(id));
+    for (const entry of entries.values()) {
+      if (id !== undefined && entry.id !== id && !entry.merged.has(String(id)))
+        continue;
+      for (const merged of entry.merged.keys())
+        sent.delete(merged);
+      disarm(entry);
+      entries.delete(entry.id);
+    }
+    changed();
+  };
+  const put = (type, message, options, actions, hides) => {
+    const id = options.id ?? (lastId += 1);
+    const previous = entries.get(id);
+    if (previous?.trying !== undefined && type === "loading") {
+      previous.trying = options.description ?? message;
+      changed();
+      return id;
+    }
+    if (previous !== undefined)
+      disarm(previous);
+    const reporting = hides !== undefined && previous?.hides === hides ? previous.reporting : undefined;
+    const entry = { id, type, message, options, actions, ...hides === undefined ? {} : { hides }, merged: new Map, count: 1, at: new Date, isOpen: previous?.isOpen ?? false, reporting, timer: undefined };
+    if (type === "error" && previous?.message !== message)
+      claude.ui.log(`${name}: ${message}${typeof options.description === "string" ? `: ${options.description}` : ""}`, { to: "debug" });
+    entries.set(id, entry);
+    changed();
+    return id;
+  };
+  const show = (type) => (message, options = {}) => put(type, message, options, options.action === undefined ? [] : [options.action]);
+  const hide = (entry) => {
+    dismiss(entry.id);
+    if (entry.hides === undefined)
+      return;
+    for (const [id, hides] of [[String(entry.id), entry.hides], ...entry.merged])
+      hidden.set(id, hides);
+    claude.store.set(hiddenKey, Object.fromEntries(hidden)).catch((error) => warn("hidden:write", `${name}: could not remember the failure you hid: ${messageOf(error)}`));
+  };
+  const toast = Object.assign(show("default"), {
+    success: show("success"),
+    info: show("info"),
+    warning: show("warning"),
+    error: show("error"),
+    loading: show("loading"),
+    dismiss,
+    promise(task, messages) {
+      const id = show("loading")(messages.loading);
+      const settled = Promise.resolve().then(() => typeof task === "function" ? task() : task).then((value) => {
+        show("success")(typeof messages.success === "function" ? messages.success(value) : messages.success, { id });
+        return value;
+      }, (error) => {
+        show("error")(typeof messages.error === "function" ? messages.error(error) : messages.error, { id });
+        throw error;
+      });
+      settled.catch(() => {
+        return;
+      });
+      return { unwrap: () => settled };
+    }
+  });
+  const copy = async (text) => {
+    const copied = await claude.ui.copy({ text });
+    if (!copied.isCopied)
+      throw new Error(copied.reason);
+  };
+  const press = (entry, run) => () => void Promise.resolve().then(run).catch((error) => fail({ id: `press:${entry.id}`, message: `${entry.message}: the press failed`, error, isCritical: true }));
+  const logFailure = (failure) => claude.cmod.call({ to: cmodPluginName, method: failedMethod, input: failure });
+  const modVersion = () => claude.fs.read(`${claude.plugin.root}/.claude-plugin/plugin.json`).then((text) => String(JSON.parse(text).version)).catch((failure) => `unknown (${messageOf(failure)})`);
+  const detailsOf = (version, at, text) => `${name} ${version}, @cmodjs/core ${coreVersion}, at ${at.toISOString()}
+${text}`;
+  const warned = new Map;
+  const warn = (id, text) => {
+    claude.ui.log(text, { to: "debug" });
+    const at = new Date;
+    const repeat = `${text}
+${at.toISOString().slice(0, 16)}`;
+    if (warned.get(id) === repeat)
+      return;
+    warned.set(id, repeat);
+    claude.clock.after(0, () => {
+      (async () => {
+        const version = await modVersion();
+        await logFailure({ mod: name, id, message: text, details: detailsOf(version, at, text), at: at.toISOString(), isCritical: false, root: claude.plugin.root, level: "warning", version, core: coreVersion });
+      })().catch(() => {
+        return;
+      });
+    });
+  };
+  const showsToast = async (failure, isShown) => {
+    const call = { isSettled: false };
+    try {
+      const logged = logFailure(failure).finally(() => void (call.isSettled = true));
+      const answer = await (isShown ? logged : beforeDeadline(claude.clock, { ms: failedCallMs }, failedMethod, () => logged));
+      if (isObject(answer) && typeof answer["showsToast"] === "boolean")
+        return answer["showsToast"];
+      throw new Error(`cmod answered ${answer === undefined ? "nothing" : JSON.stringify(answer)}, not { showsToast: true or false }`);
+    } catch (error) {
+      if (!call.isSettled || isUnanswered(error))
+        return "unanswered";
+      claude.ui.log(`${name}: cmod kept no Log of ${failure.id}, so it shows the toast: ${messageOf(error)}`, { to: "debug" });
+      return;
+    }
+  };
+  const fail = ({ id, message, error, description = error === undefined || describe(error) === message ? undefined : describe(error), retry, isCritical = false, root = claude.plugin.root }) => {
+    if (!isCritical && isUnanswered(error)) {
+      warn(id, `${name}: ${message}: ${describe(error)}`);
+      return id;
+    }
+    const hides = `${version() ?? ""}
+${message}
+${error === undefined ? "" : describe(error)}`;
+    const at = new Date;
+    const repeat = `${hides}
+${description ?? ""}
+${at.toISOString().slice(0, 16)}`;
+    if (sent.get(id) === repeat)
+      return id;
+    sent.set(id, repeat);
+    const stack = error instanceof Error && error.stack !== undefined ? `
+
+${error.stack}` : "";
+    const details = async (failedAt) => detailsOf(await modVersion(), failedAt, `${message}${description === undefined ? "" : `
+${description}`}${stack}`);
+    const logged = async (tries = 0) => {
+      const contact = await contactOf(claude);
+      const version = await modVersion();
+      const failure = { mod: name, id, message, details: detailsOf(version, at, `${message}${description === undefined ? "" : `
+${description}`}${stack}`), at: at.toISOString(), isCritical, root, ...contact === undefined ? {} : { contact }, level: "error", version, core: coreVersion };
+      const shows = await showsToast(failure, isCritical);
+      const wait = logAgainMs[tries];
+      if (shows === "unanswered" && wait !== undefined)
+        return void claude.clock.after(wait, () => void logged(tries + 1));
+      if (shows === "unanswered")
+        claude.ui.log(`${name}: cmod did not answer ${logAgainMs.length + 1} times, so ${id} reached no Log and shows its toast`, { to: "debug" });
+      if (isCritical)
+        return;
+      if (shows !== false)
+        return show();
+      claude.ui.log(`${name}: ${message}${description === undefined ? "" : `: ${description}`}`, { to: "debug" });
+    };
+    const show = () => {
+      if (hidden.get(id) === hides)
+        return;
+      hidden.delete(id);
+      const own = entries.get(id);
+      const text = description ?? message;
+      const shown = own === undefined ? [...entries.values()].find((entry) => entry.hides !== undefined && entry.trying === undefined && (entry.options.description ?? entry.message) === text) : own.hides === hides && own.trying === undefined && own.options.description === description ? own : undefined;
+      if (shown !== undefined) {
+        if (shown !== own)
+          shown.merged.set(id, hides);
+        shown.count += 1;
+        shown.at = new Date;
+        changed();
+        return;
+      }
+      const actions = [{ label: "Report", onClick: startReporting }, ...retry === undefined ? [] : [{ label: "Retry", onClick: tryAgain }], ...fixes];
+      put("error", message, { id, ...description === undefined ? {} : { description }, duration: Infinity }, actions, hides);
+    };
+    const startReporting = async () => {
+      const shown = entries.get(id);
+      if (shown === undefined)
+        return;
+      shown.reporting = { contact: await contactOf(claude), details: await details(shown.at) };
+      disarm(shown);
+      changed();
+      if (bandId === undefined)
+        return;
+      const focused = await claude.ui.focus({ requestId: bandId, key: `toast:${id}:ask-claude` });
+      if ("deny" in focused)
+        warn("report:focus", `${name}: the Report choices did not take the keys: ${String(focused.deny)}`);
+    };
+    const tryAgain = async () => {
+      const shown = entries.get(id);
+      if (shown === undefined || retry === undefined || shown.trying !== undefined)
+        return;
+      shown.trying = "Starting";
+      changed();
+      try {
+        await retry();
+      } finally {
+        if (entries.get(id) === shown) {
+          shown.trying = undefined;
+          changed();
+        }
+      }
+    };
+    const fixes = [
+      { sentence: installFix, label: "Plugins", onClick: () => claude.command.run({ command: "plugin" }) },
+      { sentence: secretFix, label: "Open /config", onClick: () => claude.command.run({ command: "config" }) }
+    ].filter(({ sentence }) => `${message}
+${description ?? ""}`.includes(sentence));
+    if (isCritical)
+      show();
+    claude.clock.after(0, () => void logged());
+    return id;
+  };
+  const toggle = (entry) => () => {
+    entry.isOpen = !entry.isOpen;
+    disarm(entry);
+    changed();
+  };
+  const row = (entry, columns) => {
+    const { description } = entry.options;
+    const isText = typeof description === "string";
+    const icon = entry.type === "loading" || entry.trying !== undefined ? { glyph: isSpinning(entry) ? spinner[frame % spinner.length] : still, color: "claude" } : icons[entry.type];
+    const message = isText ? Button({ plain: true, key: `toast:${entry.id}:open`, label: entry.message, onPress: toggle(entry) }) : Text({ children: entry.message });
+    const details = !isText ? description : Text({ dimColor: true, wrap: entry.isOpen ? "wrap" : "truncate-end", children: entry.isOpen ? description : firstLine(description) });
+    const fixed = (child) => Box({ flexShrink: 0, children: child });
+    const close = Button({ plain: true, dimColor: true, key: `toast:${entry.id}:close`, label: "✕", onPress: () => hide(entry) });
+    const actions = entry.actions.map((action, index) => Button({ plain: true, key: `toast:${entry.id}:${index === 0 ? "action" : `action-${index}`}`, label: action.label, onPress: press(entry, action.onClick) }));
+    const time = Text({ dimColor: true, children: entry.count > 1 ? `${clockTime(entry.at)} · ${entry.count} times` : clockTime(entry.at) });
+    const buttons = actions.length === 0 ? [] : [Box({ gap: columnGap, flexWrap: "wrap", children: [...actions, time].map(fixed) })];
+    const trying = entry.trying === undefined ? undefined : Box({ gap: 1, children: [Text({ dimColor: true, children: "Trying again:" }), typeof entry.trying === "string" ? Text({ dimColor: true, wrap: "truncate-end", children: entry.trying }) : entry.trying] });
+    const text = details === undefined ? [] : [trying ?? details];
+    const under = trying !== undefined && details === undefined ? [trying] : entry.reporting === undefined ? buttons : reportChoices(entry, entry.reporting);
+    return Box({
+      width: columns,
+      gap: columnGap,
+      justifyContent: "space-between",
+      children: [
+        Box({
+          gap: columnGap,
+          flexShrink: 1,
+          children: [
+            fixed(Text({ ...icon.color === undefined ? {} : { color: icon.color }, children: icon.glyph })),
+            fixed(Text({ dimColor: true, children: name.padEnd(nameColumn) })),
+            Box({ flexDirection: "column", flexShrink: 1, children: [message, ...text, ...under] })
+          ]
+        }),
+        fixed(close)
+      ]
+    });
+  };
+  const reportChoices = (entry, { contact, details, status }) => {
+    const say = (said) => {
+      entry.reporting = { contact, details, status: said };
+      changed();
+    };
+    const back = () => {
+      entry.reporting = undefined;
+      changed();
+    };
+    const askClaude = async () => {
+      await claude.prompt.submit({ text: reportPrompt(name, contact, details), asUser: true });
+      back();
+    };
+    const copyError = async () => {
+      const copied = await claude.ui.copy({ text: details });
+      say(copied.isCopied ? "Copied the error." : `Could not copy it: ${copied.reason}`);
+    };
+    const report = contact === undefined ? [] : [reportLink(`toast:${entry.id}:report`, contact, name, entry.message, details)];
+    return [
+      Text({ dimColor: true, children: "Claude writes up the problem and files it with your tools. You approve each step before anything is posted." }),
+      Box({
+        gap: 2,
+        flexWrap: "wrap",
+        children: [
+          Button({ plain: true, key: `toast:${entry.id}:ask-claude`, label: "Ask Claude to report it", onPress: press(entry, askClaude) }),
+          ...report,
+          Button({ plain: true, key: `toast:${entry.id}:copy`, label: "Copy the error", onPress: press(entry, copyError) }),
+          Button({ plain: true, dimColor: true, key: `toast:${entry.id}:back`, label: "Back", onPress: back })
+        ]
+      }),
+      ...status === undefined ? [] : [Text({ dimColor: true, children: status })]
+    ];
+  };
+  return {
+    toast,
+    copy,
+    fail,
+    warn,
+    get shown() {
+      return [...entries.values()].map(({ type, message, options }) => ({ type, message, ...typeof options.description === "string" ? { description: options.description } : {} }));
+    },
+    draw(drawn, table, band, drawnIn) {
+      bandId = drawnIn;
+      isHeld = band.hasSurvey === true;
+      if (isHeld || entries.size === 0)
+        return drawn;
+      const all = [...entries.values()];
+      const hidden = showsAll ? 0 : Math.max(all.length - visibleToasts, 0);
+      for (const entry of all.slice(hidden))
+        arm(entry);
+      const more = Button({
+        plain: true,
+        dimColor: true,
+        key: "toasts:more",
+        label: `+${hidden} more`,
+        onPress: () => {
+          showsAll = true;
+          changed();
+        }
+      });
+      return drawWith(table, () => Box({ flexDirection: "column", children: [drawn, ...hidden > 0 ? [more] : [], ...all.slice(hidden).map((entry) => row(entry, band.bodyColumns))] }));
+    }
+  };
+}
+function describe(error) {
+  const messages = [];
+  for (let cause = error;cause !== undefined; cause = cause instanceof Error ? cause.cause : undefined) {
+    const text = messageOf(cause);
+    if (!messages.some((earlier) => earlier.includes(text) || text.includes(earlier)))
+      messages.push(text);
+  }
+  return messages.join(`
+`);
+}
+async function contactOf(claude) {
+  const manifest = await claude.fs.read(`${claude.plugin.root}/.claude-plugin/plugin.json`).then((text) => JSON.parse(text)).catch((error) => {
+    claude.ui.log(`${claude.plugin.name}: could not read whom to report to: ${messageOf(error)}`, { to: "debug" });
+    return {};
+  });
+  const repositoryUrl = isObject(manifest["repository"]) ? manifest["repository"]["url"] : manifest["repository"];
+  const repository = [manifest["supportUrl"], repositoryUrl].map((url) => typeof url === "string" ? githubRepository.exec(url)?.[1] : undefined).find((found) => found !== undefined);
+  if (repository !== undefined)
+    return { kind: "github", repository };
+  const author = manifest["author"];
+  const address = isObject(author) ? author["email"] : undefined;
+  return typeof address === "string" && address !== "" ? { kind: "email", address } : undefined;
+}
+function reportLink(key, contact, name, message, details) {
+  const title = `${name}: ${message}`.slice(0, 120);
+  const linkOf = (body) => contact.kind === "github" ? `https://github.com/${contact.repository}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}` : `mailto:${contact.address}?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+  let body = details;
+  while (linkOf(body).length > linkLimit && body.length > 0)
+    body = `${body.slice(0, Math.floor(body.length * 0.8))}…`;
+  return Button({ plain: true, key, href: linkOf(body), label: contact.kind === "github" ? "Report it on GitHub (opens your browser)" : "Email the author (opens your mail app)" });
+}
+function reportPrompt(name, contact, details) {
+  const where = contact === undefined ? `${name} names no place to report it, so find its author from its plugin.json or its marketplace.` : contact.kind === "github" ? `Report it as an issue on https://github.com/${contact.repository}.` : `Email it to ${contact.address}.`;
+  return `The ${name} mod failed. Report it to its author. ${where} First check whether it is reported already, and add to that report instead of filing a new one. Show me the report before you post it.
+
+${details}`;
+}
+function clockTime(at) {
+  return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+}
+
+// node_modules/@cmodjs/core/runtime/hotkeys.js
+async function readCombos(claude, configRoot) {
+  if (configRoot === undefined)
+    return new Map;
+  const text = await claude.fs.read(`${configRoot}/keybindings.json`).catch(ifMissing("{}"));
+  try {
+    return boundCombos(JSON.parse(text));
+  } catch (error) {
+    claude.ui.warn("hotkeys:read", `${configRoot}/keybindings.json is not JSON, so cmod reads no combos from it: ${messageOf(error)}`);
+    return new Map;
+  }
+}
+async function createHotkeys({ name, declared, configRoot, claude, router, answerInput, report }) {
+  if (name === cmodPluginName) {
+    router.add("command.describe", async (e, next) => {
+      const described = await next(e);
+      return e.command.startsWith(hotkeyCommand(e.provider.plugin.replace(/@[^@]*$/, ""), "")) ? { ...described, isHidden: true } : described;
+    });
+  }
+  const entries = Object.entries(declared);
+  if (entries.length === 0)
+    return {};
+  const combos = await readCombos(claude, configRoot);
+  const listeners = new Map;
+  const commands = new Map;
+  for (const [hotkey, { title }] of entries) {
+    listeners.set(hotkey, new Set);
+    claude.command.register({ name: hotkeyCommand(name, hotkey), description: title, immediate: true }).then(({ command }) => void commands.set(command, hotkey), (error) => report({ id: `hotkey:${hotkey}`, message: `The ${title} hotkey is not added`, error }));
+  }
+  router.add("command.run", async (e, next) => {
+    const hotkey = commands.get(e.command);
+    if (hotkey === undefined)
+      return next(e);
+    return answerInput(async () => {
+      for (const listener of listeners.get(hotkey) ?? []) {
+        try {
+          await listener();
+        } catch (error) {
+          report({ id: `hotkey:${hotkey}`, message: `The ${declared[hotkey]?.title ?? hotkey} hotkey failed`, error, isCritical: true });
+        }
+      }
+      return {};
+    }, () => next(e));
+  });
+  return Object.fromEntries(entries.map(([hotkey, { title }]) => [
+    hotkey,
+    {
+      title,
+      combo: combos.get(hotkeyCommand(name, hotkey)),
+      onPress(listener) {
+        listeners.get(hotkey)?.add(listener);
+        return { remove: () => void listeners.get(hotkey)?.delete(listener) };
+      }
+    }
+  ]));
+}
+
+// node_modules/@cmodjs/core/runtime/parts.js
+var keptDrawings = 200;
+function drawnParts({ claude, report, press }) {
+  const drawn = new Map;
+  const drawing = new Map;
+  const generations = new Map;
+  const keyOf = (mod, cached) => `${mod}\x00${cached}`;
+  const generationOf = (mod) => generations.get(mod) ?? 0;
+  return {
+    fill(mod, cached, input, name) {
+      const key = keyOf(mod, cached);
+      const generation = generationOf(mod);
+      if (drawn.get(key)?.generation === generation)
+        return;
+      const keep = (data, failure) => {
+        drawn.delete(key);
+        drawn.set(key, { data, ...failure === undefined ? {} : { failure }, generation });
+        const [oldest] = drawn.keys();
+        if (drawn.size > keptDrawings && oldest !== undefined)
+          drawn.delete(oldest);
+        if (generationOf(mod) !== generation)
+          claude.ui.invalidate("ui.render");
+      };
+      const pending = drawing.get(key) ?? claude.cmod.call({ to: mod, method: partMethods.draw, input }).then((data) => keep(data ?? null), (error) => {
+        if (isStillInstalling(mod, error))
+          return keep(drawn.get(key)?.data ?? null);
+        report(`draw:${mod}`, `${name} drew nothing`, error);
+        keep(drawn.get(key)?.data ?? null, messageOf(error));
+      }).finally(() => drawing.delete(key));
+      drawing.set(key, pending);
+      return pending;
+    },
+    element(mod, cached, keyPrefix, name, reportId) {
+      const key = keyOf(mod, cached);
+      const entry = drawn.get(key);
+      if (entry === undefined)
+        return;
+      drawn.delete(key);
+      drawn.set(key, entry);
+      const { data } = entry;
+      if (data === null || data.tree === null)
+        return;
+      try {
+        return elementOf(data.tree, keyPrefix, (handler, args) => press(mod, { draw: data.draw, handler, args }));
+      } catch (error) {
+        report(reportId, `${name} could not draw`, error);
+        return;
+      }
+    },
+    failure(mod, cached) {
+      return drawn.get(keyOf(mod, cached))?.failure;
+    },
+    forget(mod) {
+      generations.set(mod, generationOf(mod) + 1);
+    }
+  };
+}
+
+// node_modules/@cmodjs/core/runtime/watches.js
+var watchMs = 500;
+var missingEvery = 4;
+var watchedFiles = 2000;
+function createWatches(claude, report) {
+  const watches = new Set;
+  let polling;
+  let isPolling = false;
+  let ticks = 0;
+  const stampsOf = async (watch) => {
+    const { paths } = watch;
+    const stamps = new Map;
+    const missing = new Set;
+    const skipped = ticks % missingEvery === 0 ? new Set : watch.missing;
+    const visit = async (path) => {
+      const stat = await claude.fs.stat(path).catch(ifMissing(undefined));
+      if (stat === undefined)
+        return;
+      if (stat.kind !== "dir") {
+        if (stamps.size === watchedFiles)
+          throw new Error(`fs.onChange watches at most ${watchedFiles} files, and ${paths.join(", ")} holds more, so it stopped. Watch a smaller folder.`);
+        return void stamps.set(path, stat.mtimeMs);
+      }
+      for (const entry of await claude.fs.list(path).catch(ifMissing([])))
+        await visit(`${path}/${entry.name}`);
+    };
+    for (const path of paths) {
+      if (skipped.has(path)) {
+        missing.add(path);
+        continue;
+      }
+      await visit(path);
+      if (![...stamps.keys()].some((seen) => seen === path || seen.startsWith(`${path}/`)))
+        missing.add(path);
+    }
+    watch.missing = missing;
+    return stamps;
+  };
+  const stop = (watch) => {
+    watches.delete(watch);
+    if (watches.size > 0)
+      return;
+    polling?.cancel();
+    polling = undefined;
+  };
+  const stampsOrStop = (watch) => stampsOf(watch).catch((error) => {
+    stop(watch);
+    report({ id: "fs:onChange", message: "Could not read the files fs.onChange watches", error });
+    return;
+  });
+  const poll = async () => {
+    if (isPolling)
+      return;
+    isPolling = true;
+    ticks += 1;
+    try {
+      for (const watch of watches) {
+        const now = await stampsOrStop(watch);
+        if (now === undefined)
+          continue;
+        const before = watch.seen;
+        watch.seen = now;
+        if (before === undefined)
+          continue;
+        const changes = [
+          ...[...now].filter(([path, at]) => before.has(path) && before.get(path) !== at).map(([path]) => ({ path, type: "change" })),
+          ...[...now.keys()].filter((path) => !before.has(path)).map((path) => ({ path, type: "add" })),
+          ...[...before.keys()].filter((path) => !now.has(path)).map((path) => ({ path, type: "unlink" }))
+        ];
+        for (const change of changes)
+          await Promise.resolve().then(() => watch.listener(change)).catch((error) => report({ id: "fs:onChange", message: "The fs.onChange listener failed", error }));
+      }
+    } finally {
+      isPolling = false;
+    }
+  };
+  return {
+    add(paths, listener) {
+      const watch = { paths, listener, seen: undefined, missing: new Set };
+      watches.add(watch);
+      stampsOrStop(watch).then((stamps) => void (watch.seen ??= stamps));
+      polling ??= claude.clock.every(watchMs, () => void poll());
+      return { remove: () => stop(watch) };
+    }
+  };
+}
+
+// node_modules/@cmodjs/core/ui/components.js
+var toneColors = { neutral: undefined, info: "suggestion", success: "success", warning: "warning", critical: "error" };
+var textOf2 = (tone) => {
+  const color = toneColors[tone];
+  return color === undefined ? { dimColor: true } : { color };
+};
+var Tabs = hostComponent("Tabs", ({ tabs, selected, onSelect, children }) => ({
+  key: "",
+  tabs: tabs.map(({ key, label, hotkey }) => ({ key, label, ...hotkey === undefined ? {} : { hotkey }, isSelected: key === selected, onSelect: () => onSelect(key) })),
+  ...children === undefined ? {} : { children }
+}), ({ key: prefix, tabs, children }) => {
+  const row = tabs.map(({ key, label, hotkey, isSelected, onSelect }) => isSelected ? Text({ children: [...hotkey === undefined ? [] : [Text({ color: "claude", children: hotkey }), ": "], Text({ bold: true, underline: true, children: label })] }) : Button({ plain: true, dimColor: true, key: `${prefix}tab:${key}`, ...hotkey === undefined ? {} : { hotkey }, label, onPress: onSelect }));
+  return Box({ flexDirection: "column", gap: 1, children: [Box({ gap: 3, children: row }), children] });
+});
+var Split = hostComponent("Split", ({ children }) => ({ children }), ({ children }) => {
+  const width = `${Math.floor(100 / Math.max(children.length, 1))}%`;
+  return Box({ gap: 1, children: children.map((child) => Box({ width, children: child })) });
+});
+var Panel = hostComponent("Panel", ({ title, description, actions, children }) => ({ title, ...description === undefined ? {} : { description }, ...actions === undefined ? {} : { actions }, ...children === undefined ? {} : { children } }), ({ title, description, actions, children }) => {
+  const header = description === undefined && actions === undefined ? [] : [Box({ justifyContent: "space-between", columnGap: 2, flexWrap: "wrap", children: [Text({ dimColor: true, wrap: "wrap", children: description ?? "" }), ...actions === undefined ? [] : [Box({ gap: 2, flexShrink: 0, children: actions })]] })];
+  return Box({
+    flexDirection: "column",
+    flexGrow: 1,
+    children: [
+      Box({ flexDirection: "column", flexGrow: 1, gap: header.length === 0 ? 0 : 1, minWidth: [...title].length + 6, borderStyle: "round", borderColor: "subtle", paddingX: 1, children: [...header, children] }),
+      Box({ position: "absolute", top: 0, left: 2, children: Text({ bold: true, wrap: "truncate-end", children: ` ${title} ` }) })
+    ]
+  });
+});
+var Toggle = hostComponent("Toggle", ({ label, checked, onChange }) => ({ key: "", label, checked, onToggle: () => onChange(!checked) }), ({ key, label, checked, onToggle }) => Button({ plain: true, key: `${key}toggle:${label}`, label: `${checked ? "[x]" : "[ ]"} ${label}`, onPress: onToggle }));
+var cardColumns = 36;
+function card(text, isShown) {
+  return Box({
+    position: "absolute",
+    bottom: 1,
+    left: 0,
+    width: Math.min(text.length + 2, cardColumns),
+    ...isShown ? {} : { display: "none", hover: { display: "flex" } },
+    backgroundColor: "text",
+    paddingX: 1,
+    children: Text({ color: "inverseText", wrap: "wrap", children: text })
+  });
+}
+var Tooltip = hostComponent("Tooltip", ({ text, children }) => ({ key: "", text, ...children === undefined ? {} : { children } }), ({ key, text, children }) => Box({ key: `${key}tooltip:${text}`, children: [children, card(text, false)] }));
+var Help = hostComponent("Help", ({ text, isOpen, onOpenChange }) => ({ key: "", text, isOpen, onToggle: () => onOpenChange(!isOpen) }), ({ key, text, isOpen, onToggle }) => Box({ key: `${key}help:${text}`, children: [Button({ plain: true, key: `${key}help-button:${text}`, label: "?", onPress: onToggle }), card(text, isOpen)] }));
+var Dialog = hostComponent("Dialog", ({ title, children, actions }) => ({ title, actions, ...children === undefined ? {} : { children } }), ({ title, children, actions }) => Box({ flexDirection: "column", gap: 1, paddingX: 1, children: [Text({ bold: true, children: title }), children, Box({ gap: 2, children: actions })] }));
+var Pagination = hostComponent("Pagination", ({ page, pages, onPage }) => ({
+  page,
+  pages,
+  ...page > 1 ? { onPrevious: () => onPage(page - 1) } : {},
+  ...page < pages ? { onNext: () => onPage(page + 1) } : {}
+}), ({ page, pages, onPrevious, onNext }) => Box({
+  gap: 2,
+  children: [
+    onPrevious === undefined ? Text({ dimColor: true, children: "p: Previous" }) : Button({ plain: true, hotkey: "p", label: "Previous", onPress: onPrevious }),
+    Text({ dimColor: true, children: `${page} of ${pages}` }),
+    onNext === undefined ? Text({ dimColor: true, children: "n: Next" }) : Button({ plain: true, hotkey: "n", label: "Next", onPress: onNext })
+  ]
+}));
+var Progress = hostComponent("Progress", ({ value, width = 24, label }) => ({ value: Math.min(Math.max(value, 0), 100), width, ...label === undefined ? {} : { label } }), ({ value, width }) => {
+  const filled = Math.round(value / 100 * width);
+  return Text({ children: [Text({ color: "claude", children: "█".repeat(filled) }), Text({ color: "subtle", children: "░".repeat(width - filled) })] });
+});
+var List = hostComponent("List", ({ label, children }) => ({ label, ...children === undefined ? {} : { children } }), ({ children }) => Box({ flexDirection: "column", children }));
+var statusOf = (tone) => tone === undefined ? [] : [tone === "off" ? Text({ dimColor: true, children: "○ " }) : Text({ ...textOf2(tone), children: "● " })];
+function treeRow({ key, label, description, leading, trailing, tone, isSelected, depth = 0, isOpen, onToggle, onPress }) {
+  const opener = isOpen !== undefined && onToggle !== undefined ? Button({ plain: true, key: `${key}:toggle`, onPress: onToggle, children: Text({ dimColor: true, children: isOpen ? "▾" : "▸" }) }) : Text({ children: " " });
+  const shown = Text({ wrap: "truncate-end", ...isSelected === true ? { bold: true } : {}, children: [...statusOf(tone), ...leading === undefined ? [] : [Text({ dimColor: true, children: `${leading} ` })], label] });
+  const row = Box({ columnGap: 1, minWidth: 0, children: [opener, onPress === undefined ? shown : Button({ plain: true, key, onPress, children: shown })] });
+  const end = [...description === undefined ? [] : [Text({ dimColor: true, children: description })], ...trailing === undefined ? [] : [trailing]];
+  if (end.length === 0)
+    return Box({ paddingLeft: depth * 2, children: row });
+  return Box({ width: "100%", paddingLeft: depth * 2, columnGap: 1, justifyContent: "space-between", children: [row, Box({ flexShrink: 0, columnGap: 1, children: end })] });
+}
+var ListItem = hostComponent("ListItem", ({ onOpenChange, ...props }) => ({ ...props, ...onOpenChange === undefined || props.isOpen === undefined ? {} : { onToggle: () => onOpenChange(props.isOpen !== true) } }), (props) => {
+  const { key, label, description, leading, trailing, tone, isSelected, depth, onPress } = props;
+  if (depth !== undefined)
+    return treeRow(props);
+  const shown = [...statusOf(tone), ...leading === undefined ? [] : [Text({ dimColor: true, children: `${leading} ` })], label, ...description === undefined ? [] : [Text({ dimColor: true, children: ` ${description}` })], ...trailing === undefined ? [] : [" ", trailing]];
+  if (isSelected === true || onPress === undefined)
+    return Box({ ...isSelected === true ? { backgroundColor: "userMessageBackground" } : {}, paddingX: 1, children: Text({ wrap: "truncate-end", ...isSelected === true ? { bold: true } : {}, children: shown }) });
+  return Box({ paddingX: 1, children: Button({ plain: true, dimColor: true, key, onPress, children: shown }) });
+});
+var Badge = hostComponent("Badge", ({ tone = "neutral", children }) => ({ tone, children }), ({ tone, children }) => Text({ ...textOf2(tone), children }));
+var wordsOf = (children) => {
+  const all = [children].flat(Infinity).filter((each) => each !== null && each !== undefined && typeof each !== "boolean");
+  return all.every((each) => typeof each === "string" || typeof each === "number") ? all.join("") : undefined;
+};
+var Banner = hostComponent("Banner", ({ tone = "info", title, children, actions }) => ({ tone, ...title === undefined ? {} : { title }, ...children === undefined ? {} : { children }, ...actions === undefined ? {} : { actions } }), ({ tone, title, children, actions }) => Box({
+  flexDirection: "column",
+  children: [
+    ...title === undefined ? [] : [Text({ ...textOf2(tone), bold: true, wrap: "wrap", children: title })],
+    ...children === undefined ? [] : [wordsOf(children) === undefined ? children : Text({ ...title === undefined ? textOf2(tone) : {}, wrap: "wrap", children: wordsOf(children) })],
+    ...actions === undefined ? [] : [Box({ gap: 2, flexShrink: 0, children: actions })]
+  ]
+}));
+
+// node_modules/@cmodjs/core/runtime/lifecycle.js
+var listenMethods = [conversationMethods.subscribe, conversationMethods.watchBefore];
+var answeredAtOnce = [...listenMethods, partMethods.draw];
+var announcedKey = "cmod:announced";
+var cmodUpdatedKey = "cmod:cmod-updated-for";
+var installId = "cmod:install";
+var askingId = "cmod:asking";
+var recordId = "cmod:record";
+var downloadId = "cmod:download";
+var installRetrySeconds = [2, 4, 8, 16, 32, 64, 128];
+var cmodCheckMs = 1000;
+var recordCheckMs = 1000;
+var drawsPerMs = 1000;
+var cmodWaitMs = 60000;
+var cmodSlowCheckMs = 1e4;
+var startHoldMs = hookMs / 2;
+var stallTicks = 3;
+var stallMs = 60000;
+var settingsLoadMs = 500;
+var shellTools = ["Bash", "PowerShell"];
+async function readPlugin(claude) {
+  const { name, root } = claude.plugin;
+  const read = async (path) => {
+    const stat = await claude.fs.stat(path).catch(ifMissing(undefined));
+    return stat?.kind === "file" ? claude.fs.read(path) : undefined;
+  };
+  const manifest = await readJson(read, `${root}/.claude-plugin/plugin.json`);
+  const version = typeof manifest?.version === "string" ? manifest.version : undefined;
+  const store = await cmodStore(claude);
+  const steps = readSteps(await readJson(read, `${root}/package.json`)) ?? {};
+  if (name === cmodPluginName) {
+    const installed = await newestCmodVersion(claude);
+    return { name, root, version, store, steps, isInstalled: version !== undefined && installed !== undefined && isAtLeast(installed, version), shouldRecord: false };
+  }
+  const plugin = { name, root, version, store, steps };
+  const record = await readRecord(read, store, name);
+  if (Object.keys(steps).length === 0)
+    return { ...plugin, isInstalled: true, shouldRecord: record?.version !== version };
+  const scripts = await scriptsSha256(steps, {
+    read: (path) => read(`${root}/${path}`),
+    list: (folder) => filesBelow(claude, `${root}/${folder}`)
+  });
+  if (version === undefined || record?.scriptsSha256 !== scripts)
+    return { ...plugin, isInstalled: false, shouldRecord: false };
+  const isInstalled = record.version === version || record.root === root;
+  const modifiedMs = await programModifiedMs(async (path) => (await claude.fs.stat(path).catch(ifMissing(undefined)))?.mtimeMs, store, record);
+  return { ...plugin, isInstalled, shouldRecord: isInstalled && (record.version !== version || isProgramNewer(record, modifiedMs)) };
+}
+async function filesBelow(claude, folder) {
+  const entries = await claude.fs.list(folder);
+  const paths = await Promise.all(entries.map(async ({ name, kind, isLink }) => {
+    if (kind === "file" || isLink)
+      return [name];
+    if (kind === "dir")
+      return (await filesBelow(claude, `${folder}/${name}`)).map((path) => `${name}/${path}`);
+    return [];
+  }));
+  return paths.flat();
+}
+async function readJson(read, path) {
+  const text = await read(path);
+  if (text === undefined)
+    return;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${path} is not JSON (${messageOf(error)}). Fix it, then press Retry.`);
+  }
+}
+function createLifecycle(definition, permissionRoutes = () => {
+  return;
+}, options = {}, asksPerson = true, serveCmodPlugin) {
+  let router = createRouter();
+  let startingRouter;
+  let phase = "starting";
+  let runtime;
+  let programs;
+  let plugin;
+  let activation;
+  let mod;
+  const openSettings = async () => {
+    await claude().cmod.call({ to: cmodPluginName, method: partMethods.changed, input: { requests: [{ settings: true }], isAsked: true } });
+  };
+  let imports;
+  let raise;
+  let settingsLoaded;
+  let failure;
+  let pluginOptions = options;
+  let drawCount = 0;
+  const nextDraw = () => drawCount += 1;
+  const installer = createInstaller(definition.name, () => claude(), {
+    show: (open, next) => {
+      if (phase !== "active")
+        runtime?.toaster.toast.dismiss(installId);
+      runtime?.toaster.toast.info("Finish setting up", { id: askingId, description: next, duration: Infinity, action: { label: "Continue", onClick: open } });
+    },
+    hide: () => runtime?.toaster.toast.dismiss(askingId)
+  }, nextDraw);
+  let shouldRecord = false;
+  let recording;
+  let missedSessionStart;
+  let hasHeardSessionStart = false;
+  const heldListens = new Map;
+  let settleStart = () => {
+    return;
+  };
+  const startSettled = new Promise((resolve) => settleStart = resolve);
+  let installSettled;
+  let settleInstall = () => {
+    return;
+  };
+  const whenInstalled = () => phase === "installing" || phase === "waiting" ? installSettled ??= new Promise((resolve) => {
+    settleInstall = () => {
+      installSettled = undefined;
+      resolve();
+    };
+  }) : undefined;
+  const claude = () => {
+    if (runtime === undefined)
+      throw new Error(`${definition.name}: the lifecycle has not started. registerMod(addHook, mod, options) starts it at session.start.`);
+    return runtime.claude;
+  };
+  const installing = (description) => runtime?.toaster.toast.loading("Installing", { id: installId, ...description === undefined ? {} : { description } });
+  const toastFailure = (shown) => runtime?.toaster.fail(shown);
+  const fail = (reason, fix, retry, error) => {
+    phase = "failed";
+    settleInstall();
+    failure ??= new Error(`${definition.name}: ${reason}${/[.!?]$/.test(reason) ? "" : "."}${fix === undefined ? "" : ` ${fix}`}`, { cause: error });
+    const again = retry === undefined ? {} : { retry: () => (failure = undefined, stopRetrying(), retry().catch(report)) };
+    toastFailure({ id: installId, message: reason, ...fix === undefined ? {} : { description: fix }, ...error === undefined ? {} : { error }, ...again, isCritical: true });
+    watchRecord();
+  };
+  const notSetUp = () => {
+    const why = failure === undefined ? "" : messageOf(failure);
+    const own = `${definition.name}: `;
+    return why === "" ? `${definition.name} is not set up.` : `${definition.name} is not set up: ${why.startsWith(own) ? why.slice(own.length) : why}`;
+  };
+  const installAgain = () => install();
+  const updateAgain = () => claude().store.delete(cmodUpdatedKey).then(installAgain);
+  let retrying;
+  const retryLater = (next) => {
+    const seconds = installRetrySeconds[Math.min(next.tries, installRetrySeconds.length - 1)];
+    retrying?.timer.cancel();
+    retrying = { ...next, tries: next.tries + 1, timer: claude().clock.after(seconds * 1000, () => void retryInBackground().catch(report)) };
+    fail(next.reason, `Trying again in ${seconds} s.`, installAgain);
+  };
+  const stopRetrying = () => {
+    retrying?.timer.cancel();
+    retrying = undefined;
+  };
+  const failInstall = (reason, when) => {
+    if (when === undefined) {
+      stopRetrying();
+      return fail(reason, undefined, installAgain);
+    }
+    retryLater({ when, tries: retrying?.when === when ? retrying.tries : 0, reason });
+  };
+  const retryInBackground = async () => {
+    if (phase !== "failed" || retrying === undefined)
+      return;
+    if (await recover()) {
+      stopRetrying();
+      return whenActive();
+    }
+    await install(true);
+    await whenActive();
+  };
+  const finish = async () => {
+    await programs?.refresh();
+    phase = "ready";
+    activation ??= new Promise((resolve) => claude().clock.after(0, () => resolve(activate().catch(report))));
+    settleInstall();
+    claude().ui.invalidate("ui.render");
+  };
+  const recordThroughCmod = async () => {
+    if (plugin === undefined || await newestCmodVersion(claude()) === undefined)
+      return;
+    let failed;
+    const { code, lastError } = await readLines(claude().process.spawn({ argv: ["cmod", "setup", plugin.root, "--events"], env: { CLAUDE_CODE_SESSION_ID: await claude().session.id() } }), (text) => {
+      const event = parseEvent(text);
+      if (event.type === "done")
+        shouldRecord = false;
+      if (event.type === "failed")
+        failed = event.message;
+    });
+    if (!shouldRecord) {
+      runtime?.toaster.toast.dismiss(recordId);
+      return programs?.refresh();
+    }
+    if (failed !== undefined)
+      return void toastFailure({ id: recordId, message: failed, retry: record, isCritical: true });
+    throw new Error(`cmod setup ${formatExit(code, lastError)}`);
+  };
+  const isInstalledCopy = async () => {
+    await recording;
+    if (plugin === undefined || plugin.name === cmodPluginName)
+      return true;
+    const recorded = await readRecord((path) => claude().fs.read(path).catch(ifMissing(undefined)), plugin.store, plugin.name);
+    return recorded === undefined || recorded.root === plugin.root;
+  };
+  const record = () => {
+    recording ??= recordThroughCmod().catch((error) => claude().ui.warn("record", `${definition.name} has no cmod record yet: ${messageOf(error)}`)).finally(() => {
+      recording = undefined;
+    });
+  };
+  const saveOption = async (key, text) => {
+    const option = definition.options?.[key];
+    if (option === undefined || plugin === undefined)
+      return `${definition.name} has no option ${key}.`;
+    const value = option.type === "number" ? Number(text) : option.type === "toggle" ? text.trim() === "true" : option.type === "list" ? text.split(",").map((item) => item.trim()).filter((item) => item !== "") : text;
+    const misfit = option.type === "toggle" && !["true", "false"].includes(text.trim()) ? "takes true or false" : fitsOption(option, value);
+    if (misfit !== undefined)
+      return `${option.title} ${misfit}.`;
+    const saved = await claude().process.run(["cmod", "options", "set", plugin.name, key, Array.isArray(value) ? value.join(",") : String(value)]);
+    return saved.exitCode === 0 ? undefined : cmodError(saved.stderr, "options") || `cmod options set ${formatExit(saved.exitCode, "")}.`;
+  };
+  const askOptions = async (missing) => {
+    if (!asksPerson || plugin === undefined || (await claude().session.surfaces()).length === 0)
+      return false;
+    const declared = definition.options ?? {};
+    const asked = missing.keys.flatMap((key) => {
+      const option = declared[key];
+      return option === undefined ? [] : [[key, option]];
+    });
+    if (!await installer.options(asked, saveOption))
+      return false;
+    const prefix = `${plugin.name}.`;
+    const rows = await claude().config.list();
+    pluginOptions = { ...pluginOptions, ...Object.fromEntries(rows.filter((row) => row.key.startsWith(prefix)).map((row) => [row.key.slice(prefix.length), row.value])) };
+    return true;
+  };
+  const isStepDone = async (active, step) => {
+    try {
+      return await step.isDone(active);
+    } catch (error) {
+      toastFailure({ id: `step:${step.title}`, message: `The ${step.title} step's isDone failed`, error });
+      return;
+    }
+  };
+  const pendingSteps = async (active) => {
+    const pending = [];
+    for (const step of definition.installer ?? [])
+      if (await isStepDone(active, step) !== true)
+        pending.push(step.title);
+    return pending;
+  };
+  const runSteps = async (active) => {
+    const steps = asksPerson ? definition.installer ?? [] : [];
+    try {
+      for (const [index, step] of steps.entries()) {
+        const isDone = await isStepDone(active, step);
+        if (isDone === undefined)
+          break;
+        if (isDone)
+          continue;
+        const isAnswered = (await claude().session.surfaces()).length > 0 && await installer.step(active, step, index + 1, steps.length);
+        if (!isAnswered) {
+          runtime?.toaster.toast.warning(steps.length - index === 1 ? "Needs one more step" : `Needs ${steps.length - index} more steps`, {
+            id: "cmod:steps",
+            description: `Starting with ${step.title}.`,
+            duration: Infinity,
+            action: { label: "Finish", onClick: () => runSteps(active) }
+          });
+          break;
+        }
+      }
+    } finally {
+      await installer.close();
+    }
+  };
+  const activate = async () => {
+    if (runtime === undefined || plugin === undefined)
+      return;
+    const activeRouter = createRouter();
+    startingRouter = activeRouter;
+    const active = await createMod(definition, { ...runtime, router: activeRouter, dataFolder: dataFolder(plugin.store, plugin.name), store: plugin.store, permissionRoutes, options: pluginOptions, nextDraw, installer, serveCmodPlugin, isInstalledCopy }).catch(async (error) => {
+      if (error instanceof MissingOptions && await askOptions(error))
+        return;
+      await installer.close();
+      fail(messageOf(error), error instanceof MissingOptions ? `Retry asks for ${error.keys.length === 1 ? "it" : "them"}.` : undefined, begin, error);
+      throw error;
+    }).finally(() => {
+      startingRouter = undefined;
+    });
+    if (active === undefined)
+      return activate();
+    const { added } = active;
+    mod = active.mod;
+    imports = active.imports;
+    raise = active.raise;
+    settingsLoaded = active.settingsLoaded;
+    router = activeRouter;
+    phase = "active";
+    stopWatchingRecord();
+    const held = [...heldListens.values()];
+    heldListens.clear();
+    for (const call of held) {
+      const failed = (error) => void toastFailure({ id: `listens:${String(call.caller)}`, message: `${String(call.caller)} hears nothing from this session`, error });
+      activeRouter.dispatch("cmod.call", call, async () => ({ deny: `${definition.name} has no method ${call.method}.` })).then((answer) => ("deny" in answer) ? failed(new Error(answer.deny)) : undefined, failed);
+    }
+    runtime.claude.ui.invalidate("ui.render");
+    if (definition.name === cmodPluginName)
+      runtime.claude.ui.invalidate("command.describe");
+    runSteps(active.mod).catch((error) => toastFailure({ id: "cmod:steps", message: "Its installer stopped", error, isCritical: true }));
+    const missed = missedSessionStart;
+    missedSessionStart = undefined;
+    if (missed !== undefined)
+      await replaySessionStart(missed);
+    if (await runtime.claude.store.get(announcedKey) !== undefined) {
+      runtime.toaster.toast.dismiss(installId);
+      return;
+    }
+    await runtime.claude.store.set(announcedKey, { version: plugin.version ?? "" });
+    const { toaster } = runtime;
+    announcementOf(runtime.claude, plugin, added, openSettings).then(({ message, ...options }) => toaster.toast.success(message, { id: installId, duration: announcementMs, ...options })).catch((error) => toastFailure({ id: installId, message: "Could not say what it installed", error }));
+  };
+  const replaySessionStart = async (e) => {
+    hasHeardSessionStart = true;
+    const answer = await router.dispatch("classic.SessionStart", e, async () => ({})).catch((error) => {
+      toastFailure({ id: "classic.SessionStart", message: "The SessionStart hook failed", error });
+      return {};
+    });
+    const { additionalContext, ...unread } = answer;
+    for (const text of additionalContext ?? []) {
+      const added = await claude().session.append({ message: { type: "user", content: [{ type: "text", text }] } });
+      if (added.deny !== undefined)
+        claude().ui.warn("session-start:note", `${definition.name}: Claude Code refused its SessionStart note: ${added.deny}`);
+    }
+    if (Object.keys(unread).length > 0) {
+      claude().ui.warn("session-start:late", `${definition.name} started after Claude Code's SessionStart, so Claude Code did not read ${Object.keys(unread).join(", ")} from its SessionStart hooks.`);
+    }
+  };
+  const install = async (isQuiet = false) => {
+    if (plugin === undefined)
+      return;
+    phase = "installing";
+    if (plugin.name === cmodPluginName) {
+      download(plugin.root);
+      return finish();
+    }
+    const found = await newestCmodVersion(claude());
+    if (!fits(found))
+      return waitForcmod(found);
+    if (!isQuiet)
+      installing();
+    let outcome;
+    let retries;
+    const { code, lastError } = await readLines(claude().process.spawn({ argv: ["cmod", "setup", plugin.root, "--events"], env: { CLAUDE_CODE_SESSION_ID: await claude().session.id() } }), (text) => {
+      const event = parseEvent(text);
+      if (event.type === "progress" && !isQuiet)
+        installing(progressOf(event));
+      if (event.type === "retries")
+        retries = event.when;
+      if (event.type === "done" || event.type === "failed")
+        outcome = event;
+    });
+    if (outcome?.type === "done") {
+      stopRetrying();
+      return finish();
+    }
+    return failInstall(outcome?.type === "failed" ? outcome.message : `cmod setup ${formatExit(code, lastError)}`, retries);
+  };
+  const fits = (found) => found !== undefined && isAtLeast(found, oldestCmodVersion);
+  const waitForcmod = (found) => {
+    phase = "waiting";
+    installing("Waiting for cmod");
+    let latest = found;
+    let check;
+    const stop = () => {
+      timer.cancel();
+      longWait.cancel();
+    };
+    const poll = (ms) => claude().clock.every(ms, () => {
+      check ??= newestCmodVersion(claude()).then((version) => {
+        check = undefined;
+        latest = version;
+        if (!fits(version))
+          return;
+        stop();
+        return install();
+      }).catch((error) => {
+        stop();
+        report(error);
+      });
+    });
+    let timer = poll(cmodCheckMs);
+    const longWait = claude().clock.after(cmodWaitMs, () => {
+      timer.cancel();
+      timer = poll(cmodSlowCheckMs);
+      if (latest === undefined)
+        return installing("Still waiting for cmod to download cmod. See cmod's own line.");
+      const found = latest;
+      const tried = `${found} to ${oldestCmodVersion}`;
+      return claude().store.get(cmodUpdatedKey).then(async (updated) => {
+        if (updated === tried) {
+          stop();
+          return fail(`${definition.name} needs cmod ${oldestCmodVersion} or later, and the newest cmod is ${found}.`, undefined, updateAgain);
+        }
+        await claude().store.set(cmodUpdatedKey, tried);
+        installing(`${definition.name} needs cmod ${oldestCmodVersion} or later, and this computer has cmod ${found}, so cmod is updating itself.`);
+        const { code, lastError } = await readLines(claude().process.spawn({ argv: ["cmod", "update", "cmod"] }), () => {
+          return;
+        });
+        if (code === 0)
+          return;
+        stop();
+        fail(`${definition.name} needs cmod ${oldestCmodVersion} or later, and updating cmod ${found} ${formatExit(code, lastError)}`, undefined, updateAgain);
+      }).catch(report);
+    });
+  };
+  const download = (root) => {
+    const downloading = (description) => runtime?.toaster.toast.loading("Downloading the cmod program", { id: downloadId, ...description === undefined ? {} : { description } });
+    downloading();
+    const downloaded = readLines(claude().process.spawn({ argv: ["sh", "-c", "./setup/bootstrap.sh"], cwd: root }), (text) => {
+      const event = parseEvent(text);
+      if (event.type === "progress")
+        downloading(progressOf(event));
+    }).then(({ code, lastError }) => {
+      if (code !== 0)
+        throw new Error(`bootstrap ${formatExit(code, lastError)}`);
+    });
+    programs?.waitFor(downloaded);
+    downloaded.then(() => runtime?.toaster.toast.dismiss(downloadId), (error) => toastFailure({ id: downloadId, message: messageOf(error), retry: async () => download(root), isCritical: true }));
+  };
+  const begin = async () => {
+    if (readStarted === undefined)
+      return;
+    const started = await readStarted(claude());
+    plugin = started;
+    recordMs = await stampOf(recordPath(started.store, started.name));
+    if (started.isInstalled) {
+      shouldRecord = started.shouldRecord;
+      if (shouldRecord)
+        record();
+      activation = undefined;
+      return activate();
+    }
+    if (started.version === undefined)
+      return fail("no version to install", 'Its author adds "version" to .claude-plugin/plugin.json.');
+    install().catch(report);
+  };
+  const report = (error) => {
+    failure = error;
+    if (phase !== "failed")
+      fail(messageOf(error), undefined, begin, error);
+  };
+  const stampOf = async (path) => {
+    const stat = await claude().fs.stat(path).catch(ifMissing(undefined));
+    return stat?.kind === "file" ? stat.mtimeMs : 0;
+  };
+  let recordMs = 0;
+  let readStarted;
+  const isNewlyInstalled = async () => {
+    if (plugin === undefined || readStarted === undefined)
+      return false;
+    const modifiedMs = await stampOf(recordPath(plugin.store, plugin.name));
+    if (modifiedMs === recordMs)
+      return false;
+    recordMs = modifiedMs;
+    const current = await readStarted(claude());
+    if (!current.isInstalled)
+      return false;
+    plugin = current;
+    return true;
+  };
+  const recover = async () => {
+    if (phase !== "failed" || !await isNewlyInstalled())
+      return false;
+    failure = undefined;
+    activation = undefined;
+    await finish();
+    return true;
+  };
+  let recordCheck;
+  let checking;
+  let startingSession;
+  const watchRecord = () => {
+    recordCheck ??= claude().clock.every(recordCheckMs, () => {
+      checking ??= recover().then(() => {
+        return;
+      }).catch((error) => claude().ui.warn("record:watch", `${definition.name} could not read whether another cmod installed it: ${messageOf(error)}`)).finally(() => {
+        checking = undefined;
+      });
+    });
+  };
+  const stopWatchingRecord = () => {
+    recordCheck?.cancel();
+    recordCheck = undefined;
+  };
+  const whenActive = async () => {
+    if (phase === "ready")
+      activation ??= activate().catch(report);
+    if (activation !== undefined && phase !== "active")
+      await activation;
+  };
+  const held = (work, signal) => runtime === undefined ? work.then(() => false) : new Promise((resolve) => {
+    const limit = claude().clock.after(startHoldMs, () => resolve(true));
+    if (signal?.aborted === true)
+      resolve(false);
+    signal?.addEventListener("abort", () => resolve(false), { once: true });
+    work.then(() => {
+      limit.cancel();
+      resolve(false);
+    });
+  });
+  const holdUntilStarted = (signal) => held(startSettled.then(whenActive), signal);
+  const holdUntilInstalled = (signal) => held(startSettled.then(whenInstalled).then(whenActive), signal);
+  const holdUntilActive = (signal) => {
+    const activating = whenActive();
+    return activation !== undefined && phase !== "active" ? held(activating, signal) : activating.then(() => false);
+  };
+  const routed = async (event, e, next, signal) => {
+    if (imports !== undefined)
+      bind(imports);
+    const asked = e;
+    if (event === "cmod.call" && asked.to === definition.name && asked.caller === cmodPluginName) {
+      if (asked.method === partMethods.shown)
+        installer.hear(asked.input);
+      const answered = installer.answer(asked.method, asked.input);
+      if (answered !== undefined)
+        return await answered.catch((error) => ({ deny: `${definition.name}: ${messageOf(error)}` }));
+      if (asked.method === partMethods.shown && phase !== "active")
+        return { value: null };
+    }
+    if (event === "classic.SessionStart") {
+      missedSessionStart = undefined;
+      hasHeardSessionStart = true;
+    }
+    if (event === "classic.SessionStart" && runtime === undefined) {
+      missedSessionStart = e;
+      return next(e);
+    }
+    if (shouldRecord && event === "classic.UserPromptSubmit")
+      record();
+    if (event === "classic.UserPromptSubmit" || event === "classic.SessionStart")
+      await recover().catch((error) => claude().ui.warn("recover", `${definition.name} stays stopped: ${messageOf(error)}`));
+    const tool = e.tool;
+    const isCallToThisMod = event === "cmod.call" && e.to === definition.name || event === "tool.call" && typeof tool === "string" && tool.startsWith(`mcp__${definition.name}__`);
+    if (event === "cmod.call" && !isCallToThisMod)
+      return next(e);
+    const isListen = isCallToThisMod && event === "cmod.call" && listenMethods.includes(asked.method);
+    if (isListen && phase !== "active") {
+      heldListens.set(`${asked.caller}
+${asked.method}
+${String(asked.input.session)}`, asked);
+      startSettled.then(whenInstalled).then(whenActive);
+      return { value: null };
+    }
+    const waitsForInstall = isCallToThisMod && !(event === "cmod.call" && answeredAtOnce.includes(asked.method));
+    const isLate = await (waitsForInstall ? holdUntilInstalled(signal) : event === "classic.SessionStart" || event === "session.append" || isCallToThisMod ? holdUntilStarted(signal) : holdUntilActive(signal));
+    if (event === "classic.SessionStart" && phase !== "active") {
+      missedSessionStart = e;
+      return next(e);
+    }
+    if (isCallToThisMod && phase !== "active")
+      return { deny: phase === "failed" ? notSetUp() : stillInstalling(definition.name) };
+    if (isLate && phase !== "active")
+      return (startingRouter ?? router).dispatchFailure(event, e, new Error(`it was still starting after ${startHoldMs / 1000} s`), next, false);
+    const call = e;
+    if (event === "cmod.call" && call.to === definition.name && mod !== undefined) {
+      if (call.method === pendingStepsMethod)
+        return { value: await pendingSteps(mod) };
+      if (call.method === finishStepsMethod) {
+        const active = mod;
+        const opened = await installer.collect(() => Promise.race([runSteps(active).catch((error) => void toastFailure({ id: "cmod:steps", message: "Could not finish the setup", error, isCritical: true })), installer.shown()]));
+        return { value: opened };
+      }
+    }
+    if (event === "classic.UserPromptSubmit" && phase === "active" && !hasHeardSessionStart) {
+      const { session_id, transcript_path, cwd } = e;
+      await replaySessionStart({ session_id, transcript_path, cwd, hook_event_name: "SessionStart", source: "resume" });
+    }
+    const answer = router.dispatch(event, e, next, signal);
+    const render = e;
+    if (event !== "ui.render" || render.component !== "AbovePrompt" || runtime === undefined)
+      return answer;
+    return runtime.toaster.draw(await answer, runtime.claude.ui.resolve(render), render.props, render.requestId);
+  };
+  return {
+    get phase() {
+      return phase;
+    },
+    get mod() {
+      return mod;
+    },
+    get failure() {
+      return failure;
+    },
+    get toasts() {
+      return runtime?.toaster.shown ?? [];
+    },
+    async raise(method, payload) {
+      if (raise === undefined || imports === undefined)
+        throw new Error(`${definition.name} has not started, so ${method} has no listener yet.`);
+      bind(imports);
+      return raise(method, payload, unaborted);
+    },
+    async settingsLoaded() {
+      await settingsLoaded?.();
+    },
+    async start(claudeCalls, read) {
+      if (runtime !== undefined)
+        return;
+      const open = (href, press) => void openLink(claudeCalls, href, press.surface).then((done) => done === "copied" && runtime?.toaster.toast.success("Copied the link", { description: "Paste it in your browser." }), (error) => toastFailure({ id: "open-link", message: "Could not open the link", error, isCritical: true }));
+      const naming = {
+        ...claudeCalls,
+        ui: {
+          ...claudeCalls.ui,
+          warn: (id, text) => runtime === undefined ? claudeCalls.ui.warn(id, text) : runtime.toaster.warn(id, text),
+          resolve: (e) => forClaudeCode(claudeCalls.ui.resolve(e), e.surface, open)
+        },
+        session: { ...claudeCalls.session, id: async () => startingSession ?? claudeCalls.session.id() }
+      };
+      programs = locatingPrograms(naming);
+      const callingCmod = {
+        ...naming,
+        cmod: {
+          async call(input) {
+            if (input.to === definition.name)
+              await holdUntilStarted();
+            return answeringOwnCalls(claudeCalls, router).cmod.call(input);
+          }
+        }
+      };
+      runtime = { claude: programs.claude, toaster: createToaster(callingCmod, definition.name, () => plugin?.version) };
+      readStarted = read;
+      try {
+        drawCount = await claudeCalls.clock.now() * drawsPerMs;
+        await programs.refresh();
+        await begin().catch(report);
+      } finally {
+        settleStart();
+      }
+    },
+    async route(event, e, next, signal) {
+      if (event !== "classic.SessionStart")
+        return settledAfterAbort(routed(event, e, next, signal), signal);
+      const started = e.session_id;
+      startingSession = started;
+      try {
+        return await settledAfterAbort(routed(event, e, next, signal), signal);
+      } finally {
+        if (startingSession === started)
+          startingSession = undefined;
+      }
+    },
+    async caught(event, e, next, { error: { kind, message }, called }) {
+      const call = e;
+      const isAsk = event === "cmod.call" && call.to === definition.name && beforeAskOf(call) !== undefined;
+      const reasons = { timeout: overranHook, throw: message ?? "it threw" };
+      const reason = reasons[kind];
+      if (reason === undefined)
+        return isAsk ? { value: null } : next(e);
+      const error = new Error(reason);
+      const failedBeneath = called && kind === "throw" ? await next(e).then(() => {
+        return;
+      }, messageOf) : undefined;
+      if (failedBeneath === undefined || failedBeneath !== message)
+        toastFailure({ id: `stopped:${event}`, message: `Claude Code stopped its ${event.replace(/^classic\./, "")} hook`, error });
+      return (startingRouter ?? router).dispatchFailure(event, e, error, next, called);
+    }
+  };
+}
+async function createMod(definition, runtime) {
+  const { router, toaster } = runtime;
+  const report = (failure) => void toaster.fail(failure);
+  const claude = answeringOwnCalls(withBareRefusals(runtime.claude), router);
+  const added = [];
+  const announce = (feature) => {
+    added.push(feature);
+  };
+  const [session, root, startCwd, home, configHome, cacheHome] = await Promise.all([claude.session.id(), claude.session.root(), claude.session.cwd(), claude.env.home(), claude.env.configHome(), claude.env.cacheHome()]);
+  const configRoot = configHome ?? (home === undefined ? undefined : `${home}/.claude`);
+  const places = { home, configRoot, projectRoot: () => modState.root };
+  const files = createModFiles({ name: definition.name, claude, places, report });
+  let cwd = startCwd;
+  let loadedCwd = startCwd;
+  let staleCwd;
+  let forkedFrom;
+  let parentAsked;
+  let hasEarlierPrompts = true;
+  let agentType;
+  let parts;
+  const borrowed = (styler, cached, input, scope) => {
+    const name = `The markdown style of ${styler}`;
+    parts?.fill(styler, cached, input, name)?.then(() => claude.ui.invalidate("ui.render"));
+    return parts?.element(styler, cached, `${styler}/markdown:${scope}:`, name, `markdown:${styler}`);
+  };
+  const provided = createProviders({
+    name: definition.name,
+    call: (to, method, input) => claude.cmod.call({ to, method, input }),
+    changed: () => area.relisted(),
+    after: (ms, run) => claude.clock.after(ms, run),
+    report: (error) => report({ id: "interfaces", message: "A provider listener failed", error })
+  });
+  const area = createUi({ name: definition.name, claude, router, report, announce, mod: () => mod, borrowed, nextDraw: runtime.nextDraw, provided: () => provided.provided() });
+  const askParent = async () => {
+    if (definition.name === cmodPluginName)
+      return;
+    try {
+      const parent = await claude.cmod.call({ to: cmodPluginName, method: "forkParent", input: null });
+      return typeof parent === "string" ? parent : undefined;
+    } catch (error) {
+      claude.ui.warn("fork:values", `${definition.name} starts without the session values of the conversation it was forked from: ${messageOf(error)}`);
+      return;
+    }
+  };
+  const forkParent = () => parentAsked ??= askParent().then((parent) => {
+    forkedFrom = parent;
+    return parent;
+  });
+  const stateChanged = () => {
+    area.changed();
+    runtime.installer.changed();
+  };
+  const modState = createState({ name: definition.name, initial: definition.state ?? {}, session, root, claude, report, changed: stateChanged, forkParent });
+  const modOptions = createOptions({ name: definition.name, declared: definition.options ?? {}, fromClaude: runtime.options, claude, report, changed: modState.changed });
+  const hookOn = (hook, listener, failed) => router.add(`classic.${hook}`, classicHook(hook, listener, report), failed === undefined ? undefined : classicFailure(failed));
+  const expand = (path) => homePrefix.test(path) ? resolvedPath(path, places) : path;
+  const settingsFile = (source) => ({
+    read: () => claude.settings.read({ source }),
+    async update(values) {
+      await claude.cmod.call({ to: cmodPluginName, method: "updateSettings", input: { mod: definition.name, source, project: modState.root, values } });
+    }
+  });
+  const client = createSessionsClient({
+    name: definition.name,
+    claude,
+    report: (id, message, error) => report({ id, message, error }),
+    hookOn: (hook, listener, failed) => hookOn(hook, listener, failed),
+    routeOn: (event, hook, failed) => router.add(event, hook, failed),
+    permissionRoutes: runtime.permissionRoutes
+  });
+  let followed;
+  const watches = createWatches(claude, report);
+  const followFolders = (project, folder) => {
+    if (followed === undefined)
+      return;
+    followed = { ...followed, project, cwd: folder };
+    client.follow(followed);
+  };
+  let device;
+  const settingsChangeOf = ({ source, file_path }) => ({ source: source.replace("_settings", ""), ...file_path === undefined ? {} : { path: file_path } });
+  const matchedListener = (matcherOrListener, maybeListener) => (change) => (maybeListener === undefined || matches(change, matcherOrListener)) && (maybeListener ?? matcherOrListener)(change);
+  const settingsListeners = new Set;
+  const loadingSettings = [];
+  const settingsLoaded = async () => {
+    bind(imports);
+    await Promise.all(loadingSettings.splice(0).flatMap((change) => [...settingsListeners].map(async (listener) => {
+      try {
+        await listener(change);
+      } catch (error) {
+        report({ id: "settings:onChange", message: "The settings.onChange listener failed", error });
+      }
+    })));
+  };
+  router.add("classic.ConfigChange", async (e, next) => {
+    const below = await next(e);
+    if (below.block === undefined && settingsListeners.size > 0) {
+      loadingSettings.push(settingsChangeOf(e));
+      claude.clock.after(settingsLoadMs, () => void settingsLoaded());
+    }
+    return below;
+  });
+  const imports = {
+    sessions: client.sessions,
+    commands: {
+      list: async () => (await claude.command.list()).map(({ name, description, source, plugin }) => ({ name, description, source, ...plugin === undefined ? {} : { plugin } })),
+      run: async (command, args) => {
+        const { text, context } = await claude.command.run({ command, ...args === undefined ? {} : { args } });
+        return { ...text === undefined ? {} : { text }, ...context === undefined || context.length === 0 ? {} : { note: context.join(`
+`) } };
+      },
+      beforeRun: (...args) => client.listen("beforeRun", args),
+      onRun: (...args) => client.listen("onRun", args)
+    },
+    config: {
+      list: async () => (await claude.config.list()).map(({ key, label, description, kind, value, options, provider, isLocked }) => ({
+        key,
+        label,
+        kind,
+        value,
+        isLocked,
+        ...description === undefined ? {} : { description },
+        ...options === undefined ? {} : { options },
+        ...provider.plugin === "engine" ? {} : { plugin: provider.plugin }
+      }))
+    },
+    settings: {
+      user: settingsFile("user"),
+      project: settingsFile("project"),
+      local: settingsFile("local"),
+      beforeChange: (matcherOrListener, maybeListener) => {
+        const listener = matchedListener(matcherOrListener, maybeListener);
+        return hookOn("ConfigChange", async (input) => {
+          const refuse = (await listener(settingsChangeOf(input)))?.refuse;
+          return typeof refuse === "string" ? { block: refuse } : undefined;
+        });
+      },
+      onChange: (matcherOrListener, maybeListener) => {
+        const listener = matchedListener(matcherOrListener, maybeListener);
+        settingsListeners.add(listener);
+        return { remove: () => void settingsListeners.delete(listener) };
+      }
+    },
+    model: { complete: (completion, options) => claude.model.complete(completion, options) },
+    fs: {
+      read: (path) => claude.fs.read(expand(path)),
+      write: (path, text) => claude.fs.write(expand(path), text),
+      exists: (path) => claude.fs.exists(expand(path)),
+      find: (glob) => files.find(glob),
+      list: async (path) => (await claude.fs.list(path === undefined ? undefined : expand(path))).map(({ name, kind, size, mtimeMs, isLink }) => ({ name, isFile: kind === "file", isFolder: kind === "dir", isLink, size, modifiedAt: mtimeMs })),
+      async stat(path, options) {
+        const { kind, size, mtimeMs, isLink, realPath } = await claude.fs.stat(expand(path), options);
+        return { isFile: kind === "file", isFolder: kind === "dir", isLink, size, modifiedAt: mtimeMs, ...realPath === undefined ? {} : { realPath } };
+      },
+      onChange: ({ path }, listener) => watches.add([path].flat().map((each) => resolvedPath(each, places)), (change) => {
+        bind(imports);
+        return listener(change);
+      })
+    },
+    metadata: {
+      read: (path) => files.read(path),
+      update: (path, change) => files.update(path, change)
+    },
+    process: {
+      run: (argv, init) => claude.process.run(argv, init),
+      spawn: (argv, init) => claude.process.spawn({ ...init, argv })
+    },
+    http: { fetch: (url, init) => claude.http.fetch(url, init) },
+    device: {
+      read: () => device ??= claude.device.read().catch((error) => {
+        device = undefined;
+        throw error;
+      })
+    },
+    clipboard: {
+      async write(text) {
+        await toaster.copy(text);
+      }
+    },
+    mods: {
+      isLoaded: async (name) => await claude.cmod.call({ to: cmodPluginName, method: loadedMethod, input: { name } }) === true
+    },
+    provide: (name, methods) => provided.provide(name, methods),
+    providers: (name) => provided.providers(name)
+  };
+  const timer = (ms, subject, repeats, listener) => {
+    let isFiring = false;
+    let isRunning = true;
+    let firedAt = 0;
+    let isStallTold = false;
+    const tellStall = async () => {
+      const ranMs = await claude.clock.now() - firedAt;
+      if (isStallTold || ranMs < Math.max(checked * stallTicks, stallMs))
+        return;
+      isStallTold = true;
+      claude.ui.warn(`${subject}:${ms}:stalled`, `${definition.name}: one run of its ${subject} ${ms} ms timer has gone on for ${Math.round(ranMs / 1000)} s, so the timer skipped every tick since. Give what the listener awaits a deadline.`);
+    };
+    const fire = () => {
+      if (!repeats)
+        isRunning = false;
+      if (isFiring) {
+        tellStall();
+        return;
+      }
+      isFiring = true;
+      isStallTold = false;
+      Promise.resolve().then(async () => {
+        firedAt = await claude.clock.now();
+        bind(imports);
+        return listener();
+      }).catch((error) => report({ id: `${subject}:${ms}`, message: `The ${subject} ${ms} ms timer failed`, error })).finally(() => {
+        isFiring = false;
+      });
+    };
+    const checked = checkedMs(definition.name, `mod.${subject}`, ms);
+    const started = repeats ? claude.clock.every(checked, fire) : claude.clock.after(checked, fire);
+    return {
+      get isRunning() {
+        return isRunning;
+      },
+      stop() {
+        isRunning = false;
+        started.cancel();
+      }
+    };
+  };
+  const hotkeys = await createHotkeys({ name: definition.name, declared: definition.hotkeys ?? {}, configRoot, claude, router, answerInput: area.answerInput, report });
+  const secret = async (action, key, value) => {
+    const { exitCode, stdout, stderr } = await claude.process.run(["cmod", "secrets", action, definition.name, key], value === undefined ? undefined : { stdin: value });
+    if (exitCode !== 0)
+      throw new Error(`${definition.name}: mod.secrets.${action}: ${cmodError(stderr, "secrets") || `cmod secrets ${formatExit(exitCode, "")}.`}`);
+    return stdout;
+  };
+  const mod = {
+    name: definition.name,
+    folder: claude.plugin.root,
+    dataFolder: runtime.dataFolder,
+    cacheFolder: cacheFolder({ HOME: home, XDG_CACHE_HOME: cacheHome }, claude.plugin.name),
+    secrets: {
+      get: async (key) => await secret("get", key) || undefined,
+      store: async (key, value) => void await secret("store", key, value),
+      delete: async (key) => void await secret("delete", key)
+    },
+    state: modState.state,
+    get options() {
+      return modOptions.values;
+    },
+    hotkeys,
+    every: (ms, listener) => timer(ms, "every", true, listener),
+    after: (ms, listener) => timer(ms, "after", false, listener),
+    use: (job) => job({ mod, announce, reserveName }),
+    log: (text, options) => {
+      if (options?.level === "error")
+        report({ id: `log:${text}`, message: text });
+      else if (options?.level === "warning")
+        claude.ui.warn(`log:${text}`, `${definition.name}: ${text}`);
+      else
+        claude.ui.log(`${definition.name}: ${text}`, { to: options?.to ?? "debug" });
+    },
+    panes: area.panes,
+    views: area.views,
+    pages: area.pages,
+    settings: area.settings,
+    widgets: area.widgets,
+    styles: area.styles,
+    toast: toaster.toast,
+    ask: (question, options) => claude.ui.ask(question, options),
+    dependencies: dependencyCalls(claude, (call, task) => beforeDeadline(claude.clock, callDeadline, call, () => task))
+  };
+  bind(imports);
+  const followSession = async (isAfterCd = false) => {
+    try {
+      const [nextRoot, reportedCwd] = await Promise.all([claude.session.root(), claude.session.cwd()]);
+      const oldCwd = cwd;
+      const hasMovedRoot = nextRoot !== modState.root;
+      if (isAfterCd && hasMovedRoot && relativePath(nextRoot, reportedCwd) === undefined)
+        staleCwd = reportedCwd;
+      if (reportedCwd !== staleCwd)
+        staleCwd = undefined;
+      const nextCwd = staleCwd === undefined ? reportedCwd : nextRoot;
+      if (!hasMovedRoot && nextCwd === oldCwd)
+        return;
+      cwd = nextCwd;
+      followFolders(nextRoot, nextCwd);
+      await modState.moveTo(nextRoot).catch((error) => {
+        if (cwd === nextCwd)
+          cwd = loadedCwd;
+        followFolders(modState.root, cwd);
+        throw error;
+      });
+      if (hasMovedRoot)
+        await modOptions.load(nextRoot);
+      loadedCwd = nextCwd;
+      if (!hasMovedRoot)
+        area.changed();
+      if (nextCwd === oldCwd)
+        return;
+      const moved = { session_id: await claude.session.id(), cwd: nextCwd, hook_event_name: "CwdChanged", old_cwd: oldCwd, new_cwd: nextCwd };
+      await router.dispatch("classic.CwdChanged", moved, async () => ({}));
+    } catch (error) {
+      report({ id: "cmod:follow", message: `Keeps the state of ${modState.root} until the next prompt or folder move`, error });
+    }
+  };
+  const followCurrent = async (id, title) => {
+    const [model, usage, { transcriptPath }] = await Promise.all([claude.session.model(), claude.session.usage(), claude.session.info()]);
+    followed = { id, title: title ?? "", project: modState.root, cwd, ...transcriptPath === "" ? {} : { transcriptPath }, model, startedAt: new Date(usage.startedAt).toISOString(), ...forkedFrom === undefined ? {} : { forkedFrom }, ...agentType === undefined ? {} : { agentType } };
+    client.follow(followed);
+  };
+  router.add("classic.SessionStart", async (e, next) => {
+    agentType = e.agent_id === undefined ? e.agent_type : agentType;
+    const previous = followed?.id;
+    if (e.source === "fork" && previous !== undefined && previous !== e.session_id)
+      forkedFrom = previous;
+    else if (e.session_id !== previous) {
+      forkedFrom = undefined;
+      parentAsked = undefined;
+    }
+    hasEarlierPrompts = e.source !== "startup" && e.source !== "clear";
+    await followCurrent(e.session_id, e.session_title).catch((error) => report({ id: "cmod:current", message: "Kept the details of the session from before", error }));
+    await modState.switchSession(e.session_id, e.source, e.transcript_path).catch((error) => {
+      report({ id: "cmod:session", message: `Kept its session values from before the ${e.source}`, error });
+    });
+    return next(e);
+  });
+  router.add("classic.UserPromptSubmit", async (e, next) => {
+    staleCwd = undefined;
+    await followSession();
+    const isPerson = e.source === undefined || e.source === "user" || e.source === "sdk";
+    await followCurrent(e.session_id, e.session_title || (isPerson && !hasEarlierPrompts && client.sessions.current.title === "" ? firstLine(e.prompt) : undefined)).catch((error) => report({ id: "cmod:current", message: "Kept the details of the session from before", error }));
+    return next(e);
+  });
+  for (const event of ["classic.PostToolUse", "classic.PostToolUseFailure"]) {
+    router.add(event, async (e, next) => {
+      if (shellTools.includes(e.tool_name))
+        await followSession();
+      return next(e);
+    });
+  }
+  router.add("command.run", async (e, next) => {
+    const answer = await next(e);
+    if (e.command === "cd") {
+      await followSession(true);
+      conversations?.moved();
+    }
+    return answer;
+  });
+  router.add("skill.prompt", userSkillHook(claude));
+  router.add("ui.press", (e, next) => area.asked(() => next(e)));
+  let api = {};
+  let servedParts;
+  const reportPart = (id, message, error) => report({ id, message, error });
+  const tellRefusedPress = (to, error) => {
+    if (messageOf(error).includes(stalePress))
+      toaster.toast.warning(`The ${to} button was from an older drawing, so nothing ran`, { id: `press:${to}`, description: "Press the button it shows now." });
+    else
+      report({ id: `press:${to}`, message: `${to} did not take the press`, error, isCritical: true });
+  };
+  const pressElsewhere = (to, input) => void claude.cmod.call({ to, method: partMethods.press, input }).catch((error) => {
+    parts?.forget(to);
+    claude.ui.invalidate("ui.render");
+    tellRefusedPress(to, error);
+  });
+  parts = drawnParts({ claude, report: reportPart, press: (to, input) => servedParts === undefined ? pressElsewhere(to, input) : servedParts.press(to, input) });
+  const served = runtime.serveCmodPlugin?.({ claude, router, store: runtime.store, project: () => modState.root, report: reportPart, clear: (id) => toaster.toast.dismiss(id), tellRefusedPress, parts, markdownIn: area.markdownIn, tellStylers: area.restyled });
+  const conversations = served?.conversations;
+  const widgets = served?.widgets;
+  servedParts = served?.parts;
+  const tellColor = (to, told) => {
+    if (told.session === "" || to === cmodPluginName)
+      return;
+    claude.clock.after(0, () => void claude.cmod.call({ to, method: conversationMethods.sessionColor, input: told }).catch((error) => {
+      if (!isStillInstalling(to, error))
+        claude.ui.warn("color:tell", `cmod: ${to} did not hear the session's color: ${messageOf(error)}`);
+    }));
+  };
+  conversations?.onColor((told) => {
+    client.recolor(told);
+    for (const { mod: to } of servedParts?.declared() ?? [])
+      tellColor(to, told);
+  });
+  router.add("cmod.call", async (e, next) => {
+    if (e.to !== definition.name)
+      return next(e);
+    const call = e;
+    if (e.method === conversationMethods.changed && call.caller === cmodPluginName) {
+      const { session: changedSession, change } = e.input;
+      client.changed(changedSession, change, next.signal);
+      return { value: null };
+    }
+    if (e.method === conversationMethods.sessionColor && call.caller === cmodPluginName) {
+      client.recolor(e.input);
+      return { value: null };
+    }
+    const forProvider = call.caller === undefined ? undefined : provided.answer(e.method, e.input ?? {}, call.caller, next.signal);
+    if (forProvider !== undefined)
+      return { value: await forProvider };
+    const ask = beforeAskOf(call);
+    if (ask !== undefined)
+      return { value: await client.answerBefore(ask.session, ask.event, ask.change, next.signal) ?? null };
+    if (e.method === partMethods.changed && call.caller !== undefined && servedParts !== undefined) {
+      const update = e.input;
+      if (update.parts !== undefined && conversations !== undefined)
+        tellColor(call.caller, conversations.color());
+      return { value: { isHeld: servedParts.update(call.caller, update), stylers: servedParts.stylers() } };
+    }
+    if (call.caller !== undefined) {
+      const turn = e.method === partMethods.draw ? e.input.turn : undefined;
+      const answered = area.answer(e.method, turn === undefined ? e.input : { ...e.input, turn: client.turn(turn) }, call.caller);
+      if (answered !== undefined)
+        return answered.catch((error) => ({ deny: `${definition.name}: ${messageOf(error)}` }));
+    }
+    const served = await conversations?.answer(call);
+    return served ?? answerCall(definition.name, api, e);
+  }, (e, error) => {
+    if (e.to !== definition.name)
+      return;
+    const ask = beforeAskOf(e);
+    return ask === undefined ? { deny: `${definition.name}: ${error.message}` } : { value: client.failedBefore(ask.session, ask.event, ask.change, error) ?? null };
+  });
+  const agents = toolCalls(claude, router);
+  keepEngine(mod, {
+    claude,
+    router,
+    toolCalls: agents,
+    report,
+    hasPermissionCheck: () => runtime.permissionRoutes() !== undefined,
+    answerInput: area.answerInput,
+    spawnCmod: (args, env) => spawnCmod(claude, args, session, env),
+    isInstalledCopy: runtime.isInstalledCopy,
+    watches,
+    interfaces: provided,
+    ...widgets === undefined ? {} : { widgets },
+    onServeUnreached: (listener) => conversations?.onUnreached(listener),
+    ...servedParts === undefined ? {} : { parts: servedParts }
+  });
+  const names = new Set;
+  const reserveName = (type, name, taken) => {
+    const key = `${type}:${name}`;
+    if (names.has(key))
+      throw new Error(taken);
+    names.add(key);
+    return { remove: () => void names.delete(key) };
+  };
+  const removeUndeclaredServices = async () => {
+    if (!await runtime.isInstalledCopy())
+      return;
+    for (const { name } of await claude.fs.list(serviceFolder(runtime.store, definition.name)).catch(ifMissing([]))) {
+      const program = name.endsWith(".json") ? name.slice(0, -".json".length) : undefined;
+      if (program !== undefined && !names.has(`service:${program}`))
+        await runCmod(claude, ["program", definition.name, "--remove-service", "--", program], session);
+    }
+  };
+  await failsAs("its state did not load", () => modState.load());
+  await failsAs("its options did not load", () => modOptions.load(root));
+  const missing = modOptions.missing;
+  if (missing.length > 0)
+    throw new MissingOptions(missing, missing.map((key) => definition.options?.[key]?.title ?? key));
+  await failsAs("the details of its session did not load", () => followCurrent(session, undefined));
+  const returned = await failsAs("its setup function threw", () => definition.setup(mod));
+  api = apiOf(definition.name, returned);
+  await failsAs("its open panes did not load", () => area.restorePanes());
+  area.started();
+  removeUndeclaredServices().catch((error) => report({ id: "program:services", message: "Could not stop a service it no longer runs", error }));
+  return { mod, added, imports, raise: client.raise, settingsLoaded, area };
+}
+function apiOf(name, returned) {
+  if (returned === undefined || returned === null)
+    return {};
+  if (typeof returned !== "object" || !Object.values(returned).every((method) => typeof method === "function"))
+    throw new Error(`${name}: setup returns its API, an object of methods other mods call, or nothing. It returned ${typeof returned === "object" ? "an object with values that are not methods" : typeof returned}.`);
+  return returned;
+}
+var longestTimerMs = 2147483647;
+function checkedMs(name, subject, ms) {
+  if (!Number.isInteger(ms) || ms <= 0 || ms > longestTimerMs)
+    throw new Error(`${name}: ${subject} is ${ms}. Give a whole number of milliseconds above 0 and at most ${longestTimerMs}.`);
+  return ms;
+}
+function beforeAskOf(call) {
+  return call.method === conversationMethods.before && call.caller === cmodPluginName ? call.input : undefined;
+}
+async function failsAs(subject, step) {
+  try {
+    return await step();
+  } catch (error) {
+    throw new Error(`${subject}: ${messageOf(error)}`, { cause: error });
+  }
+}
+function progressOf({ done, total, label }) {
+  return Box({ gap: 2, children: [Progress({ value: total > 0 ? done / total * 100 : 0 }), Text({ dimColor: true, wrap: "truncate-end", children: label })] });
+}
+
+// node_modules/@cmodjs/core/register.js
+var lifecycle;
+var permissionCheck;
+var registered;
+var lockedRetryMs = [100, 300, 600];
+var heldLock = "Lock file is already being held";
+var timers2 = globalThis;
+async function whenUnlocked(write) {
+  for (const waitMs of lockedRetryMs) {
+    try {
+      return await write();
+    } catch (error) {
+      if (!messageOf(error).includes(heldLock))
+        throw error;
+      await new Promise((resolve) => void timers2.setTimeout(resolve, waitMs));
+    }
+  }
+  return write();
+}
+async function startMod($, eventInput, passOn) {
+  const claude = {
+    plugin: { name: $.plugin.name, root: $.plugin.root },
+    ui: {
+      log: (text, options) => $.ui.log(text, options),
+      warn: (_id, text) => $.ui.log(text, { to: "debug" }),
+      notice: (toolUseId, text) => $.ui.notice(toolUseId, text),
+      toast: (text, options) => $.ui.toast(text, options),
+      invalidate: (event) => $.ui.invalidate(event),
+      ask: (question, options) => $.ui.ask(question, options),
+      open: (pane) => $.ui.open(pane),
+      close: (pane) => $.ui.close(pane),
+      panes: () => $.ui.panes(),
+      scroll: (args) => $.ui.scroll(args),
+      copy: (args) => $.ui.copy(args),
+      focus: (args) => $.ui.focus(args),
+      resolve: (render) => $.ui.resolve(render)
+    },
+    process: {
+      run: (argv, init) => $.process.run(argv, init),
+      spawn: (request) => $.process.spawn(request)
+    },
+    fs: {
+      read: (path) => $.fs.read(path),
+      write: (path, text) => $.fs.write(path, text),
+      list: (path) => $.fs.list(path),
+      exists: (path) => $.fs.exists(path),
+      stat: (path, options) => $.fs.stat(path, options)
+    },
+    http: { fetch: (url, init) => $.http.fetch(url, init) },
+    settings: { read: (args) => $.settings.read(args) },
+    config: { list: () => $.config.list() },
+    store: {
+      get: (key) => $.store.get(key),
+      set: (key, value) => whenUnlocked(() => $.store.set(key, value)),
+      delete: (key) => whenUnlocked(() => $.store.delete(key)),
+      keys: () => $.store.keys()
+    },
+    clock: {
+      now: () => $.clock.now(),
+      after: (ms, fn) => $.clock.after(ms, fn),
+      every: (ms, fn) => $.clock.every(ms, fn)
+    },
+    session: {
+      id: () => $.session.id(),
+      root: () => $.session.root(),
+      cwd: () => $.session.cwd(),
+      model: () => $.session.model(),
+      usage: () => $.session.usage(),
+      surfaces: () => $.session.surfaces(),
+      version: async () => (await $.session.version()).version,
+      info: () => $.session.info(),
+      messages: (args) => args === undefined ? $.session.messages() : $.session.messages(args),
+      append: (args) => $.session.append(args),
+      send: (args) => $.session.send(args)
+    },
+    prompt: { submit: (args) => $.prompt.submit(args) },
+    turn: { abort: (args) => $.turn.abort(args) },
+    model: { complete: (request, options) => $.model.complete(request, options) },
+    command: { register: (command) => $.command.register(command), list: () => $.command.list(), run: (args) => $.command.run(args) },
+    tool: { register: (tool) => $.tool.register(tool), call: (input) => $.tool.call(input) },
+    agent: {
+      list: () => $.agent.list(),
+      spawn: (args) => $.agent.spawn(args)
+    },
+    env: {
+      home: () => $.env.get("HOME"),
+      dataHome: () => $.env.get("XDG_DATA_HOME"),
+      cacheHome: () => $.env.get("XDG_CACHE_HOME"),
+      configHome: () => $.env.get("CLAUDE_CONFIG_DIR"),
+      browser: () => $.env.get("BROWSER"),
+      sshConnection: () => $.env.get("SSH_CONNECTION"),
+      display: () => $.env.get("DISPLAY"),
+      waylandDisplay: () => $.env.get("WAYLAND_DISPLAY"),
+      herdrTerminal: () => $.env.get("HC_TERMINAL_ID"),
+      herdrSocket: () => $.env.get("HC_TERMINAL_SOCKET")
+    },
+    device: { read: () => readDevice(claude) },
+    cmod: { call: (input) => $.cmod.call(input) }
+  };
+  const [, answer] = await settledAfterAbort(Promise.all([lifecycle.start(claude, readPlugin), passOn(eventInput)]), passOn.signal);
+  return answer;
+}
+function routeToMod(_$, eventInput, passOn) {
+  return lifecycle.route(passOn.event, eventInput, (passed) => passOn(passed), passOn.signal);
+}
+function routeFailure(_$, eventInput, passOn) {
+  return lifecycle.caught(passOn.event, eventInput, (passed) => passOn(passed), passOn);
+}
+var withCaller = (eventInput, next) => ({ ...eventInput, caller: next.origin.plugin });
+var withoutCaller = (next) => (passed) => next(Object.fromEntries(Object.entries(passed).filter(([key]) => key !== "caller")));
+function routeCallToMod(_$, eventInput, passOn) {
+  return lifecycle.route("cmod.call", withCaller(eventInput, passOn), withoutCaller(passOn), passOn.signal);
+}
+function routeCallFailure(_$, eventInput, passOn) {
+  return lifecycle.caught("cmod.call", withCaller(eventInput, passOn), withoutCaller(passOn), passOn);
+}
+function registerMod(addHook, definition, options) {
+  registerHooks(addHook, definition, options);
+  addHook("ui.render", routeToMod).catch(routeFailure);
+}
+function registerHooks(addHook, definition, options, serve) {
+  permissionCheck = undefined;
+  registered = definition;
+  lifecycle = createLifecycle(definition, () => permissionCheck, options, true, serve);
+  addHook("session.start", startMod);
+  addHook("classic.Setup", routeToMod).catch(routeFailure);
+  addHook("classic.SessionStart", routeToMod).catch(routeFailure);
+  addHook("classic.SessionEnd", routeToMod).catch(routeFailure);
+  addHook("classic.UserPromptSubmit", routeToMod).catch(routeFailure);
+  addHook("classic.UserPromptExpansion", routeToMod).catch(routeFailure);
+  addHook("classic.InstructionsLoaded", routeToMod).catch(routeFailure);
+  addHook("classic.ConfigChange", routeToMod).catch(routeFailure);
+  addHook("classic.DirectoryAdded", routeToMod).catch(routeFailure);
+  addHook("classic.PreModelSwitch", routeToMod).catch(routeFailure);
+  addHook("classic.PostModelSwitch", routeToMod).catch(routeFailure);
+  addHook("classic.PermissionDenied", routeToMod).catch(routeFailure);
+  addHook("classic.PostToolUse", routeToMod).catch(routeFailure);
+  addHook("classic.PostToolUseFailure", routeToMod).catch(routeFailure);
+  addHook("classic.PostToolBatch", routeToMod).catch(routeFailure);
+  addHook("classic.MessageDisplay", routeToMod).catch(routeFailure);
+  addHook("classic.SubagentStart", routeToMod).catch(routeFailure);
+  addHook("classic.SubagentStop", routeToMod).catch(routeFailure);
+  addHook("classic.TaskCreated", routeToMod).catch(routeFailure);
+  addHook("classic.TaskCompleted", routeToMod).catch(routeFailure);
+  addHook("classic.TeammateIdle", routeToMod).catch(routeFailure);
+  addHook("classic.Elicitation", routeToMod).catch(routeFailure);
+  addHook("classic.ElicitationResult", routeToMod).catch(routeFailure);
+  addHook("classic.Notification", routeToMod).catch(routeFailure);
+  addHook("classic.PreCompact", routeToMod).catch(routeFailure);
+  addHook("classic.PostCompact", routeToMod).catch(routeFailure);
+  addHook("classic.Stop", routeToMod).catch(routeFailure);
+  addHook("classic.StopFailure", routeToMod).catch(routeFailure);
+  addHook("classic.WorktreeCreate", routeToMod).catch(routeFailure);
+  addHook("classic.WorktreeRemove", routeToMod).catch(routeFailure);
+  addHook("tool.call", routeToMod).catch(routeFailure);
+  addHook("prompt.submit", routeToMod).catch(routeFailure);
+  addHook("prompt.context", routeToMod).catch(routeFailure);
+  addHook("command.run", routeToMod).catch(routeFailure);
+  addHook("session.measure", routeToMod).catch(routeFailure);
+  addHook("skill.prompt", routeToMod).catch(routeFailure);
+  addHook("ui.press", routeToMod).catch(routeFailure);
+  addHook("ui.scroll", routeToMod).catch(routeFailure);
+  addHook("ui.close", routeToMod).catch(routeFailure);
+  addHook("cmod.call", { to: definition.name }, routeCallToMod).catch(routeCallFailure);
+  addHook("session.compact", routeToMod).catch(routeFailure);
+}
+
+// node_modules/@cmodjs/core/installer.js
+var stepId = /^[A-Za-z0-9_-]{1,64}$/;
+function checkSteps(name, steps) {
+  const seen = new Set;
+  for (const step of steps) {
+    if (!stepId.test(step.id))
+      throw new Error(`${name}: the install step "${step.id}" has no valid id. Use 1 to 64 letters, digits, "_", or "-".`);
+    if (step.title.trim() === "")
+      throw new Error(`${name}: the install step "${step.id}" needs a title, the line the installer shows above it.`);
+    if (seen.has(step.id))
+      throw new Error(`${name}: two install steps have the id "${step.id}". Give each step its own id.`);
+    seen.add(step.id);
+  }
+}
+
+// node_modules/@cmodjs/core/mod.js
+var sessions = {
+  get current() {
+    return bound().sessions.current;
+  },
+  list: (options) => bound().sessions.list(options),
+  get: (id) => bound().sessions.get(id),
+  search: (text, matcher, options) => bound().sessions.search(text, matcher, options)
+};
+var settings = {
+  user: { read: () => bound().settings.user.read(), update: (values) => bound().settings.user.update(values) },
+  project: { read: () => bound().settings.project.read(), update: (values) => bound().settings.project.update(values) },
+  local: { read: () => bound().settings.local.read(), update: (values) => bound().settings.local.update(values) },
+  beforeChange: (matcherOrListener, listener) => bound().settings.beforeChange(matcherOrListener, listener),
+  onChange: (matcherOrListener, listener) => bound().settings.onChange(matcherOrListener, listener)
+};
+var fs = {
+  read: (path) => bound().fs.read(path),
+  write: (path, text) => bound().fs.write(path, text),
+  exists: (path) => bound().fs.exists(path),
+  find: (glob) => bound().fs.find(glob),
+  list: (path) => bound().fs.list(path),
+  stat: (path, options) => bound().fs.stat(path, options),
+  onChange: (matcher, listener) => bound().fs.onChange(matcher, listener)
+};
+var http = {
+  fetch: (url, options) => bound().http.fetch(url, options)
+};
+var device = {
+  read: () => bound().device.read()
+};
+function defineMod(definition) {
+  if (definition.name.trim() === "")
+    throw new Error("defineMod: the mod needs a name, such as the name in .claude-plugin/plugin.json.");
+  if (definition.options !== undefined)
+    checkOptions(definition.name, definition.options);
+  if (definition.hotkeys !== undefined)
+    checkHotkeys(definition.name, definition.hotkeys);
+  if (definition.installer !== undefined)
+    checkSteps(definition.name, definition.installer);
+  return definition;
+}
+
+// node_modules/@cmodjs/core/jobs/context.js
+function withinDeadline(mod, deadline, subject, run) {
+  return beforeDeadline(engineOf(mod).claude.clock, deadline, subject, () => Promise.resolve().then(run));
+}
+
+// node_modules/@cmodjs/core/jobs/slash-command.js
+var deadline = { ms: 30000, job: "slashCommand" };
+var commandName = /^[A-Za-z0-9_-]{1,64}$/;
+function slashCommand(options) {
+  const { name, description, argumentHint, immediate, reply } = options;
+  return (job) => {
+    const { mod, announce, reserveName } = job;
+    const { claude, router, report, answerInput } = engineOf(mod);
+    if (!commandName.test(name))
+      throw new Error(`${mod.name}: "${name}" is not a slash command name. Use 1 to 64 letters, digits, "_", or "-", without the slash.`);
+    const reserved = reserveName("slashCommand", name, `${mod.name}: the slash command /${name} is already added. Give each slashCommand its own name.`);
+    let registered;
+    claude.command.register({ name, description, ...argumentHint === undefined ? {} : { argumentHint }, ...immediate === undefined ? {} : { immediate } }).then(({ command }) => {
+      registered = command;
+    }, (error) => {
+      report({ id: `command:${name}`, message: `/${name} is not added`, error });
+    });
+    announce(`/${name}`);
+    const answering = router.add("command.run", async (e, next) => {
+      if (e.command !== registered)
+        return next(e);
+      try {
+        return await answerInput(async () => answerOf(mod.name, await withinDeadline(mod, deadline, `/${name}`, () => reply({ args: e.args, positionals: splitWords(e.args) }, mod))), () => next(e));
+      } catch (error) {
+        return { text: `/${name} failed: ${oneLine(error)}` };
+      }
+    });
+    return {
+      name,
+      remove() {
+        answering.remove();
+        reserved.remove();
+      }
+    };
+  };
+}
+function answerOf(name, reply) {
+  if (reply === undefined)
+    return {};
+  if (typeof reply === "string")
+    return { text: reply };
+  return { ...reply.text === undefined ? {} : { text: reply.text }, ...reply.note === undefined ? {} : { context: [modNote(name, reply.note)] } };
+}
+function splitWords(args) {
+  return Dt(args, (key) => `$${key}`).flatMap((entry) => {
+    if (typeof entry === "string")
+      return [entry];
+    if ("comment" in entry)
+      return [];
+    if (entry.op === "glob")
+      return [entry.pattern];
+    return [entry.op];
+  });
+}
+function oneLine(error) {
+  return messageOf(error).replace(/\s*\n\s*/g, " ");
+}
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/status.ts
+var LOCAL_POOL = "http://127.0.0.1:8317";
+async function baseUrlOf() {
+  const env = (await settings.user.read())["env"];
+  return typeof env === "object" && env !== null ? env["ANTHROPIC_BASE_URL"] : undefined;
+}
+async function poolOf() {
+  const base = await baseUrlOf();
+  return typeof base === "string" && base !== "" ? base.replace(/\/+$/, "") : LOCAL_POOL;
+}
+var resourcesOf = (pool) => `${pool}/v0/resource/plugins/oneclaude`;
+var statusUrl = (pool) => `${resourcesOf(pool)}/status.json`;
+var usageUrl = (pool) => `${resourcesOf(pool)}/usage.json`;
+var dashboardUrl = (pool) => `${pool}/management.html#/plugin-pages/oneclaude/0`;
+var addAccountUrl = (pool) => `${pool}/management.html#/oauth`;
+var KEY = "management-key";
+async function keyOf(mod) {
+  const key = await fs.read(`${mod.dataFolder}/${KEY}`).then((text) => text.trim(), () => "");
+  return key === "" ? undefined : key;
+}
+async function saveKey(mod, key) {
+  await fs.write(`${mod.dataFolder}/${KEY}`, key);
+}
+async function manage(mod, key, path, init = {}) {
+  const headers = { Authorization: `Bearer ${key}`, ...init.body === undefined ? {} : { "Content-Type": "application/json" } };
+  const pool = mod.state.memory.pool;
+  const response = await http.fetch(`${pool}/v0/management${path}`, { ...init, headers }).catch((error) => {
+    mod.log(`${pool} gave no answer to ${path}: ${String(error)}`);
+    return;
+  });
+  if (response?.status === 401)
+    await saveKey(mod, "");
+  return response;
+}
+var PROBLEMS = {
+  "proxy-down": "pool unreachable",
+  "plugin-off": "plugin off",
+  unreadable: "status unreadable"
+};
+function warningOf(problem, status) {
+  return `${PROBLEMS[problem]} since ${momentOf(status.now, new Date().toISOString())}`;
+}
+async function read(pool, after, device) {
+  const query = new URLSearchParams({ ...after === undefined ? {} : { after: String(after) }, ...device === undefined ? {} : { device } }).toString();
+  const response = await http.fetch(query === "" ? statusUrl(pool) : `${statusUrl(pool)}?${query}`).catch((error) => String(error));
+  if (typeof response === "string")
+    return { problem: "proxy-down", cause: response };
+  if (response.status === 404)
+    return { problem: "plugin-off", cause: "the proxy answered 404" };
+  if (!response.ok)
+    return { problem: "proxy-down", cause: `the proxy answered ${response.status}` };
+  try {
+    return { status: JSON.parse(response.text) };
+  } catch (error) {
+    return { problem: "unreadable", cause: String(error) };
+  }
+}
+async function readBlocks(mod, key) {
+  const response = await manage(mod, key, "/auth-files");
+  if (response === undefined)
+    throw new Error("the proxy did not answer /auth-files");
+  if (!response.ok)
+    throw new Error(`the proxy answered /auth-files with ${response.status}`);
+  const { files } = JSON.parse(response.text);
+  const blocks = {};
+  for (const file of files ?? []) {
+    if (file.provider !== "claude" || file.auth_index === undefined || !file.cooldowns?.length)
+      continue;
+    blocks[file.auth_index] = file.cooldowns.map((cooldown) => ({
+      ...cooldown.scope === "model" && cooldown.model_key !== undefined ? { model: cooldown.model_key } : {},
+      until: cooldown.retry_at,
+      reason: cooldown.reason
+    }));
+  }
+  return blocks;
+}
+var BLOCKS = "blocks.json";
+var STATUS = "status.json";
+async function lastBlocks(mod) {
+  return fs.read(`${mod.dataFolder}/${BLOCKS}`).then((text) => JSON.parse(text)).catch(() => {
+    return;
+  });
+}
+async function shareStatus(mod, status) {
+  await fs.write(`${mod.dataFolder}/${STATUS}`, JSON.stringify(status)).catch((error) => mod.log(`oneclaude could not share the pool's status with the other sessions: ${String(error)}`));
+}
+async function sharedReading(mod) {
+  const status = await fs.read(`${mod.dataFolder}/${STATUS}`).then((text) => JSON.parse(text)).catch(() => null);
+  if (status === null)
+    return null;
+  return { status, blocks: (await lastBlocks(mod))?.blocks ?? {} };
+}
+async function sharedBlocks(mod, change, isReader) {
+  const shared = await lastBlocks(mod);
+  if (change !== undefined && shared?.change === change)
+    return shared.blocks;
+  if (!isReader)
+    return;
+  const key = await keyOf(mod);
+  if (key === undefined)
+    return;
+  const blocks = await readBlocks(mod, key).catch((error) => {
+    mod.log(`oneclaude could not read the proxy's blocks: ${String(error)}`);
+    return;
+  });
+  if (blocks === undefined)
+    return;
+  await fs.write(`${mod.dataFolder}/${BLOCKS}`, JSON.stringify({ change, blocks })).catch((error) => mod.log(`oneclaude could not share the proxy's blocks with the other sessions: ${String(error)}`));
+  return blocks;
+}
+async function retry(mod, account) {
+  const pool = mod.state.memory.pool;
+  const key = await keyOf(mod);
+  if (key === undefined)
+    return "No management key. Enter it in the Install oneclaude tab.";
+  const response = await manage(mod, key, "/plugins/oneclaude/retry", { method: "POST", body: JSON.stringify({ auth_index: account.auth_index }) });
+  if (response === undefined)
+    return `${pool} did not respond.`;
+  if (response.ok)
+    return;
+  if (response.status === 401)
+    return "401 Unauthorized: the pool rejected the management key. Enter it in the Install oneclaude tab.";
+  if (response.status === 404 && response.text.trim() === "")
+    return `404 Not Found: the pool runs oneclaude ${mod.state.memory.reading?.status.version ?? "of another version"}. Reload this session.`;
+  return `${response.status}: ${errorOf(response.text)}`;
+}
+function errorOf(text) {
+  try {
+    const error = JSON.parse(text).error;
+    return typeof error === "string" ? error : text;
+  } catch {
+    return text;
+  }
+}
+var RATE_LIMITS = ["quota", "credential_quota"];
+var LOGINS = ["unauthorized", "invalid_grant"];
+function heldOn(account, blocks, now) {
+  const held = account.auth_index === undefined ? [] : blocks[account.auth_index] ?? [];
+  return held.filter((block) => Date.parse(block.until) > Date.parse(now));
+}
+function isSignedOut(account, blocks, now) {
+  return account.signed_out || heldOn(account, blocks, now).some((block) => LOGINS.includes(block.reason));
+}
+function blocksOf(account, blocks, now) {
+  return heldOn(account, blocks, now).filter((block) => !RATE_LIMITS.includes(block.reason) && !LOGINS.includes(block.reason));
+}
+var ACCOUNTS = "accounts";
+var rowKey = (account) => `account-${account.name}`;
+function troublesOf(status, blocks) {
+  const refused = status.accounts.filter((account) => account.refused !== undefined);
+  const signedOut = status.accounts.filter((account) => account.refused === undefined && isSignedOut(account, blocks, status.now));
+  const blocked = status.accounts.filter((account) => account.refused === undefined && !isSignedOut(account, blocks, status.now) && blocksOf(account, blocks, status.now).length > 0);
+  return [
+    ...refused.length > 0 ? [{ text: `${plural(refused.length, "account")} refused`, key: rowKey(refused[0]) }] : [],
+    ...signedOut.length > 0 ? [{ text: `${plural(signedOut.length, "account")} signed out`, key: rowKey(signedOut[0]) }] : [],
+    ...blocked.length > 0 ? [{ text: `${plural(blocked.length, "account")} blocked`, key: rowKey(blocked[0]) }] : [],
+    ...status.pool.limit_reached ? [{ text: "agent limit reached", key: ACCOUNTS }] : []
+  ];
+}
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function clockOf(iso) {
+  const at = new Date(iso);
+  return [at.getHours(), at.getMinutes(), at.getSeconds()].map((part) => String(part).padStart(2, "0")).join(":");
+}
+function momentOf(iso, now) {
+  const at = new Date(iso);
+  const time = clockOf(iso).slice(0, 5);
+  return at.toDateString() === new Date(now).toDateString() ? time : `${MONTHS[at.getMonth()]} ${at.getDate()} ${time}`;
+}
+var FAMILIES = ["opus", "sonnet", "haiku", "fable"];
+function percent(fraction) {
+  return `${Math.round(fraction * 100)}%`;
+}
+function pace(ahead) {
+  const points = Math.round(Math.abs(ahead) * 100);
+  if (points === 0)
+    return "on pace";
+  return `${points}% ${ahead < 0 ? "under" : "over"} pace`;
+}
+function paceState(ahead) {
+  if (ahead > 0.25)
+    return "far-over";
+  if (ahead > 0.05)
+    return "over";
+  if (ahead < -0.05)
+    return "under";
+  return "on";
+}
+var NEARLY_EMPTY = 0.95;
+var WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+function evenOf(account, now) {
+  if (account.resets_at === undefined)
+    return;
+  return clamp(1 - (Date.parse(account.resets_at) - Date.parse(now)) / WEEK_MS);
+}
+function until(iso, now) {
+  if (iso === undefined)
+    return "unknown";
+  const minutes = Math.round((Date.parse(iso) - Date.parse(now)) / 60000);
+  if (minutes <= 0)
+    return "now";
+  if (minutes < 60)
+    return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24)
+    return withRest(`${hours}h`, minutes % 60, "m");
+  if (hours < 48)
+    return withRest("1d", hours % 24, "h");
+  return `${Math.round(minutes / (24 * 60))}d`;
+}
+function withRest(head, rest, unit) {
+  return rest === 0 ? head : `${head} ${rest}${unit}`;
+}
+function ago(iso, now) {
+  const passed = until(now, iso);
+  return passed === "now" ? "just now" : `${passed} ago`;
+}
+var BAR_CELLS = 20;
+var STEPS = 8;
+var EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+var CAP_LEFT = "";
+var CAP_RIGHT = "";
+function bar(used, pace, cells) {
+  const units = cells * STEPS;
+  const filled = Math.round(clamp(used) * units);
+  const paced = Math.round(clamp(pace) * units);
+  const isNearlyEmpty = used >= NEARLY_EMPTY;
+  const colorAt = (unit) => {
+    if (unit < Math.min(filled, paced))
+      return isNearlyEmpty ? "error" : "inactive";
+    if (unit < filled)
+      return isNearlyEmpty ? "diffRemoved" : "warning";
+    if (unit < paced)
+      return "promptBorder";
+    return "subtle";
+  };
+  const drawn = [{ text: CAP_LEFT, color: colorAt(0) }];
+  for (let cell = 0;cell < cells; cell++) {
+    const left = colorAt(cell * STEPS);
+    const right = colorAt(cell * STEPS + STEPS - 1);
+    let edge = 1;
+    while (edge < STEPS && colorAt(cell * STEPS + edge) === left)
+      edge++;
+    drawn.push(left === right ? { text: "█", color: left } : { text: EIGHTHS[edge] ?? "█", color: left, background: right });
+  }
+  drawn.push({ text: CAP_RIGHT, color: colorAt(units - 1) });
+  return runsOf(drawn);
+}
+function runsOf(cells) {
+  return cells.reduce((runs, cell) => {
+    const last = runs.at(-1);
+    if (last !== undefined && last.color === cell.color && last.background === cell.background && last.isDim === cell.isDim)
+      runs[runs.length - 1] = { ...last, text: last.text + cell.text };
+    else
+      runs.push(cell);
+    return runs;
+  }, []);
+}
+var GLIDE = 0.18;
+var FRAME_MS = 33;
+var LINE = "line";
+var POOL = "pool";
+var claudeKey = (account) => `claude:${account.name}`;
+var codexKey = (account) => `codex:${account.name}`;
+function paceOf(account, now) {
+  return account.empty ? account.used : evenOf(account, now) ?? account.used;
+}
+function barsOf(status) {
+  const pool = { used: status.pool.used, pace: status.pool.even };
+  const bars = { [LINE]: pool, [POOL]: pool };
+  for (const account of status.accounts)
+    if (account.known)
+      bars[claudeKey(account)] = { used: account.used, pace: paceOf(account, status.now) };
+  for (const account of status.codex)
+    if (account.known)
+      bars[codexKey(account)] = { used: account.used, pace: paceOf(account, status.now) };
+  return bars;
+}
+function glide(shown, target) {
+  const step = (from, to) => Math.abs(to - from) < 0.0005 ? to : from + (to - from) * GLIDE;
+  return { used: step(shown.used, target.used), pace: step(shown.pace, target.pace) };
+}
+function clamp(fraction) {
+  return Math.min(1, Math.max(0, fraction));
+}
+function agentsOf(account) {
+  return FAMILIES.reduce((sum, family) => sum + (account.agents[family] ?? 0), 0);
+}
+function plural(count, word) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/components/pool-bar.tsx
+function poolBar({ used, pace }) {
+  return drawCells(bar(used, pace, BAR_CELLS));
+}
+function drawCells(cells) {
+  return cells.map((cell) => /* @__PURE__ */ h(Text, {
+    color: cell.color,
+    backgroundColor: cell.background,
+    dimColor: cell.isDim
+  }, cell.text));
+}
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/components/pool-line.tsx
+var PACE_COLORS = {
+  on: undefined,
+  under: "success",
+  over: "claude",
+  "far-over": "error"
+};
+function factText(facts) {
+  return facts.map((fact) => typeof fact === "string" ? fact : pace(fact.ahead)).join(" · ");
+}
+function Facts({ facts, color, wrap = "wrap" }) {
+  const draw = (fact) => {
+    if (typeof fact === "string")
+      return fact;
+    const paceColor = PACE_COLORS[paceState(fact.ahead)];
+    return paceColor === undefined ? pace(fact.ahead) : /* @__PURE__ */ h(Text, {
+      color: paceColor,
+      dimColor: false
+    }, pace(fact.ahead));
+  };
+  if (wrap === "wrap") {
+    return /* @__PURE__ */ h(Box, {
+      flexWrap: "wrap",
+      columnGap: 1
+    }, facts.map((fact, index) => /* @__PURE__ */ h(Box, {
+      flexShrink: 0
+    }, /* @__PURE__ */ h(Text, {
+      color,
+      dimColor: color === undefined
+    }, index === 0 ? [draw(fact)] : ["· ", draw(fact)]))));
+  }
+  const parts = facts.flatMap((fact, index) => index === 0 ? [draw(fact)] : [" · ", draw(fact)]);
+  return /* @__PURE__ */ h(Text, {
+    color,
+    dimColor: color === undefined,
+    wrap
+  }, parts);
+}
+function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble }) {
+  if (reading === null)
+    return problem === null ? /* @__PURE__ */ h(Text, {
+      dimColor: true
+    }, "oneclaude: reading the pool") : /* @__PURE__ */ h(Text, {
+      color: "warning"
+    }, `oneclaude: ${PROBLEMS[problem]}`);
+  const { pool, now } = reading.status;
+  const facts = pool.known === 0 ? ["reading accounts", plural(pool.agents, "agent")] : [
+    percent(pool.used),
+    ...pool.pace === undefined ? [] : [{ ahead: pool.pace }],
+    ...pool.next_refill === undefined ? [] : [`next refill in ${until(pool.next_refill, now)}`],
+    plural(pool.agents, "agent")
+  ];
+  return /* @__PURE__ */ h(Box, {
+    gap: 2
+  }, /* @__PURE__ */ h(Box, {
+    flexShrink: 0
+  }, poolBar(shown ?? { used: pool.used, pace: pool.even })), /* @__PURE__ */ h(Box, {
+    gap: 1
+  }, /* @__PURE__ */ h(Facts, {
+    facts,
+    wrap: "truncate-end"
+  }), problem === null ? null : /* @__PURE__ */ h(Box, {
+    flexShrink: 0
+  }, /* @__PURE__ */ h(Text, {
+    color: "warning"
+  }, `· ${warningOf(problem, reading.status)}`)), troublesOf(reading.status, reading.blocks).map((trouble) => /* @__PURE__ */ h(Box, {
+    flexShrink: 0
+  }, /* @__PURE__ */ h(Button, {
+    key: `trouble-${trouble.key}`,
+    plain: true,
+    onPress: () => onTrouble(trouble.key)
+  }, /* @__PURE__ */ h(Text, {
+    color: "warning"
+  }, `· ${trouble.text}`)))), /* @__PURE__ */ h(Box, {
+    flexShrink: 0
+  }, /* @__PURE__ */ h(Button, {
+    key: "accounts",
+    dimColor: true,
+    onPress: onToggle,
+    label: isOpen ? "-" : "+"
+  }))));
+}
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/components/weekly-resets.tsx
+var DAYS = 8;
+var HOUR_MS = 60 * 60 * 1000;
+var DAY_MS = 24 * HOUR_MS;
+var WEEK_MS2 = 7 * DAY_MS;
+var GAP = 2;
+var MOST_CELLS = 8;
+var FEWEST_CELLS = 4;
+var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+var NOW_LINE = "│";
+var NOW_COLOR = "text";
+function calendarOf(accounts, now, room) {
+  const at = Date.parse(now);
+  const offset = offsetOf(now);
+  const start = at + offset - (at + offset) % DAY_MS - DAY_MS - offset;
+  const read = accounts.flatMap((account) => account.known && account.resets_at !== undefined ? [{ account, resets: Date.parse(account.resets_at) }] : []).sort((a, b) => a.resets - b.resets).map(({ account, resets }) => {
+    const left = until(account.resets_at, now);
+    return { account, resets, reset: left === "now" ? left : `in ${left}`, remaining: account.empty ? "empty" : `${percent(1 - account.used)} left` };
+  });
+  const resetWidth = Math.max(0, ...read.map(({ reset }) => reset.length));
+  const label = resetWidth + GAP + Math.max(0, ...read.map(({ remaining }) => remaining.length));
+  const perDay = Math.min(MOST_CELLS, Math.max(FEWEST_CELLS, Math.floor((room - GAP - label) / DAYS)));
+  const cellAt = (time) => (time - start) / DAY_MS * perDay;
+  const nowCell = Math.floor(cellAt(at));
+  const days = Array.from({ length: DAYS }, (_, day) => {
+    const date = new Date(start + offset + day * DAY_MS);
+    const name = WEEKDAYS[date.getUTCDay()];
+    return (perDay > `${name} 00`.length ? `${name} ${date.getUTCDate()}` : name).padEnd(perDay);
+  });
+  return {
+    days: days.join("").trimEnd(),
+    now: nowCell,
+    lanes: read.map(({ account, resets, reset, remaining }) => {
+      const isNearlyEmpty = account.empty || account.used >= NEARLY_EMPTY;
+      const opened = resets - WEEK_MS2;
+      const open = edgeOf(Math.round(cellAt(opened)), nowCell);
+      const close = edgeOf(Math.round(cellAt(resets)), nowCell);
+      const runsOut = account.empty ? at : runsOutAt(account.used, opened, at);
+      const out = Math.min(close, Math.max(nowCell + 1, Math.round(cellAt(runsOut))));
+      return { name: account.name, cells: weekOf({ open, out, close }, nowCell, DAYS * perDay, isNearlyEmpty), reset: reset.padEnd(resetWidth), remaining, isNearlyEmpty };
+    })
+  };
+}
+function edgeOf(cell, nowCell) {
+  return cell > nowCell ? Math.max(cell, nowCell + 2) : Math.min(cell, nowCell - 1);
+}
+function runsOutAt(used, opened, now) {
+  const pace = used / Math.max(now - opened, HOUR_MS);
+  return pace === 0 ? Infinity : now + (1 - used) / pace;
+}
+function weekOf({ open, out, close }, nowCell, cells, isNearlyEmpty) {
+  return runsOf(Array.from({ length: cells }, (_, cell) => {
+    if (cell < open || cell >= close)
+      return { text: "╌", color: "inactive", isDim: true };
+    const color = cell < nowCell ? "subtle" : isNearlyEmpty ? "error" : "inactive";
+    if (cell === nowCell)
+      return { text: NOW_LINE, color: NOW_COLOR, background: color };
+    const text = cell === open && cell > 0 ? CAP_LEFT : cell === close - 1 && close < cells ? CAP_RIGHT : "█";
+    return cell >= out ? { text, color, isDim: true } : { text, color };
+  }));
+}
+function offsetOf(iso) {
+  const match = /([+-])(\d\d):(\d\d)$/.exec(iso);
+  if (match === null)
+    return 0;
+  const minutes = Number(match[2]) * 60 + Number(match[3]);
+  return (match[1] === "-" ? -minutes : minutes) * 60000;
+}
+function WeeklyResets({ calendar, width }) {
+  const gap = " ".repeat(GAP);
+  const indent = " ".repeat(width + GAP);
+  const line = /* @__PURE__ */ h(Text, {
+    color: NOW_COLOR
+  }, `${indent}${" ".repeat(calendar.now)}${NOW_LINE}`);
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, /* @__PURE__ */ h(Text, {
+    dimColor: true
+  }, `${indent}${calendar.days}`), calendar.lanes.flatMap((lane) => [
+    line,
+    /* @__PURE__ */ h(Text, null, `${lane.name.padEnd(width)}${gap}`, drawCells(lane.cells), /* @__PURE__ */ h(Text, {
+      color: lane.isNearlyEmpty ? "error" : undefined
+    }, `${gap}${lane.reset}${gap}`, /* @__PURE__ */ h(Text, {
+      dimColor: !lane.isNearlyEmpty
+    }, lane.remaining)))
+  ]));
+}
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/usage.ts
+var PERIODS = [["quarter", "90 days"], ["month", "30 days"], ["week", "7 days"], ["yesterday", "Yesterday"], ["today", "Today"]];
+var BREAKDOWNS = [["account", "Account"], ["model", "Model"], ["agent", "Agent"], ["project", "Project"], ["time", "Time"]];
+var UNITS = [["cost", "Cost"], ["tokens", "Tokens"]];
+async function readUsage(pool, period, by, units) {
+  const response = await http.fetch(`${usageUrl(pool)}?period=${period}&by=${by}&units=${units}`).catch(() => {
+    return;
+  });
+  if (response === undefined || !response.ok)
+    return null;
+  try {
+    const table = JSON.parse(response.text);
+    return Array.isArray(table.rows) && Array.isArray(table.days) ? table : null;
+  } catch {
+    return null;
+  }
+}
+var KINDS = ["input", "output", "cache_write", "cache_read"];
+var KIND_TITLES = { input: "Input", output: "Output", cache_write: "Cache write", cache_read: "Cache read" };
+var COLD = 0.9;
+function totalOf(row, units) {
+  const counted = units === "cost" ? row.cost : row.tokens;
+  return KINDS.reduce((total, kind) => total + counted[kind], 0);
+}
+function cachedOf(tokens) {
+  const input = tokens.input + tokens.cache_write + tokens.cache_read;
+  return input === 0 ? undefined : tokens.cache_read / input;
+}
+function dayLabel(day) {
+  const [, month, date] = day.split("-").map(Number);
+  return `${MONTHS[(month ?? 1) - 1]} ${date}`;
+}
+function money(dollars) {
+  if (dollars < 0.005)
+    return "$0";
+  if (dollars < 1)
+    return `$${dollars.toFixed(2)}`;
+  return `$${Math.round(dollars).toLocaleString("en-US")}`;
+}
+var COUNT = new Intl.NumberFormat("en-US", { notation: "compact", maximumSignificantDigits: 3 });
+function tokenCount(count) {
+  return COUNT.format(count);
+}
+function amount(value, units) {
+  return units === "cost" ? money(value) : tokenCount(value);
+}
+var GUTTER = "   ";
+function usageLayout(table, units, isWide) {
+  const grand = totalOf(table.total, units);
+  const columns = [
+    ...isWide ? KINDS.map((kind) => [KIND_TITLES[kind], (row) => amount((units === "cost" ? row.cost : row.tokens)[kind], units)]) : [],
+    ["Cached", (row) => {
+      const cached = cachedOf(row.tokens);
+      return cached === undefined ? "" : percent(cached);
+    }],
+    ["Share", (row) => row === table.total ? "" : grand === 0 ? "0%" : percent(totalOf(row, units) / grand)],
+    ["Total", (row) => amount(totalOf(row, units), units)]
+  ];
+  const all = [...table.rows, table.total];
+  const labelWidth = Math.max(...all.map((row) => row.label.length));
+  const widths = columns.map(([title, cell]) => Math.max(title.length, ...all.map((row) => cell(row).length)));
+  const line = (label, cells, cold) => ({
+    cells: [label.padEnd(labelWidth), ...cells.map((cell, index) => cell.padStart(widths[index] ?? 0))],
+    cold
+  });
+  const rowLine = (row) => {
+    const cached = cachedOf(row.tokens);
+    return line(row.label, columns.map(([, cell]) => cell(row)), cached !== undefined && cached < COLD);
+  };
+  const header = line("", columns.map(([title]) => title), false);
+  return { header, rows: table.rows.map(rowLine), total: rowLine(table.total), width: header.cells.join(GUTTER).length };
+}
+var CHART_ROWS = 4;
+var RISERS = ["", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+function dailyChart(table, units) {
+  const totals = table.days.map((day) => day.rows.length === 0 ? undefined : day.rows.reduce((sum, row) => sum + totalOf(row, units), 0));
+  const peak = Math.max(0, ...totals.map((total) => total ?? 0));
+  const eighths = totals.map((total) => total === undefined ? undefined : peak === 0 ? 0 : Math.max(total > 0 ? 1 : 0, Math.round(total / peak * CHART_ROWS * 8)));
+  const rows = Array.from({ length: CHART_ROWS }, (_, fromTop) => {
+    const floor = (CHART_ROWS - 1 - fromTop) * 8;
+    return eighths.map((height) => {
+      if (height === undefined)
+        return fromTop === CHART_ROWS - 1 ? "·" : " ";
+      return RISERS[Math.min(8, Math.max(0, height - floor))] || " ";
+    });
+  });
+  return { peak: amount(peak, units), rows, first: dayLabel(table.days[0]?.day ?? table.today), last: dayLabel(table.days.at(-1)?.day ?? table.today) };
+}
+function optimizePrompt(pool, agents, projects, models) {
+  const lines = (table) => table.rows.filter((row) => totalOf(row, "cost") > 0).slice(0, 12).map((row) => {
+    const cached = cachedOf(row.tokens);
+    return `- ${row.label}: ${money(totalOf(row, "cost"))} (cache writes ${money(row.cost.cache_write)}, cache reads ${money(row.cost.cache_read)}, output ${money(row.cost.output)}, input ${money(row.cost.input)}), ${tokenCount(totalOf(row, "tokens"))} tokens${cached === undefined ? "" : `, ${percent(cached)} from cache`}`;
+  });
+  return [
+    "Optimize my Claude usage: find where it can cost less without losing quality. These are oneclaude's numbers for the last 30 days, at API list prices.",
+    "",
+    'By agent type ("Main sessions" are the sessions I talk to):',
+    ...lines(agents),
+    "",
+    "By project:",
+    ...lines(projects),
+    "",
+    "By model:",
+    ...lines(models),
+    "",
+    `Any period and breakdown: ${usageUrl(pool)}?period=month&by=agent (period quarter, month, week, yesterday or today; by account, model, agent, project or time).`,
+    "",
+    "Read the agent definitions, Skills and settings behind the most expensive rows, find what drives their cache writes and their output, and propose changes ranked by what each would save per day. Change nothing until I approve."
+  ].join(`
+`);
+}
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/pages/accounts.tsx
+var COMBINED = "Combined usage";
+var GAP2 = 2;
+var INSET = 3;
+var CONTROL = 7;
+async function showUsage(mod, change = {}) {
+  const view = { ...mod.state.memory.usage, ...change };
+  mod.state.memory.usage = view;
+  const table = await readUsage(mod.state.memory.pool, view.period, view.by, view.units);
+  const { period, by, units } = mod.state.memory.usage;
+  if (table !== null && period === view.period && by === view.by && units === view.units)
+    mod.state.memory.table = table;
+}
+var LOG_SHOWN = 10;
+var accountsPage = {
+  id: "accounts",
+  title: "Accounts",
+  render: (mod, { columns }) => {
+    const { reading, problem } = mod.state.memory;
+    if (reading === null)
+      return problem === null ? /* @__PURE__ */ h(Text, {
+        dimColor: true
+      }, "Reading your accounts") : /* @__PURE__ */ h(Text, {
+        color: "warning"
+      }, `oneclaude: ${PROBLEMS[problem]}`);
+    const { status, blocks } = reading;
+    const shown = mod.state.memory.shown;
+    const combined = combinedRow(status, shown[POOL]);
+    const claude = status.accounts.map((account) => claudeRow(mod, account, blocks, status.now, shown[claudeKey(account)]));
+    const codex = status.codex.map((account) => codexRow(account, status.now, shown[codexKey(account)]));
+    const rows = [combined, ...claude, ...codex];
+    const width = Math.max(...rows.map((row) => row.name.length));
+    const isNarrow = rows.some((row) => INSET * 2 + width + GAP2 + BAR_CELLS + 2 + GAP2 + factText(row.facts).length > columns);
+    const draw = (row) => /* @__PURE__ */ h(RowView, {
+      row,
+      width,
+      isNarrow
+    });
+    return /* @__PURE__ */ h(Box, {
+      flexDirection: "column",
+      gap: 1,
+      paddingX: 1
+    }, problem === null ? null : /* @__PURE__ */ h(Box, {
+      paddingX: 2
+    }, /* @__PURE__ */ h(Text, {
+      color: "warning"
+    }, warningOf(problem, status))), /* @__PURE__ */ h(Box, {
+      borderStyle: "round",
+      borderDimColor: true,
+      paddingX: 1,
+      flexDirection: "column"
+    }, draw(combined)), /* @__PURE__ */ h(Section, {
+      key: ACCOUNTS,
+      title: "Claude accounts"
+    }, claude.map(draw)), codex.length > 0 ? /* @__PURE__ */ h(Section, {
+      title: "Codex accounts"
+    }, codex.map(draw)) : null, /* @__PURE__ */ h(ResetsSection, {
+      accounts: status.accounts,
+      now: status.now,
+      width,
+      columns: columns - INSET * 2
+    }), /* @__PURE__ */ h(UsageSection, {
+      mod,
+      table: mod.state.memory.table,
+      view: mod.state.memory.usage,
+      columns: columns - INSET * 2
+    }), mod.state.memory.table === null ? null : /* @__PURE__ */ h(ChartSection, {
+      table: mod.state.memory.table,
+      view: mod.state.memory.usage
+    }), status.log.length === 0 ? null : /* @__PURE__ */ h(LogSection, {
+      log: status.log
+    }), /* @__PURE__ */ h(Box, {
+      paddingX: 2,
+      gap: 2
+    }, /* @__PURE__ */ h(Button, {
+      key: "open-dashboard",
+      dimColor: true,
+      href: dashboardUrl(mod.state.memory.pool),
+      label: "Open dashboard"
+    }), /* @__PURE__ */ h(Button, {
+      key: "add-account",
+      dimColor: true,
+      href: addAccountUrl(mod.state.memory.pool),
+      label: "Add account"
+    })));
+  }
+};
+function Section({ key, title, children }) {
+  return /* @__PURE__ */ h(Box, {
+    key,
+    flexDirection: "column",
+    gap: 1,
+    paddingX: 2
+  }, /* @__PURE__ */ h(Text, {
+    bold: true
+  }, title), /* @__PURE__ */ h(Box, {
+    flexDirection: "column",
+    gap: 1
+  }, children));
+}
+function ResetsSection({ accounts, now, width, columns }) {
+  const calendar = calendarOf(accounts, now, columns - width - GAP2);
+  if (calendar.lanes.length === 0)
+    return null;
+  return /* @__PURE__ */ h(Section, {
+    title: "Weekly resets"
+  }, [/* @__PURE__ */ h(WeeklyResets, {
+    calendar,
+    width
+  })]);
+}
+function RowView({ row, width, isNarrow }) {
+  return /* @__PURE__ */ h(Box, {
+    key: row.key,
+    gap: GAP2
+  }, /* @__PURE__ */ h(Box, {
+    flexShrink: 0,
+    minWidth: width
+  }, /* @__PURE__ */ h(Text, null, row.name)), /* @__PURE__ */ h(Box, {
+    flexDirection: "column",
+    flexGrow: 1,
+    minWidth: 0
+  }, rowBody(row, isNarrow)));
+}
+function rowBody(row, isNarrow) {
+  if (row.shown === undefined) {
+    return [
+      /* @__PURE__ */ h(Box, {
+        gap: GAP2
+      }, row.facts.length === 0 ? null : /* @__PURE__ */ h(Facts, {
+        facts: row.facts,
+        color: row.color
+      }), row.trouble ?? null)
+    ];
+  }
+  const bar = /* @__PURE__ */ h(Box, {
+    flexShrink: 0
+  }, poolBar(row.shown));
+  const [first, ...rest] = row.facts;
+  const lines = isNarrow ? [/* @__PURE__ */ h(Box, {
+    gap: GAP2
+  }, bar, /* @__PURE__ */ h(Facts, {
+    facts: first === undefined ? [] : [first],
+    color: row.color
+  })), /* @__PURE__ */ h(Facts, {
+    facts: rest,
+    color: row.color
+  })] : [/* @__PURE__ */ h(Box, {
+    gap: GAP2
+  }, bar, /* @__PURE__ */ h(Facts, {
+    facts: row.facts,
+    color: row.color
+  }))];
+  return row.trouble === undefined ? lines : [...lines, row.trouble];
+}
+function combinedRow(status, shown) {
+  const { pool, now } = status;
+  const unread = pool.accounts - pool.known;
+  return {
+    name: COMBINED,
+    shown: shown ?? { used: pool.used, pace: pool.even },
+    facts: [
+      percent(pool.used),
+      ...pool.pace === undefined ? [] : [{ ahead: pool.pace }],
+      ...pool.next_refill === undefined ? [] : [`next refill in ${until(pool.next_refill, now)} frees ${percent(pool.refill_gain)}`],
+      plural(pool.agents, "agent"),
+      ...unread > 0 ? [`${plural(unread, "account")} not read yet`] : []
+    ]
+  };
+}
+function claudeRow(mod, account, blocks, now, shown) {
+  const key = rowKey(account);
+  if (account.refused !== undefined) {
+    return { key, name: account.name, facts: [], trouble: /* @__PURE__ */ h(TroubleView, {
+      text: "refused"
+    }, /* @__PURE__ */ h(RetryButton, {
+      mod,
+      account
+    })) };
+  }
+  if (isSignedOut(account, blocks, now)) {
+    return { key, name: account.name, facts: [], trouble: /* @__PURE__ */ h(TroubleView, {
+      text: "signed out"
+    }, /* @__PURE__ */ h(Button, {
+      key: `sign-in-${account.name}`,
+      dimColor: true,
+      href: addAccountUrl(mod.state.memory.pool),
+      label: "Sign in"
+    })) };
+  }
+  const last = blocksOf(account, blocks, now).map((block) => block.until).sort().at(-1);
+  const trouble = last === undefined ? undefined : /* @__PURE__ */ h(TroubleView, {
+    text: `blocked until ${momentOf(last, now)}`
+  }, /* @__PURE__ */ h(RetryButton, {
+    mod,
+    account
+  }));
+  if (!account.known)
+    return { key, name: account.name, facts: ["not read yet"], trouble };
+  const agents = FAMILIES.filter((family) => (account.agents[family] ?? 0) > 0).map((family) => `${account.agents[family]} ${family}`);
+  return {
+    key,
+    name: account.name,
+    shown: shown ?? { used: account.used, pace: paceOf(account, now) },
+    color: account.empty ? "error" : undefined,
+    facts: [
+      ...usageFacts(account, now),
+      ...account.throttled_at === undefined ? [] : [`throttled ${ago(account.throttled_at, now)}`],
+      agentsOf(account) === 0 ? "idle" : agents.join(", "),
+      ...account.projected ? ["refilled since its last reading"] : []
+    ],
+    trouble
+  };
+}
+function TroubleView({ text, children }) {
+  return /* @__PURE__ */ h(Box, {
+    gap: 2
+  }, /* @__PURE__ */ h(Text, {
+    color: "warning"
+  }, text), children);
+}
+function RetryButton({ mod, account }) {
+  const press = async () => {
+    const failure = await retry(mod, account);
+    if (failure !== undefined)
+      mod.toast.error(`Could not clear ${account.name}'s blocks`, { description: failure });
+  };
+  return /* @__PURE__ */ h(Button, {
+    key: `retry-${account.name}`,
+    dimColor: true,
+    onPress: press,
+    label: "Retry"
+  });
+}
+function codexRow(account, now, shown) {
+  if (!account.known)
+    return { name: account.name, facts: ["not read yet"] };
+  return {
+    name: account.name,
+    shown: shown ?? { used: account.used, pace: paceOf(account, now) },
+    color: account.empty ? "error" : undefined,
+    facts: [
+      ...usageFacts(account, now),
+      ...account.projected ? ["refilled since its last reading"] : []
+    ]
+  };
+}
+function usageFacts(account, now) {
+  const even = evenOf(account, now);
+  return [
+    account.empty ? "empty" : percent(account.used),
+    ...account.empty || even === undefined ? [] : [{ ahead: account.used - even }],
+    `refills in ${until(account.resets_at, now)}`
+  ];
+}
+function Choices({ name, choices, chosen, onChoose }) {
+  return /* @__PURE__ */ h(Box, {
+    gap: 1
+  }, /* @__PURE__ */ h(Box, {
+    flexShrink: 0,
+    minWidth: CONTROL
+  }, /* @__PURE__ */ h(Text, {
+    dimColor: true
+  }, name)), /* @__PURE__ */ h(Tabs, {
+    tabs: choices.map(([key, label]) => ({ key, label })),
+    selected: chosen,
+    onSelect: (key) => onChoose(key)
+  }));
+}
+function TableRow({ line, isHeader = false, isTotal = false }) {
+  const last = line.cells.length - 1;
+  const cached = last - 2;
+  const cells = line.cells.map((cell, index) => {
+    const text = index === 0 ? cell : `${GUTTER}${cell}`;
+    if (isHeader)
+      return text;
+    if (index === last)
+      return /* @__PURE__ */ h(Text, {
+        color: "claude"
+      }, text);
+    if (index === cached && line.cold)
+      return /* @__PURE__ */ h(Text, {
+        color: "warning"
+      }, text);
+    return text;
+  });
+  return /* @__PURE__ */ h(Text, {
+    dimColor: isHeader,
+    bold: isTotal
+  }, cells);
+}
+function UsageSection({ mod, table, view, columns }) {
+  if (table === null)
+    return /* @__PURE__ */ h(Section, {
+      title: "Usage"
+    }, [/* @__PURE__ */ h(Text, {
+      dimColor: true
+    }, "Reading the request log")]);
+  const wide = usageLayout(table, view.units, true);
+  const layout = wide.width <= columns ? wide : usageLayout(table, view.units, false);
+  const isUnrecorded = (view.by === "agent" || view.by === "project") && table.rows.some((row) => row.key === "");
+  return /* @__PURE__ */ h(Section, {
+    key: "usage",
+    title: "Usage"
+  }, [
+    /* @__PURE__ */ h(Box, {
+      flexDirection: "column"
+    }, /* @__PURE__ */ h(Choices, {
+      name: "Period",
+      choices: PERIODS,
+      chosen: view.period,
+      onChoose: (period) => void showUsage(mod, { period })
+    }), /* @__PURE__ */ h(Choices, {
+      name: "By",
+      choices: BREAKDOWNS,
+      chosen: view.by,
+      onChoose: (by) => void showUsage(mod, { by })
+    }), /* @__PURE__ */ h(Choices, {
+      name: "Show",
+      choices: UNITS,
+      chosen: view.units,
+      onChoose: (units) => void showUsage(mod, { units })
+    })),
+    /* @__PURE__ */ h(Box, {
+      flexDirection: "column"
+    }, /* @__PURE__ */ h(TableRow, {
+      line: layout.header,
+      isHeader: true
+    }), layout.rows.map((line) => /* @__PURE__ */ h(TableRow, {
+      line
+    })), /* @__PURE__ */ h(TableRow, {
+      line: layout.total,
+      isTotal: true
+    })),
+    ...isUnrecorded ? [/* @__PURE__ */ h(Text, {
+      dimColor: true,
+      wrap: "wrap"
+    }, "Not recorded: requests from before oneclaude recorded agent types and projects, and from conversations whose record never reached the pool.")] : [],
+    /* @__PURE__ */ h(Optimize, {
+      mod
+    })
+  ]);
+}
+function Optimize({ mod }) {
+  if (!mod.state.memory.isConfirming) {
+    return /* @__PURE__ */ h(Box, null, /* @__PURE__ */ h(Button, {
+      key: "optimize",
+      dimColor: true,
+      onPress: () => {
+        mod.state.memory.isConfirming = true;
+      },
+      label: "Optimize usage"
+    }));
+  }
+  const send = async () => {
+    const [agents, projects, models] = await Promise.all(["agent", "project", "model"].map((by) => readUsage(mod.state.memory.pool, "month", by, "cost")));
+    mod.state.memory.isConfirming = false;
+    if (!agents || !projects || !models) {
+      mod.toast.error("oneclaude could not read the usage, so nothing was sent");
+      return;
+    }
+    await sessions.current.send({ type: Prompt, text: optimizePrompt(mod.state.memory.pool, agents, projects, models) });
+  };
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, /* @__PURE__ */ h(Text, {
+    bold: true
+  }, "Ask your agent to optimize your usage?"), /* @__PURE__ */ h(Text, {
+    dimColor: true,
+    wrap: "wrap"
+  }, "We'll send it your last 30 days of usage, by agent, project and model."), /* @__PURE__ */ h(Box, {
+    gap: 2
+  }, /* @__PURE__ */ h(Button, {
+    key: "optimize-send",
+    variant: "primary",
+    onPress: send,
+    label: "Ask your agent"
+  }), /* @__PURE__ */ h(Button, {
+    key: "optimize-cancel",
+    dimColor: true,
+    onPress: () => {
+      mod.state.memory.isConfirming = false;
+    },
+    label: "Cancel"
+  })));
+}
+function ChartSection({ table, view }) {
+  const chart = dailyChart(table, view.units);
+  const pad = " ".repeat(chart.peak.length);
+  const span = chart.rows[0].length * 2 - 1;
+  return /* @__PURE__ */ h(Section, {
+    title: "Usage per day, last 30 days"
+  }, [
+    /* @__PURE__ */ h(Box, {
+      flexDirection: "column"
+    }, chart.rows.map((cells, index) => /* @__PURE__ */ h(Text, null, /* @__PURE__ */ h(Text, {
+      dimColor: true
+    }, index === 0 ? chart.peak : pad), GUTTER, cells.map((cell, day) => {
+      const text = day === 0 ? cell : ` ${cell}`;
+      if (cell === "·")
+        return /* @__PURE__ */ h(Text, {
+          dimColor: true
+        }, text);
+      return cell === " " ? text : /* @__PURE__ */ h(Text, {
+        color: "claude"
+      }, text);
+    }))), /* @__PURE__ */ h(Text, {
+      dimColor: true
+    }, `${pad}${GUTTER}${chart.first}${chart.last.padStart(span - chart.first.length)}`))
+  ]);
+}
+function LogSection({ log }) {
+  const shown = [...log].reverse().slice(0, LOG_SHOWN);
+  return /* @__PURE__ */ h(Section, {
+    key: "log",
+    title: "Log"
+  }, [
+    /* @__PURE__ */ h(Box, {
+      flexDirection: "column"
+    }, shown.map((entry) => /* @__PURE__ */ h(Box, {
+      gap: 2
+    }, /* @__PURE__ */ h(Box, {
+      flexShrink: 0
+    }, /* @__PURE__ */ h(Text, {
+      dimColor: true
+    }, clockOf(entry.at))), /* @__PURE__ */ h(Box, {
+      flexShrink: 0
+    }, /* @__PURE__ */ h(Text, {
+      color: entry.level === "WARN" ? "warning" : undefined,
+      dimColor: entry.level === "INFO"
+    }, entry.level)), /* @__PURE__ */ h(Text, {
+      wrap: "wrap"
+    }, entry.text))), log.length > LOG_SHOWN ? /* @__PURE__ */ h(Text, {
+      dimColor: true
+    }, `${plural(log.length - LOG_SHOWN, "earlier line")} on the dashboard`) : null)
+  ]);
+}
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/record.ts
+function checked(input) {
+  const { name, url, responses, timeoutSeconds, failOpen, observabilityMode } = input;
+  if (typeof name !== "string" || name === "")
+    throw new Error("a filter needs its mod's name");
+  if (typeof url !== "string" || url === "")
+    throw new Error(`the ${name} filter needs its url`);
+  if (timeoutSeconds !== undefined && (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 120))
+    throw new Error(`the ${name} filter's timeoutSeconds must be a whole number from 1 to 120`);
+  return {
+    name,
+    url,
+    ...responses === true ? { responses } : {},
+    ...timeoutSeconds === undefined ? {} : { timeoutSeconds },
+    ...failOpen === true ? { failOpen } : {},
+    ...observabilityMode === true ? { observabilityMode } : {}
+  };
+}
+function recordOf2(mod) {
+  let filters = [];
+  let agents = {};
+  let taken;
+  let line = { session: "", last: Promise.resolve(undefined) };
+  const post = async (session) => {
+    const key = await keyOf(mod);
+    if (key === undefined)
+      return;
+    const body = JSON.stringify({ session, project: sessions.current.project, agents, filters });
+    const sent = `${mod.state.memory.pool} ${body}`;
+    if (sent === taken)
+      return;
+    const response = await manage(mod, key, "/plugins/oneclaude/session", { method: "POST", body });
+    if (response === undefined || response.ok) {
+      if (response?.ok === true)
+        taken = sent;
+      return;
+    }
+    mod.log(`the pool refused the record of session ${session} with ${response.status}: ${response.text}`);
+    return response.status === 400 ? JSON.parse(response.text).error ?? response.text : undefined;
+  };
+  const send = () => {
+    const session = sessions.current.id;
+    if (line.session !== session)
+      line = { session, last: Promise.resolve(undefined) };
+    const current = line;
+    const start = () => {
+      current.next = undefined;
+      return post(session);
+    };
+    current.next ??= current.last.then(start, start);
+    current.last = current.next;
+    return current.next;
+  };
+  const change = async (next) => {
+    if (JSON.stringify(next) === JSON.stringify(filters))
+      return;
+    const before = filters;
+    filters = next;
+    const refusal = await send();
+    if (refusal !== undefined) {
+      filters = before;
+      throw new Error(refusal);
+    }
+  };
+  return {
+    addFilter: async (input) => {
+      const filter = checked(input);
+      const at = filters.findIndex((saved) => saved.name === filter.name);
+      await change(at === -1 ? [...filters, filter] : filters.with(at, filter));
+    },
+    removeFilter: async ({ name }) => change(filters.filter((saved) => saved.name !== name)),
+    addAgent: async (id, agentType) => {
+      if (agents[id] === agentType)
+        return;
+      agents = { ...agents, [id]: agentType };
+      await send();
+    },
+    send: async () => {
+      await send();
+    }
+  };
+}
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/state.ts
+var initialState = {
+  memory: { pool: LOCAL_POOL, reading: null, problem: null, isOpen: false, shown: {}, usage: { period: "month", by: "account", units: "cost" }, table: null, isConfirming: false, keyAnswer: null }
+};
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/mod.tsx
+var RETRY_MS = [1000, 2000, 4000, 8000, 16000];
+async function checkKey(mod, key) {
+  mod.state.memory.pool = await poolOf();
+  const response = await http.fetch(`${mod.state.memory.pool}/v0/management/plugins/oneclaude/status`, { headers: { Authorization: `Bearer ${key}` } }).catch(() => {
+    return;
+  });
+  if (response?.ok === true)
+    await saveKey(mod, key);
+  mod.state.memory.keyAnswer = response?.ok === true ? "saved" : response?.status === 401 ? "wrong" : "unanswered";
+}
+var askKey = {
+  id: "management-key",
+  title: "CLIProxyAPI's management key",
+  render: (mod) => /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, /* @__PURE__ */ h(Text, null, "oneclaude reads and clears the proxy's blocks, and tells it each session's project, agents and filters, with the management key you set for CLIProxyAPI."), /* @__PURE__ */ h(Input, {
+    key: "management-key",
+    label: "› ",
+    submitLabel: "save",
+    onSubmit: (key) => void checkKey(mod, key)
+  }), mod.state.memory.keyAnswer === "saved" ? /* @__PURE__ */ h(Text, {
+    color: "success"
+  }, "✔ saved") : mod.state.memory.keyAnswer === "wrong" ? /* @__PURE__ */ h(Text, {
+    color: "error"
+  }, "The proxy at ", mod.state.memory.pool, " refused that key.") : mod.state.memory.keyAnswer === "unanswered" ? /* @__PURE__ */ h(Text, {
+    color: "error"
+  }, "The proxy at ", mod.state.memory.pool, " didn't answer.") : /* @__PURE__ */ h(Text, null, "")),
+  isDone: async (mod) => await keyOf(mod) !== undefined
+};
+var oneclaude = defineMod({
+  name: "oneclaude",
+  state: initialState,
+  installer: [askKey],
+  async setup(mod) {
+    const page = mod.pages.add(accountsPage);
+    let frames;
+    const settle = () => {
+      frames?.stop();
+      frames = undefined;
+    };
+    const frame = () => {
+      const reading = mod.state.memory.reading;
+      if (reading === null)
+        return settle();
+      const shown = {};
+      let isMoving = false;
+      for (const [key, target] of Object.entries(barsOf(reading.status))) {
+        const next = glide(mod.state.memory.shown[key] ?? target, target);
+        shown[key] = next;
+        isMoving ||= next.used !== target.used || next.pace !== target.pace;
+      }
+      mod.state.memory.shown = shown;
+      if (!isMoving)
+        settle();
+    };
+    const animate = () => {
+      frames ??= mod.every(FRAME_MS, frame);
+    };
+    let isUsingProxy = false;
+    const useProxy = async () => {
+      if (isUsingProxy)
+        return;
+      isUsingProxy = true;
+      if (await baseUrlOf() === undefined)
+        await settings.user.update({ env: { ANTHROPIC_BASE_URL: LOCAL_POOL } });
+    };
+    const record = recordOf2(mod);
+    let blocksShown;
+    let blocksWanted = { change: undefined, isReader: false };
+    let isReadingBlocks = false;
+    const showBlocks = async (status) => {
+      const isReader = status.reads_blocks === true || status.blocks_change === undefined;
+      blocksWanted = { change: status.blocks_change, isReader: isReader || blocksWanted.change === status.blocks_change && blocksWanted.isReader };
+      if (isReadingBlocks)
+        return;
+      isReadingBlocks = true;
+      try {
+        while (blocksShown === undefined || blocksShown.change !== blocksWanted.change) {
+          const wanted = blocksWanted;
+          const blocks = await sharedBlocks(mod, wanted.change, wanted.isReader);
+          if (blocks === undefined)
+            return;
+          const reading = mod.state.memory.reading;
+          if (reading !== null)
+            mod.state.memory.reading = { ...reading, blocks };
+          blocksShown = { change: wanted.change, blocks };
+        }
+      } finally {
+        isReadingBlocks = false;
+      }
+    };
+    let usageReading;
+    const draw = (status) => {
+      mod.state.memory.problem = null;
+      mod.state.memory.reading = { status, blocks: blocksShown?.blocks ?? mod.state.memory.reading?.blocks ?? {} };
+      animate();
+      shareStatus(mod, status);
+      showBlocks(status);
+      record.send();
+      useProxy();
+      mod.state.memory.isOpen = page.isOpen;
+      if (page.isOpen)
+        usageReading ??= showUsage(mod).finally(() => {
+          usageReading = undefined;
+        });
+    };
+    const machine = device.read().then(({ id }) => id, (error) => {
+      mod.log(`oneclaude names no machine to the pool, so this session reads every blocks change itself: ${String(error)}`);
+      return;
+    });
+    const ask = async (after) => {
+      const pool = await poolOf();
+      mod.state.memory.pool = pool;
+      const within = mod.state.memory.reading?.status.answers_within_ms;
+      const silence = within === undefined ? undefined : mod.after(within, () => {
+        mod.log(`${pool} sent no status within ${within} ms`);
+        mod.state.memory.problem = "proxy-down";
+      });
+      const answer = await read(pool, after, await machine).finally(() => silence?.stop());
+      if (!("problem" in answer))
+        return answer.status;
+      mod.log(`${pool} brought no status: ${answer.cause}`);
+      mod.state.memory.problem = answer.problem;
+      return;
+    };
+    const pause = (ms) => new Promise((resolve) => void mod.after(ms, resolve));
+    const follow = async () => {
+      let after;
+      let failures = 0;
+      for (;; ) {
+        const status = await ask(after).catch((error) => {
+          mod.log(`oneclaude could not ask the pool for its status: ${String(error)}`);
+          return;
+        });
+        if (status === undefined) {
+          after = undefined;
+          await pause(RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]);
+          continue;
+        }
+        failures = 0;
+        after = status.change;
+        draw(status);
+        if (after === undefined)
+          await pause(RETRY_MS[0]);
+      }
+    };
+    const toggle = async () => {
+      if (!page.isOpen) {
+        mod.state.memory.isConfirming = false;
+        showUsage(mod);
+        mod.state.memory.shown = Object.fromEntries(Object.entries(mod.state.memory.shown).map(([key, shown]) => [key, key === LINE ? shown : { used: 0, pace: 0 }]));
+        animate();
+      }
+      await page.toggle({ focus: true });
+      mod.state.memory.isOpen = page.isOpen;
+    };
+    const showTrouble = async (key) => {
+      if (!page.isOpen)
+        await toggle();
+      await page.scrollTo({ key }, { block: "start" });
+    };
+    mod.widgets.add({
+      id: "pool",
+      title: "Pool usage",
+      areas: [BelowPrompt, Dashboard],
+      render: (current) => /* @__PURE__ */ h(PoolLine, {
+        reading: current.state.memory.reading,
+        problem: current.state.memory.problem,
+        shown: current.state.memory.shown[LINE],
+        isOpen: current.state.memory.isOpen,
+        onToggle: toggle,
+        onTrouble: showTrouble
+      })
+    });
+    mod.use(slashCommand({
+      name: "accounts",
+      description: "Show every Claude account: combined usage, pace, agents and the log",
+      reply: toggle
+    }));
+    sessions.current.onTaskStart((task) => {
+      if (task.owner.agentType !== undefined)
+        record.addAgent(task.id, task.owner.agentType);
+    });
+    const start = async () => {
+      const shared = await sharedReading(mod);
+      mod.state.memory.reading ??= shared;
+      mod.state.memory.pool = await poolOf();
+      record.send();
+    };
+    sessions.current.onSessionStart({ source: /^(clear|resume|fork)$/ }, start);
+    sessions.current.onCwdChange(() => void record.send());
+    await start();
+    follow();
+    return {
+      addFilter: (input) => record.addFilter(input),
+      removeFilter: (input) => record.removeFilter(input)
+    };
+  }
+});
+
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/hooks/register.ts
+function register(addHook, options) {
+  registerMod(addHook, oneclaude, options);
+}
+export {
+  register
+};

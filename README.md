@@ -3,10 +3,10 @@
 **Every Claude subscription you have, as one pool.** oneclaude sends each new Claude Code conversation to the account that most needs spending: the one with the most weekly quota left per hour until its week resets, so no account's quota goes to waste at its reset. It keeps each conversation on its account while its prompt cache is warm, and shows the whole pool under the prompt.
 
 ```text
-████████▊███▋███████  63% · 19% over pace · next refill in 2d · 14 agents [+]
+████████▊███▋███████  63% · 19% over pace · next refill in 2d · 14 agents [ + ]
 ```
 
-`/accounts` opens the pool in a tab of cmod's Sidebar, beside the conversation:
+`/accounts` opens the pool in a tab of cmod's Sidebar, beside the conversation, or of Herdr:
 
 ```text
 Combined usage    ████████▊███▋███████  63%
@@ -32,7 +32,7 @@ Log
 
 18:09:12  WARN  Anthropic rate limited work (429).
 
-[Open dashboard]  [Add account]
+[ Open dashboard ]  [ Add account ]
 ```
 
 oneclaude has two parts:
@@ -77,16 +77,16 @@ You can also install it from inside Claude Code:
 
 ## Add your other accounts
 
-Run `/accounts` and press `[Add account]`. The proxy's control panel opens at its OAuth login page, after its password, the management key, the first time. Log in to each Claude subscription you have. A Codex (ChatGPT) account added there shows its weekly usage too.
+Run `/accounts` and press **Add account**. The proxy's control panel opens at its OAuth login page, after its password, the management key, the first time. Log in to each Claude subscription you have. A Codex (ChatGPT) account added there shows its weekly usage too.
 
 ## Use it
 
 Nothing changes in how you work. Every new conversation goes to the account that most needs spending, and a running conversation stays where it is.
 
-- **The line under the prompt** shows the pool's weekly usage, whether it spends right now faster or slower than its quota lasts, the next refill, and the agents running now. It names a signed-out or blocked account, or the agent limit, only while it needs you. `[+]` opens the Accounts tab.
-- **`/accounts`** shows each account, with `[Sign in]` or `[Retry]` where one needs it, the Codex accounts, the pool's usage, and the log of the last 24 hours.
-- **Usage** in `/accounts` adds up what the pool used today, yesterday, or over 7, 30 or 90 days, by account, model, agent type, project, or time: input, output, cache writes, and cache reads, at API prices or in tokens. `[Optimize usage]` asks Claude to make it cost less.
-- **`[Open dashboard]`** opens the dashboard in the proxy's control panel: usage, 7 days of requests and of the log, each account's agents, the proxy's traffic, and adding, turning off, or signing in again to an account.
+- **The line under the prompt** shows the pool's weekly usage, whether it spends right now faster or slower than its quota lasts, the next refill, and the agents running now. It names a signed-out or blocked account, or the agent limit, only while it needs you. `+` opens the Accounts tab.
+- **`/accounts`** shows each account, with **Sign in** or **Retry** where one needs it, the Codex accounts, the pool's usage, and the log of the last 24 hours.
+- **Usage** in `/accounts` adds up what the pool used today, yesterday, or over 7, 30 or 90 days, by account, model, agent type, project, or time: input, output, cache writes, and cache reads, at API prices or in tokens. **Optimize usage** asks Claude to make it cost less.
+- **Open dashboard** opens the dashboard in the proxy's control panel: usage, 7 days of requests and of the log, each account's agents, the proxy's traffic, and adding, turning off, or signing in again to an account.
 
 [Usage](docs/usage.md) explains every number on screen.
 

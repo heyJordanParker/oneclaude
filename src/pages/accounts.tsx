@@ -1,4 +1,5 @@
 import { Prompt, sessions, type Mod, type PageInit } from '../../node_modules/@cmodjs/core/mod.js'
+import { Tabs } from '../../node_modules/@cmodjs/core/ui/components.js'
 import { Box, Button, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
@@ -59,8 +60,8 @@ export const accountsPage: PageInit<OneclaudeState> = {
         {mod.state.memory.table === null ? null : <ChartSection table={mod.state.memory.table} view={mod.state.memory.usage} />}
         {status.log.length === 0 ? null : <LogSection log={status.log} />}
         <Box paddingX={2} gap={2}>
-          <Button key="open-dashboard" plain dimColor href={dashboardUrl(mod.state.memory.pool)}>[Open dashboard]</Button>
-          <Button key="add-account" plain dimColor href={addAccountUrl(mod.state.memory.pool)}>[Add account]</Button>
+          <Button key="open-dashboard" dimColor href={dashboardUrl(mod.state.memory.pool)} label="Open dashboard" />
+          <Button key="add-account" dimColor href={addAccountUrl(mod.state.memory.pool)} label="Add account" />
         </Box>
       </Box>
     )
@@ -84,47 +85,33 @@ function ResetsSection({ accounts, now, width, columns }: { readonly accounts: r
   return <Section title="Weekly resets">{[<WeeklyResets calendar={calendar} width={width} />]}</Section>
 }
 
-// RowView draws a row, and its trouble on a line of its own under the bar,
-// or after the name of a row with no bar.
+// RowView draws a row's name in a column as wide as the longest name, and
+// beside it the bar and its facts, then its trouble on a line of its own, or
+// for a row with no bar its facts and its trouble on one line.
 function RowView({ row, width, isNarrow }: { readonly row: Row; readonly width: number; readonly isNarrow: boolean }): JSX.Element {
-  const name = <Box flexShrink={0}><Text>{row.name.padEnd(width)}</Text></Box>
-  const trouble = row.trouble === undefined ? null : <Box paddingLeft={width + GAP}>{row.trouble}</Box>
-  if (row.shown === undefined) {
-    return (
-      <Box key={row.key} gap={GAP}>
-        {name}
-        {row.facts.length === 0 ? null : <Facts facts={row.facts} color={row.color} />}
-        {row.trouble ?? null}
-      </Box>
-    )
-  }
-  const bar = <Box flexShrink={0}>{poolBar(row.shown)}</Box>
-  if (!isNarrow) {
-    return (
-      <Box key={row.key} flexDirection="column">
-        <Box gap={GAP}>
-          {name}
-          {bar}
-          <Facts facts={row.facts} color={row.color} />
-        </Box>
-        {trouble}
-      </Box>
-    )
-  }
-  const [first, ...rest] = row.facts
   return (
-    <Box key={row.key} flexDirection="column">
-      <Box gap={GAP}>
-        {name}
-        {bar}
-        <Facts facts={first === undefined ? [] : [first]} color={row.color} />
-      </Box>
-      <Box paddingLeft={width + GAP}>
-        <Facts facts={rest} color={row.color} />
-      </Box>
-      {trouble}
+    <Box key={row.key} gap={GAP}>
+      <Box flexShrink={0} minWidth={width}><Text>{row.name}</Text></Box>
+      <Box flexDirection="column" flexGrow={1} minWidth={0}>{rowBody(row, isNarrow)}</Box>
     </Box>
   )
+}
+
+function rowBody(row: Row, isNarrow: boolean): JSX.Element[] {
+  if (row.shown === undefined) {
+    return [
+      <Box gap={GAP}>
+        {row.facts.length === 0 ? null : <Facts facts={row.facts} color={row.color} />}
+        {row.trouble ?? null}
+      </Box>,
+    ]
+  }
+  const bar = <Box flexShrink={0}>{poolBar(row.shown)}</Box>
+  const [first, ...rest] = row.facts
+  const lines = isNarrow
+    ? [<Box gap={GAP}>{bar}<Facts facts={first === undefined ? [] : [first]} color={row.color} /></Box>, <Facts facts={rest} color={row.color} />]
+    : [<Box gap={GAP}>{bar}<Facts facts={row.facts} color={row.color} /></Box>]
+  return row.trouble === undefined ? lines : [...lines, row.trouble]
 }
 
 function combinedRow(status: Status, shown: Shown | undefined): Row {
@@ -144,15 +131,15 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
 }
 
 // claudeRow is one Claude account. An account in trouble shows what is wrong
-// in a word or two and the one button that fixes it: [Sign in] when Anthropic
-// rejects its login, else [Retry]. The log holds Anthropic's reason.
+// in a word or two and the one button that fixes it: Sign in when Anthropic
+// rejects its login, else Retry. The log holds Anthropic's reason.
 function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, now: string, shown: Shown | undefined): Row {
   const key = rowKey(account)
   if (account.refused !== undefined) {
     return { key, name: account.name, facts: [], trouble: <TroubleView text="refused"><RetryButton mod={mod} account={account} /></TroubleView> }
   }
   if (isSignedOut(account, blocks, now)) {
-    return { key, name: account.name, facts: [], trouble: <TroubleView text="signed out"><Button key={`sign-in-${account.name}`} plain dimColor href={addAccountUrl(mod.state.memory.pool)}>[Sign in]</Button></TroubleView> }
+    return { key, name: account.name, facts: [], trouble: <TroubleView text="signed out"><Button key={`sign-in-${account.name}`} dimColor href={addAccountUrl(mod.state.memory.pool)} label="Sign in" /></TroubleView> }
   }
   const last = blocksOf(account, blocks, now).map((block) => block.until).sort().at(-1)
   const trouble = last === undefined ? undefined : <TroubleView text={`blocked until ${momentOf(last, now)}`}><RetryButton mod={mod} account={account} /></TroubleView>
@@ -187,7 +174,7 @@ function RetryButton({ mod, account }: { readonly mod: Mod<OneclaudeState>; read
     const failure = await retry(mod, account)
     if (failure !== undefined) mod.toast.error(`Could not clear ${account.name}'s blocks`, { description: failure })
   }
-  return <Button key={`retry-${account.name}`} plain dimColor onPress={press}>[Retry]</Button>
+  return <Button key={`retry-${account.name}`} dimColor onPress={press} label="Retry" />
 }
 
 function codexRow(account: Codex, now: string, shown: Shown | undefined): Row {
@@ -212,19 +199,13 @@ function usageFacts(account: Account | Codex, now: string): Fact[] {
   ]
 }
 
-// Choices is one row of the Usage controls: its name, then a button per
-// choice, the chosen one bright in brackets.
+// Choices is one row of the Usage controls: its name, then a tab per choice,
+// the chosen one selected.
 function Choices<Choice extends string>({ name, choices, chosen, onChoose }: { readonly name: string; readonly choices: readonly (readonly [Choice, string])[]; readonly chosen: Choice; readonly onChoose: (choice: Choice) => void }): JSX.Element {
   return (
-    <Box>
-      <Box flexShrink={0}><Text dimColor>{name.padEnd(CONTROL)}</Text></Box>
-      <Box gap={1} flexWrap="wrap">
-        {choices.map(([choice, label]) => (
-          <Button key={`${name.toLowerCase()}-${choice}`} plain dimColor={choice !== chosen} onPress={() => onChoose(choice)}>
-            {choice === chosen ? `[${label}]` : ` ${label} `}
-          </Button>
-        ))}
-      </Box>
+    <Box gap={1}>
+      <Box flexShrink={0} minWidth={CONTROL}><Text dimColor>{name}</Text></Box>
+      <Tabs tabs={choices.map(([key, label]) => ({ key, label }))} selected={chosen} onSelect={(key) => onChoose(key as Choice)} />
     </Box>
   )
 }
@@ -275,7 +256,7 @@ function UsageSection({ mod, table, view, columns }: { readonly mod: Mod<Oneclau
 // they are in.
 function Optimize({ mod }: { readonly mod: Mod<OneclaudeState> }): JSX.Element {
   if (!mod.state.memory.isConfirming) {
-    return <Box><Button key="optimize" plain dimColor onPress={() => { mod.state.memory.isConfirming = true }}>[Optimize usage]</Button></Box>
+    return <Box><Button key="optimize" dimColor onPress={() => { mod.state.memory.isConfirming = true }} label="Optimize usage" /></Box>
   }
   const send = async (): Promise<void> => {
     const [agents, projects, models] = await Promise.all((['agent', 'project', 'model'] as const).map((by) => readUsage(mod.state.memory.pool, 'month', by, 'cost')))
@@ -291,8 +272,8 @@ function Optimize({ mod }: { readonly mod: Mod<OneclaudeState> }): JSX.Element {
       <Text bold>Ask your agent to optimize your usage?</Text>
       <Text dimColor wrap="wrap">We'll send it your last 30 days of usage, by agent, project and model.</Text>
       <Box gap={2}>
-        <Button key="optimize-send" plain onPress={send}><Text color="claude">[Ask your agent]</Text></Button>
-        <Button key="optimize-cancel" plain dimColor onPress={() => { mod.state.memory.isConfirming = false }}>[Cancel]</Button>
+        <Button key="optimize-send" variant="primary" onPress={send} label="Ask your agent" />
+        <Button key="optimize-cancel" dimColor onPress={() => { mod.state.memory.isConfirming = false }} label="Cancel" />
       </Box>
     </Box>
   )

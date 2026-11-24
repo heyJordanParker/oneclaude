@@ -48,7 +48,7 @@ export const oneclaude = defineMod({
   installer: [askKey],
 
   async setup(mod) {
-    const page = mod.sidebar.add(accountsPage)
+    const page = mod.pages.add(accountsPage)
     let frames: Timer | undefined
     const settle = (): void => {
       frames?.stop()
@@ -170,19 +170,17 @@ export const oneclaude = defineMod({
         if (after === undefined) await pause(RETRY_MS[0]!)
       }
     }
-    // toggle opens or closes the page. cmod shows a page only once the
-    // command or press that asked for it ends, so the toggle line follows
-    // what was asked, and each status what the Sidebar shows, as after its ×.
+    // toggle opens or closes the page. The toggle line follows the page, and
+    // each status what the Sidebar shows, as after its ×.
     const toggle = async (): Promise<void> => {
-      const isOpening = !page.isOpen
-      if (isOpening) {
+      if (!page.isOpen) {
         mod.state.memory.isConfirming = false
         void showUsage(mod)
         mod.state.memory.shown = Object.fromEntries(Object.entries(mod.state.memory.shown).map(([key, shown]) => [key, key === LINE ? shown : { used: 0, pace: 0 }]))
         animate()
       }
       await page.toggle({ focus: true })
-      mod.state.memory.isOpen = isOpening
+      mod.state.memory.isOpen = page.isOpen
     }
     const showTrouble = async (key: string): Promise<void> => {
       if (!page.isOpen) await toggle()
