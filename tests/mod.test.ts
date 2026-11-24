@@ -66,7 +66,7 @@ test('the hint line shows the pool\'s bar, usage and pace', async () => {
   expect(line.search(BAR)).toBe(0)
   expect(line).toContain('58% · 9% under')
   expect(line).not.toContain('warning')
-  expect(line).toMatch(/\S \[\+\]/)
+  expect(line).toMatch(/\S \[ \+ \]/)
 })
 
 test('the hint line names only what needs the person: a signed-out account, a blocked one, the agent limit', async () => {
@@ -86,12 +86,12 @@ test('the hint line names only what needs the person: a signed-out account, a bl
   expect(line).not.toContain('2 accounts blocked')
 })
 
-test('the toggle after the line shows [-] while the Accounts page is open', async () => {
+test('the toggle after the line shows - while the Accounts page is open', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  expect(await hintLines(tested)).toContain('[-]')
+  expect(await hintLines(tested)).toContain('[ - ]')
   await tested.type('/accounts')
-  expect(await hintLines(tested)).toContain('[+]')
+  expect(await hintLines(tested)).toContain('[ + ]')
 })
 
 test('the hint line says when the proxy does not answer', async () => {
@@ -280,13 +280,25 @@ test('/accounts shows the combined usage, every account with its pace, and the l
   expect(pane).not.toContain('/19')
   expect(pane).toMatch(/^\s*╭─+╮\n\s*│ Combined usage /)
   expect(pane).toContain('Combined usage')
-  expect(pane).toContain('[Open dashboard]')
-  expect(pane).toContain('[Add account]')
+  expect(pane).toContain('[ Open dashboard ]')
+  expect(pane).toContain('[ Add account ]')
   expect(pane).toContain('refills in 3h · idle')
   expect(pane).toContain('not read yet')
   expect(pane).toContain(`${clockOf('2026-10-15T15:30:00Z')}  INFO  oneclaude cleared the proxy's blocks on lamport`)
   expect(pane).toContain(`${clockOf('2026-10-15T13:00:00Z')}  WARN  Anthropic rate limited turing (429).`)
   expect(pane.indexOf("oneclaude cleared the proxy's blocks")).toBeLessThan(pane.indexOf('Anthropic rate limited'))
+})
+
+test('/accounts starts every account\'s bar in one column, whatever the length of its name', async () => {
+  const tested = answering({ text: JSON.stringify(status) })
+  await tested.type('/accounts')
+  const lines = await tested.shown.page.lines()
+  const barAt = (name: string) => {
+    const line = lines.find((each) => each.trimStart().startsWith(`${name} `))
+    if (line === undefined) throw new Error(`no row for ${name}`)
+    return line.indexOf('█', line.indexOf(name) + name.length)
+  }
+  expect(barAt('turing')).toBe(barAt('lamport'))
 })
 
 test('/accounts puts each account\'s trouble on its row in a word or two, with the one button that fixes it', async () => {
@@ -304,17 +316,17 @@ test('/accounts puts each account\'s trouble on its row in a word or two, with t
   const tested = answering({ text: JSON.stringify(troubled) }, blocks)
   await tested.type('/accounts')
   const pane = (await tested.shown.page.lines()).join('\n')
-  expect(pane).toMatch(/jarvis +signed out {2}\[Sign in\]\n/)
-  expect(pane).toMatch(/hopper +refused {2}\[Retry\]\n/)
+  expect(pane).toMatch(/jarvis +signed out {2}\[ Sign in \]\n/)
+  expect(pane).toMatch(/hopper +refused {2}\[ Retry \]\n/)
   expect(pane).not.toContain(reason)
-  expect(pane).toContain(`blocked until ${momentOf('2026-10-15T20:50:00Z', now)}  [Retry]`)
+  expect(pane).toContain(`blocked until ${momentOf('2026-10-15T20:50:00Z', now)}  [ Retry ]`)
   expect(pane).toContain('throttled 12m ago')
 })
 
 // ranOn answers uname with system and records each program the mod runs.
 const ranOn = (system: string, ran: (readonly string[])[]) => async (argv: readonly string[]) => (ran.push(argv), { exitCode: 0, stdout: argv[0] === 'uname' ? `${system}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-test('[Sign in], [Add account] and [Open dashboard] open the proxy\'s pages in the browser', async () => {
+test('Sign in, Add account and Open dashboard open the proxy\'s pages in the browser', async () => {
   const tested = answering({ text: JSON.stringify({ ...status, accounts: status.accounts.map((account) => (account.name === 'jarvis' ? { ...account, signed_out: true } : account)) }) })
   const ran: (readonly string[])[] = []
   tested.fakes.process.run = ranOn('Darwin', ran)
@@ -330,7 +342,7 @@ test('[Sign in], [Add account] and [Open dashboard] open the proxy\'s pages in t
   ])
 })
 
-test('[Sign in] copies the login page\'s link where the computer has no browser to open', async () => {
+test('Sign in copies the login page\'s link where the computer has no browser to open', async () => {
   const tested = answering({ text: JSON.stringify({ ...status, accounts: status.accounts.map((account) => (account.name === 'jarvis' ? { ...account, signed_out: true } : account)) }) })
   tested.fakes.process.run = ranOn('Linux', [])
   await tested.type('/accounts')
@@ -339,7 +351,7 @@ test('[Sign in] copies the login page\'s link where the computer has no browser 
   expect(tested.calls.filter((call) => call.call === 'ui.copy').map((call) => call.args)).toEqual([[{ text: `${LOCAL_POOL}/management.html#/oauth`, surface: 'terminal' }]])
 })
 
-test('[Retry] asks the plugin to retry the account, with oneclaude\'s key, and the row clears at the blocks change it counts', async () => {
+test('Retry asks the plugin to retry the account, with oneclaude\'s key, and the row clears at the blocks change it counts', async () => {
   const asked: { url: string; method?: string; key?: string; body?: string }[] = []
   const { tested, pool } = pooled({ ...following, reads_blocks: true }, {
     files: stored('oneclaude'),
@@ -353,15 +365,15 @@ test('[Retry] asks the plugin to retry the account, with oneclaude\'s key, and t
     },
   })
   await tested.type('/accounts')
-  expect((await tested.shown.page.lines()).join('\n')).toContain('[Retry]')
+  expect((await tested.shown.page.lines()).join('\n')).toContain('[ Retry ]')
   await tested.shown.page.press('retry-turing')
   expect(asked).toEqual([{ url: `${LOCAL_POOL}/v0/management/plugins/oneclaude/retry`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
   pool.change({ ...following, change: 2, blocks_change: 2, reads_blocks: true })
   await tested.settle()
-  expect((await tested.shown.page.lines()).join('\n')).not.toContain('[Retry]')
+  expect((await tested.shown.page.lines()).join('\n')).not.toContain('[ Retry ]')
 })
 
-test('[Retry] names the cause when the pool clears no blocks: another oneclaude version, no answer, or the proxy\'s error', async () => {
+test('Retry names the cause when the pool clears no blocks: another oneclaude version, no answer, or the proxy\'s error', async () => {
   const troubled = { ...status, version: '0.10.0', accounts: status.accounts.map((account) => (account.name === 'turing' ? { ...account, refused: 'OAuth authentication is currently not allowed for this organization.' } : account)) }
   const pressed = async (answer: HttpResponse | Error) => {
     const tested = testMod(oneclaude, { files: stored('oneclaude') })
@@ -511,7 +523,7 @@ test('everything reads the pool Claude Code uses, on another machine too, and le
   expect(await hintLines(tested)).toContain('58% · 9% under')
   await tested.type('/accounts')
   const pane = (await tested.shown.page.lines()).join('\n')
-  expect(pane).toContain('[Open dashboard]')
+  expect(pane).toContain('[ Open dashboard ]')
   expect(asked.length).toBeGreaterThan(2)
   expect(asked.filter((url) => !url.startsWith('http://homeserver:8317/'))).toEqual([])
   expect(asked).toContain('http://homeserver:8317/v0/management/auth-files')
@@ -787,9 +799,9 @@ test('/accounts shows the last 30 days of usage by account, with the total last 
   const { tested, asked } = withUsage()
   const pane = await usagePane(tested)
   expect(asked[0]).toContain('usage.json?period=month&by=account&units=cost')
-  expect(pane).toMatch(/Period +90 days +\[30 days\] +7 days +Yesterday +Today\n/)
-  expect(pane).toContain('[Account]')
-  expect(pane).toContain('[Cost]')
+  expect(pane).toMatch(/Period +90 days +30 days +7 days +Yesterday +Today\n/)
+  expect(pane).toMatch(/By +Account +Model +Agent +Project +Time\n/)
+  expect(pane).toMatch(/Show +Cost +Tokens\n/)
   expect(pane).toMatch(/Input +Output +Cache write +Cache read +Cached +Share +Total\n/)
   expect(pane).toMatch(/turing +\$0 +\$0\.01 +\$0\.70 +\$0 +0% +88% +\$0\.70\n/)
   expect(pane).toMatch(/lamport +\$0 +\$0 +\$0 +\$0\.10 +100% +12% +\$0\.10\n/)
@@ -802,12 +814,11 @@ test('/accounts shows the last 30 days of usage by account, with the total last 
 test('the Usage controls read the table for the chosen period, breakdown and units', async () => {
   const { tested, asked } = withUsage()
   await usagePane(tested)
-  await tested.shown.page.press('by-time')
+  await tested.shown.page.press('tab:time')
   const pane = await usagePane(tested)
   expect(asked.at(-1)).toContain('period=month&by=time&units=cost')
-  expect(pane).toContain('[Time]')
   expect(pane).toMatch(/Oct 15( +\S+){5} +2% +\$0\.90\n +Oct 14( +\S+){5} +46% +\$18\n +Oct 3( +\S+){4} +51% +\$20\n/)
-  await tested.shown.page.press('show-tokens')
+  await tested.shown.page.press('tab:tokens')
   await tested.settle()
   expect(asked.at(-1)).toContain('period=month&by=time&units=tokens')
 })
@@ -815,20 +826,19 @@ test('the Usage controls read the table for the chosen period, breakdown and uni
 test('the By row stays the same for every period, and Time over a day goes by the hour', async () => {
   const { tested, asked } = withUsage()
   await usagePane(tested)
-  await tested.shown.page.press('by-time')
+  await tested.shown.page.press('tab:time')
   const before = await usagePane(tested)
-  await tested.shown.page.press('period-today')
+  await tested.shown.page.press('tab:today')
   const pane = await usagePane(tested)
   expect(asked.at(-1)).toContain('period=today&by=time&units=cost')
-  for (const shown of [before, pane]) expect(shown).toMatch(/By +Account +Model +Agent +Project +\[Time\]\n/)
+  for (const shown of [before, pane]) expect(shown).toMatch(/By +Account +Model +Agent +Project +Time\n/)
   expect(pane).toMatch(/17:00( +\S+){6}\n +09:00( +\S+){6}\n +All hours/)
 })
 
 test('Usage says what Not recorded means when a row has no agent type or project', async () => {
   const { tested } = withUsage()
   await usagePane(tested)
-  await tested.shown.page.press('period-month')
-  await tested.shown.page.press('by-agent')
+  await tested.shown.page.press('tab:agent')
   const pane = await usagePane(tested)
   expect(pane).toMatch(/Not recorded( +\S+){6}/)
   expect(pane.replace(/\s+/g, ' ')).toContain('Not recorded: requests from before oneclaude recorded agent types and projects, and from conversations whose record never reached the pool.')
@@ -861,17 +871,17 @@ test('the daily chart stands each day on the baseline, exact to an eighth, with 
   expect([chart.first, chart.last]).toEqual(['Sep 16', 'Oct 15'])
 })
 
-test('[Optimize usage] asks before it sends this session the last 30 days by agent type, project and model', async () => {
+test('Optimize usage asks before it sends this session the last 30 days by agent type, project and model', async () => {
   const { tested } = withUsage()
   await usagePane(tested)
   await tested.shown.page.press('optimize')
   const asking = await usagePane(tested)
   expect(asking).toContain('Ask your agent to optimize your usage?')
   expect(asking).toContain("We'll send it your last 30 days of usage, by agent, project and model.")
-  expect(asking).toContain('[Ask your agent]')
+  expect(asking).toContain('[ Ask your agent ]  [ Cancel ]')
   expect(tested.shown.prompts).toHaveLength(0)
   await tested.shown.page.press('optimize-cancel')
-  expect(await usagePane(tested)).toContain('[Optimize usage]')
+  expect(await usagePane(tested)).toContain('[ Optimize usage ]')
   await tested.shown.page.press('optimize')
   await tested.shown.page.press('optimize-send')
   const [prompt] = tested.shown.prompts
@@ -881,7 +891,7 @@ test('[Optimize usage] asks before it sends this session the last 30 days by age
   expect(prompt).toContain('- dotfiles: $0.80')
   expect(prompt).toContain('- Opus 5.5: $39')
   expect(prompt).toContain('Change nothing until I approve.')
-  expect(await usagePane(tested)).toContain('[Optimize usage]')
+  expect(await usagePane(tested)).toContain('[ Optimize usage ]')
 })
 
 test('a count reads in 3 figures, and dollars in whole dollars from $1', () => {

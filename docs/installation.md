@@ -88,7 +88,7 @@ When Claude Code is logged in to a Claude account, oneclaude copies that login i
 
 The copy holds Claude Code's access token, never its refresh token, so copying never logs Claude Code out. Anthropic's refresh tokens work once: if the proxy also refreshed this login, Claude Code's next refresh would be refused, and Claude Code would sign itself out. Claude Code stays the only program that refreshes it. Each time Claude Code refreshes, the proxy's copy follows within a minute, or at once when Anthropic turns the copy's old token away. A copy made by an earlier version, which still holds the refresh token, loses it at the first minute.
 
-The one cost: when no Claude Code runs past the token's expiry, the copy shows signed out on the pool line and in `/accounts` until Claude Code next refreshes, and the minute after, it is back. `[Sign in]` on that account gives the pool a login of its own instead, which the proxy refreshes itself, and the copy then stops following Claude Code.
+The one cost: when no Claude Code runs past the token's expiry, the copy shows signed out on the pool line and in `/accounts` until Claude Code next refreshes, and the minute after, it is back. **Sign in** on that account gives the pool a login of its own instead, which the proxy refreshes itself, and the copy then stops following Claude Code.
 
 ### 5. Starting the proxy
 
@@ -110,7 +110,7 @@ Once the proxy answers with oneclaude's status, the mod sets `env.ANTHROPIC_BASE
 
 ## Add your other accounts
 
-Run `/accounts` and press `[Add account]`. The proxy's control panel opens at its OAuth login page. The first time, it asks for its password, the management key, `oneclaude` unless you set your own: tick Remember password. Log in to each Claude subscription you have. On a machine that uses a pool on another machine, the login sends your browser to an address on `localhost` that doesn't load: copy that whole address into the panel's Callback URL field and submit it. A Codex account logged in there shows its weekly usage in the Accounts tab too.
+Run `/accounts` and press **Add account**. The proxy's control panel opens at its OAuth login page. The first time, it asks for its password, the management key, `oneclaude` unless you set your own: tick Remember password. Log in to each Claude subscription you have. On a machine that uses a pool on another machine, the login sends your browser to an address on `localhost` that doesn't load: copy that whole address into the panel's Callback URL field and submit it. A Codex account logged in there shows its weekly usage in the Accounts tab too.
 
 ## Update
 

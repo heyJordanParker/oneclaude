@@ -2,6 +2,13 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.11.0]
+
+### Changed
+- The Accounts tab draws with cmod's own controls, so it lines up in Herdr and cmod's browser app as it does in the terminal. The names sit in a column of their own, so every bar starts in one column, each button draws its own frame, as `[ Retry ]` in the terminal and a button in Herdr, and Period, By and Show are rows of tabs. Before, the names were padded with spaces, which Herdr's proportional font pulled out of line, and the brackets showed as plain characters.
+- The toggle after the line under the prompt draws as a button, `[ + ]` in the terminal.
+- oneclaude needs cmod 8, where it ran on cmod 6. Herdr opens the Accounts tab as a tab of its own.
+
 ## [0.10.3]
 
 ### Fixed
