@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test'
 import { BelowPrompt, type HttpOptions, type HttpResponse } from '../node_modules/@cmodjs/core/mod.js'
 import { testMod } from '../node_modules/@cmodjs/core/testing.js'
+import { drawWith, forClaudeCode } from '../node_modules/@cmodjs/core/ui/elements.js'
+import { poolBar } from '../src/components/pool-bar.js'
 import { calendarOf } from '../src/components/weekly-resets.js'
 import { oneclaude, RETRY_MS } from '../src/mod.js'
-import { bar, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, glide, LOCAL_POOL, momentOf, paceState, troublesOf, until, type Cell, type Status } from '../src/status.js'
+import { BAR_WIDTH, CAP_LEFT, CAP_RIGHT, clockOf, evenOf, glide, LOCAL_POOL, momentOf, paceState, troublesOf, until, type Shown, type Status } from '../src/status.js'
 import { dailyChart, GUTTER, money, tokenCount, usageLayout, type TableLine, type Tokens, type UsageRow, type UsageTable } from '../src/usage.js'
 
 const now = '2026-10-15T16:00:00Z'
@@ -444,6 +446,11 @@ test('each trouble under the prompt opens /accounts at the row of the account it
   ])
 })
 
+test('a login block the proxy holds while it renews the login names no trouble', () => {
+  const blocks = { j1: [{ until: '2026-10-15T20:50:00Z', reason: 'unauthorized' }], t1: [{ until: '2026-10-15T20:50:00Z', reason: 'invalid_grant' }] }
+  expect(troublesOf(status, blocks)).toEqual([])
+})
+
 test('/accounts shows the newest 10 log lines and counts the rest', async () => {
   const log = Array.from({ length: 12 }, (_, i) => ({ at: new Date(Date.parse(now) - (12 - i) * 60_000).toISOString(), level: 'WARN' as const, text: `Anthropic rate limited turing (429). ${i}` }))
   const tested = answering({ text: JSON.stringify({ ...status, log }) })
@@ -686,32 +693,52 @@ test('an account marks its own even pace', () => {
   expect(evenOf(status.accounts[2]!, now)).toBeUndefined()
 })
 
-// columns spreads a bar's runs back into one cell per column.
-function columns(cells: readonly Cell[]): Cell[] {
-  return cells.flatMap((cell) => [...cell.text].map((text) => ({ ...cell, text })))
+// Drawn is a Text as cmod's terminal drawing hands it to Claude Code.
+type Drawn = { readonly color?: string; readonly backgroundColor?: string; readonly children?: string | readonly Drawn[] }
+type BarCell = { readonly text: string; readonly color?: string; readonly background?: string }
+
+function cellsOf(drawn: Drawn): BarCell[] {
+  const { children, color, backgroundColor } = drawn
+  if (typeof children === 'string') return [...children].map((text) => ({ text, color, ...(backgroundColor === undefined ? {} : { background: backgroundColor }) }))
+  return (children ?? []).flatMap(cellsOf)
 }
 
-test('the bar is exact to an eighth of a cell, and the color change marks pace', () => {
-  const drawn = columns(bar(0.51, 0.29, 20))
-  expect(drawn).toHaveLength(22)
+// terminalBar draws a bar as Claude Code's terminal does, one cell per
+// column, in a terminal whose font has the rounded ends or one without.
+function terminalBar(shown: Shown, hasNerdFont = true): BarCell[] {
+  const table = forClaudeCode({ Text: (props: Drawn) => props } as unknown as Parameters<typeof drawWith>[0], 'terminal', () => undefined, { hasNerdFont })
+  return cellsOf(drawWith(table, () => poolBar(shown)) as unknown as Drawn)
+}
+
+const colorsOf = (cells: readonly BarCell[]): (string | undefined)[] => cells.map((cell) => cell.color)
+const repeated = <Value,>(value: Value, count: number): Value[] => Array.from({ length: count }, () => value)
+
+test('the bar is exact to an eighth of a cell, rounds its ends, and the color change marks pace', () => {
+  const drawn = terminalBar({ used: 0.51, pace: 0.29 })
+  expect(drawn).toHaveLength(BAR_WIDTH)
   expect(drawn[0]).toEqual({ text: CAP_LEFT, color: 'inactive' })
-  const cells = drawn.slice(1, 21)
-  expect(cells.slice(0, 5).every((cell) => cell.text === '█' && cell.color === 'inactive')).toBe(true)
+  const cells = drawn.slice(1, -1)
+  expect(cells.slice(0, 5)).toEqual(repeated({ text: '█', color: 'inactive' }, 5))
   expect(cells[5]).toEqual({ text: '▊', color: 'inactive', background: 'warning' })
-  expect(cells.slice(6, 10).every((cell) => cell.text === '█' && cell.color === 'warning')).toBe(true)
+  expect(cells.slice(6, 10)).toEqual(repeated({ text: '█', color: 'warning' }, 4))
   expect(cells[10]).toEqual({ text: '▎', color: 'warning', background: 'subtle' })
-  expect(cells.slice(11).every((cell) => cell.text === '█' && cell.color === 'subtle')).toBe(true)
-  expect(drawn[21]).toEqual({ text: CAP_RIGHT, color: 'subtle' })
+  expect(cells.slice(11)).toEqual(repeated({ text: '█', color: 'subtle' }, 9))
+  expect(drawn.at(-1)).toEqual({ text: CAP_RIGHT, color: 'subtle' })
 })
 
-test('under pace the headroom shows in a lifted track, and a nearly empty bar turns red', () => {
-  const under = columns(bar(0.25, 0.5, 4))
-  expect(under.map((cell) => cell.color)).toEqual(['inactive', 'inactive', 'promptBorder', 'subtle', 'subtle', 'subtle'])
-  const spent = columns(bar(1, 1, 4))
-  expect(spent.every((cell) => cell.color === 'error' && cell.background === undefined)).toBe(true)
-  const nearly = columns(bar(0.96, 0.5, 4)).slice(1, 5)
-  expect(nearly.map((cell) => cell.color)).toEqual(['error', 'error', 'diffRemoved', 'diffRemoved'])
-  expect(nearly[3]).toEqual({ text: '▉', color: 'diffRemoved', background: 'subtle' })
+test('under pace the headroom shows in a lifted track, and a nearly empty bar turns red, darker over pace', () => {
+  expect(colorsOf(terminalBar({ used: 0.25, pace: 0.5 }).slice(1, -1))).toEqual([...repeated('inactive', 5), ...repeated('promptBorder', 5), ...repeated('subtle', 10)])
+  expect(terminalBar({ used: 1, pace: 1 }).every((cell) => cell.color === 'error' && cell.background === undefined)).toBe(true)
+  const nearly = terminalBar({ used: 0.96, pace: 0.5 }).slice(1, -1)
+  expect(colorsOf(nearly)).toEqual([...repeated('error', 10), ...repeated('diffRemoved', 10)])
+  expect(nearly[19]).toEqual({ text: '▎', color: 'diffRemoved', background: 'subtle' })
+})
+
+test('in a terminal whose font has no rounded ends, the bar keeps its width with square ends', () => {
+  const drawn = terminalBar({ used: 0.25, pace: 0.5 }, false)
+  expect(drawn).toHaveLength(BAR_WIDTH)
+  expect(drawn.every((cell) => cell.text !== CAP_LEFT && cell.text !== CAP_RIGHT)).toBe(true)
+  expect(drawn[0]).toEqual({ text: '█', color: 'inactive' })
 })
 
 test('a bar glides toward its reading and lands on it', () => {

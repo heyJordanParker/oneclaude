@@ -1697,14 +1697,45 @@ func TestThePluginWatchesTheCredentialFolderItsSettingNamesFromLoad(t *testing.T
 	}
 }
 
-func TestARequestAnthropicRejectsSignsItsAccountOutUntilItAnswersAgain(t *testing.T) {
-	p := newTestPlugin(t, enabled)
-	send(t, p, "r1", "s1", "", "claude-opus-5-5", []string{"ada.json"}, nil, http.StatusUnauthorized)
-	send(t, p, "r2", "s1", "", "claude-opus-5-5", []string{"ada.json"}, nil, http.StatusUnauthorized)
-	if st := p.Status(); !st.Accounts[0].SignedOut || len(st.Log) != 1 || st.Log[0].Text != "Anthropic rejected ada's login (401)." {
+// rejectRequest sends the usage record of a request Anthropic answered 401 on
+// account, as the proxy reports the attempt before it refreshes the login.
+func rejectRequest(t *testing.T, p *Plugin, rid, account string) {
+	t.Helper()
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: rid, Provider: "claude", Model: "claude-opus-5-5", AuthID: account, Failed: true, Failure: UsageFailure{StatusCode: http.StatusUnauthorized}})
+}
+
+func TestARequestRejectedWhileTheProxyRefreshesTheLoginNeverSignsItsAccountOut(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude-ada@x.json")
+	writeCredential(t, path, "expired")
+	p, _ := newCredentialPlugin(t, dir)
+	rejectRequest(t, p, "r1", "claude-ada@x.json")
+	if st := p.Status(); st.Accounts[0].SignedOut || len(st.Log) != 0 {
+		t.Fatalf("ada = %+v, log = %+v, want her signed in while the proxy refreshes her login", st.Accounts[0], st.Log)
+	}
+	writeCredential(t, path, "signed-in")
+	st, _ := statusUntil(t, p, func(st Status) bool { return st.Accounts[0].Known })
+	if st.Accounts[0].SignedOut || len(st.Log) != 0 {
+		t.Fatalf("ada = %+v, log = %+v, want her read with the refreshed login, never signed out", st.Accounts[0], st.Log)
+	}
+	p.checkDoubted(testNow)
+	if st := p.Status(); st.Accounts[0].SignedOut || len(st.Log) != 0 {
+		t.Fatalf("ada = %+v, log = %+v, want her still signed in at the next tick", st.Accounts[0], st.Log)
+	}
+}
+
+func TestARequestRejectedWithALoginNothingRenewsSignsItsAccountOutAtTheNextTick(t *testing.T) {
+	dir := t.TempDir()
+	writeCredential(t, filepath.Join(dir, "claude-ada@x.json"), "expired")
+	p, _ := newCredentialPlugin(t, dir)
+	rejectRequest(t, p, "r1", "claude-ada@x.json")
+	rejectRequest(t, p, "r2", "claude-ada@x.json")
+	p.checkDoubted(testNow)
+	st := p.Status()
+	if !st.Accounts[0].SignedOut || len(st.Log) != 1 || st.Log[0].Text != "Anthropic rejected ada's login (401)." {
 		t.Fatalf("ada = %+v, log = %+v, want her signed out and logged once", st.Accounts[0], st.Log)
 	}
-	send(t, p, "r3", "s1", "", "claude-opus-5-5", []string{"ada.json"}, weekly(0.5, 24*time.Hour), http.StatusOK)
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "r3", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json"})
 	if st := p.Status(); st.Accounts[0].SignedOut || len(st.Log) != 2 || st.Log[1].Text != "Anthropic accepted ada's login again." {
 		t.Fatalf("ada = %+v, log = %+v, want her signed in and logged", st.Accounts[0], st.Log)
 	}

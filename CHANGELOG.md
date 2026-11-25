@@ -2,6 +2,16 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.11.1]
+
+### Fixed
+- `signed out` shows only for a login the pool can't use until you sign in again. Before, it flashed for a few seconds whenever an account's access token expired, while the proxy renewed the login by itself, and the log showed `Anthropic rejected <name>'s login (401).` and `accepted again` for it. Now a request Anthropic rejects makes oneclaude check the login the proxy holds, at once when the proxy rewrites it, else within a minute, and only a login Anthropic rejects there shows as signed out.
+
+### Changed
+- Every bar is cmod's progress bar, so Herdr and cmod's browser app draw it as their own bar, where they drew rows of block characters. The terminal draws it as before, exact to an eighth of a cell, with the lighter track under pace.
+- A bar's ends are rounded only in a terminal whose font carries Nerd Font's half circles: Herdr, Ghostty, WezTerm, and tmux started from one of them. Every other terminal draws them square, where a font without the glyphs showed a box. Over ssh, turn on **Round the ends of bars in every terminal** under cmod, Preferences, in `/mods`.
+- oneclaude builds on `@cmodjs/core` 8.9.0.
+
 ## [0.11.0]
 
 ### Changed

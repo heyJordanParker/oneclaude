@@ -330,10 +330,11 @@ func (p *Plugin) unblock(authIndex string) error {
 }
 
 // loginAnswered keeps what an answer from Anthropic says of an account's
-// login, and logs each change: a 401 signs it out, a 403 permission_error
-// refuses it with Anthropic's reason, and a 200 accepts it again. A 401 that
-// signs an account out moves any copy of Claude Code's login to Claude Code's
-// token at once. It reports whether Anthropic turned the login away.
+// login, and logs each change: a 401 to the login on disk signs it out, a 403
+// permission_error refuses it with Anthropic's reason, and a 200 accepts it
+// again. A 401 that signs an account out moves any copy of Claude Code's
+// login to Claude Code's token at once. It reports whether Anthropic turned
+// the login away.
 func (p *Plugin) loginAnswered(id string, status int, body []byte) bool {
 	reason, refused := refusalOf(status, body)
 	signedOut := status == http.StatusUnauthorized
@@ -347,7 +348,7 @@ func (p *Plugin) loginAnswered(id string, status int, body []byte) bool {
 		return signedOut || refused
 	}
 	wasSignedOut, wasRefused, name := a.signedOut, a.refused, a.Name
-	a.signedOut, a.refused = signedOut, reason
+	a.signedOut, a.refused, a.doubted = signedOut, reason, false
 	p.mu.Unlock()
 	switch {
 	case signedOut && !wasSignedOut:
@@ -359,6 +360,25 @@ func (p *Plugin) loginAnswered(id string, status int, body []byte) bool {
 		p.note(levelInfo, "Anthropic accepted %s's login again.", name)
 	}
 	return signedOut || refused
+}
+
+// requestRejected doubts the login of an account Anthropic answered a
+// request with 401. The proxy refreshes a login it holds a refresh token for
+// and sends the request again, so the 401 signs nothing out. It moves any
+// copy of Claude Code's login to Claude Code's token at once, and the login
+// on disk is checked once the proxy is done: at once when its file changes,
+// else at the next poll tick.
+func (p *Plugin) requestRejected(id string) {
+	p.mu.Lock()
+	a := p.accounts[id]
+	isNew := a != nil && !a.doubted
+	if isNew {
+		a.doubted = true
+	}
+	p.mu.Unlock()
+	if isNew {
+		p.host.spawn(func() { p.followClaudeLogin(p.now()) })
+	}
 }
 
 // refusalOf is Anthropic's reason for a 403 that refuses a login, whose
@@ -491,7 +511,12 @@ func (p *Plugin) observe(rec UsageRecord) {
 	if outcome == "ok" {
 		status = http.StatusOK
 	}
-	login := p.loginAnswered(rec.AuthID, status, []byte(rec.Failure.Body))
+	login := status == http.StatusUnauthorized
+	if login {
+		p.requestRejected(rec.AuthID)
+	} else {
+		login = p.loginAnswered(rec.AuthID, status, []byte(rec.Failure.Body))
+	}
 
 	retry := false
 	if key := r.key; tracked && key != "" {

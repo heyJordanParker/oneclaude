@@ -24,7 +24,7 @@ The line names what needs you, and only while it is true:
 ```
 
 - **`1 account refused`** means Anthropic refuses the account's organization, as after a failed payment, and the log says why. oneclaude asks Anthropic again every 30 minutes, and the account comes back by itself at the first answer that accepts it. Its row's **Retry** asks at once, as after you fix the payment.
-- **`1 account signed out`** means Anthropic rejects the login. It stays until the account answers again, and goes within a second of a sign-in. Its row has **Sign in**.
+- **`1 account signed out`** means Anthropic rejects the login the pool holds, and the proxy could not renew it. It stays until the account answers again, and goes within a second of a sign-in. Its row has **Sign in**. A login the proxy renews by itself, as when its access token expires, never shows here.
 - **`1 account blocked`** means the proxy holds a block on an account that no rate limit explains, such as one it set after a failed request. It stays until the block ends or you press the row's **Retry**.
 - **`agent limit reached`** means every account runs as many agents of a model as it can, so oneclaude holds new subagents back. It stays until 3 minutes, `subagents.retry-after`, pass without a refusal.
 
@@ -156,11 +156,11 @@ Every bar is 20 cells wide and exact to an eighth of a cell. It fills to the acc
 
 - **Behind an even spend**, the bar fills in gray to the usage, and a lighter track runs on to the mark. That lighter part is quota you could spend now and still be even.
 - **Ahead of an even spend**, the bar fills in gray to the mark, then in orange to the usage. The orange part is how far ahead of an even spend the account is.
-- **In the last 5% of the week's quota**, the bar turns red.
+- **In the last 5% of the week's quota**, the bar turns red, and the part ahead of an even spend a darker red.
 
 An empty account has no mark, because an even spend means nothing once the week is spent. Bars glide to each new reading, and the Accounts tab's bars grow from zero when it opens.
 
-The rounded ends of each bar are [Nerd Font](https://www.nerdfonts.com) glyphs. A terminal font without them shows a blank or a box at each end.
+Each bar is cmod's progress bar, so Herdr and cmod's browser app draw it as their own. In the terminal, its ends are rounded in Herdr, Ghostty, and WezTerm, and in tmux started from Ghostty or WezTerm, whose fonts carry the [Nerd Font](https://www.nerdfonts.com) half circles. Every other terminal draws them square, because a font without the glyphs shows a box. A session over ssh can't tell which terminal shows it, so for a font with the glyphs, open Settings with `/mods`, go to cmod, Preferences, and turn on **Round the ends of bars in every terminal**. A session reads it when it starts.
 
 ## The dashboard
 

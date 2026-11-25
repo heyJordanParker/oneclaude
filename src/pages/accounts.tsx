@@ -5,7 +5,7 @@ import { poolBar } from '../components/pool-bar.js'
 import { Facts, factText, type Fact } from '../components/pool-line.js'
 import { calendarOf, WeeklyResets } from '../components/weekly-resets.js'
 import type { OneclaudeState, UsageView } from '../state.js'
-import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_CELLS, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, isSignedOut, momentOf, paceOf, percent, plural, POOL, PROBLEMS, retry, rowKey, until, warningOf, type Account, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
+import { ACCOUNTS, addAccountUrl, ago, agentsOf, BAR_WIDTH, blocksOf, claudeKey, clockOf, codexKey, dashboardUrl, evenOf, FAMILIES, momentOf, paceOf, percent, plural, POOL, PROBLEMS, retry, rowKey, until, warningOf, type Account, type Blocks, type Codex, type LogEntry, type Shown, type Status } from '../status.js'
 import { BREAKDOWNS, dailyChart, GUTTER, optimizePrompt, PERIODS, readUsage, UNITS, usageLayout, type TableLine, type UsageTable } from '../usage.js'
 
 const COMBINED = 'Combined usage'
@@ -45,7 +45,7 @@ export const accountsPage: PageInit<OneclaudeState> = {
     const codex = status.codex.map((account) => codexRow(account, status.now, shown[codexKey(account)]))
     const rows = [combined, ...claude, ...codex]
     const width = Math.max(...rows.map((row) => row.name.length))
-    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_CELLS + 2 + GAP + factText(row.facts).length > columns)
+    const isNarrow = rows.some((row) => INSET * 2 + width + GAP + BAR_WIDTH + GAP + factText(row.facts).length > columns)
     const draw = (row: Row): JSX.Element => <RowView row={row} width={width} isNarrow={isNarrow} />
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
@@ -138,7 +138,7 @@ function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, n
   if (account.refused !== undefined) {
     return { key, name: account.name, facts: [], trouble: <TroubleView text="refused"><RetryButton mod={mod} account={account} /></TroubleView> }
   }
-  if (isSignedOut(account, blocks, now)) {
+  if (account.signed_out) {
     return { key, name: account.name, facts: [], trouble: <TroubleView text="signed out"><Button key={`sign-in-${account.name}`} dimColor href={addAccountUrl(mod.state.memory.pool)} label="Sign in" /></TroubleView> }
   }
   const last = blocksOf(account, blocks, now).map((block) => block.until).sort().at(-1)

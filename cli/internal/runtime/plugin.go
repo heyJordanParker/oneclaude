@@ -42,8 +42,10 @@ type Options struct {
 // answered each model. throttled, rejected, overloaded, notFound and failed
 // are when Anthropic last throttled it, turned it away for its spent week,
 // answered overloaded, answered 404, or answered any other error. signedOut is
-// whether Anthropic rejected its login (401) since it last answered, and
-// refused Anthropic's reason when it refused the login (403).
+// whether Anthropic rejected the login on disk (401) since it last answered,
+// and refused Anthropic's reason when it refused the login (403). doubted is
+// whether Anthropic rejected a request's login (401) since the plugin last
+// checked the login on disk, which the proxy may have refreshed since.
 type accountState struct {
 	model.Account
 	weekly     model.Weekly
@@ -56,6 +58,7 @@ type accountState struct {
 	failed     time.Time
 	signedOut  bool
 	refused    string
+	doubted    bool
 }
 
 func (a *accountState) loginFails() bool {

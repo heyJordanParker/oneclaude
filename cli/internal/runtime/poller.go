@@ -78,6 +78,7 @@ func (p *Plugin) pollLoop(stop chan struct{}) {
 					listedAt = now
 				}
 			}
+			p.checkDoubted(now)
 			p.refreshOne(now)
 			p.save()
 			p.changed(false)
@@ -263,8 +264,9 @@ func contentOf(path string) (content string, written bool) {
 // proxy's blocks on each account Anthropic rejected whose file changed, as
 // its new login may fix them, and counts a change of the status
 // and of the blocks, so the blocks a session reads next are the cleared
-// ones. Then it reads the usage of every account Anthropic rejects or that
-// has no reading, at once and with its failures forgotten. host.auth.get
+// ones. Then it reads the usage of every account Anthropic rejects, whose
+// login a request found rejected, or that has no reading, at once and with
+// its failures forgotten. host.auth.get
 // reads the file, so the read takes the new login even before the proxy
 // does. names holds each changed file's name, true for a file still there.
 func (p *Plugin) credentialsChanged(names map[string]bool) {
@@ -290,7 +292,7 @@ func (p *Plugin) credentialsChanged(names map[string]bool) {
 		}
 	}
 	for id, a := range p.accounts {
-		if a.AuthIndex == "" || a.known && !a.loginFails() {
+		if a.AuthIndex == "" || a.known && !a.loginFails() && !a.doubted {
 			continue
 		}
 		delete(p.failedAt, id+"#plan")
@@ -355,6 +357,23 @@ func (p *Plugin) readNow(due []reading, now time.Time) {
 	reads.Wait()
 	p.save()
 	p.changed(false)
+}
+
+// checkDoubted reads the usage of each account whose login a request found
+// rejected, at once, with the login on disk: a login the proxy refreshed
+// since stays signed in, and one nothing renewed signs out.
+func (p *Plugin) checkDoubted(now time.Time) {
+	var due []reading
+	p.mu.Lock()
+	for id, a := range p.accounts {
+		if a.doubted && a.AuthIndex != "" {
+			due = append(due, usageReading(id, a.AuthIndex))
+		}
+	}
+	p.mu.Unlock()
+	if len(due) > 0 {
+		p.readNow(due, now)
+	}
 }
 
 // followClaudeLogin keeps each copy of Claude Code's login, the credential
