@@ -253,6 +253,20 @@ var interfaceName = /^[a-z0-9][\w.-]*\/[A-Z]\w*$/;
 function serviceFolder(store, mod) {
   return `${store}/services/${checkedName(mod)}`;
 }
+function preferencesPath(store) {
+  return `${store}/preferences.json`;
+}
+var preferenceKeys = ["showsInstalledModErrors", "servesWebUi", "servesTailnet", "roundsBarEnds"];
+function parsePreferences(value, path) {
+  if (value !== undefined && (!isObject(value) || preferenceKeys.some((key) => value[key] !== undefined && typeof value[key] !== "boolean")))
+    throw new Error(`${path} is not a map of cmod's preferences to true or false. Delete it, and cmod uses its defaults.`);
+  const saved = isObject(value) ? value : {};
+  return { showsInstalledModErrors: saved["showsInstalledModErrors"] === true, servesWebUi: saved["servesWebUi"] === true, servesTailnet: saved["servesTailnet"] !== false, roundsBarEnds: saved["roundsBarEnds"] === true };
+}
+var nerdFontTerminals = ["herdr", "ghostty", "WezTerm"];
+function isNerdFontTerminal({ program, ghostty, wezterm }) {
+  return nerdFontTerminals.includes(program ?? "") || (ghostty ?? "") !== "" || (wezterm ?? "") !== "";
+}
 function browserCommand(env, href) {
   if (env.browser === "true")
     return;
@@ -272,7 +286,7 @@ function readHotkeys(hotkeys) {
     throw new Error(`package.json "cmod.hotkeys" is not a map of hotkeys to their title and optional default combo. ${fix}`);
   return { hotkeys: checkHotkeys('package.json "cmod"', hotkeys) };
 }
-var coreVersion = "8.8.2";
+var coreVersion = "8.9.0";
 var oldestCmodVersion = "8.0.0";
 function hotkeyCommand(mod, hotkey) {
   return `${mod}--${hotkey}`;
@@ -4956,6 +4970,11 @@ function fitsOption(declared, value) {
 }
 
 // node_modules/@cmodjs/core/ui/elements.js
+var tableFacts = new WeakMap;
+var plainTerminal = { hasNerdFont: false };
+function drawnIn() {
+  return drawing?.drawnIn ?? plainTerminal;
+}
 var unbuilt = Symbol("an element built outside a render");
 var drawing;
 var lowerings = new Map;
@@ -4968,7 +4987,7 @@ function elementNamed(name, props) {
 }
 function drawWith(table, draw, markdown) {
   const outer = drawing;
-  const current = { table, markdown };
+  const current = { table, markdown, drawnIn: tableFacts.get(table) ?? plainTerminal };
   drawing = current;
   try {
     return built(current, draw());
@@ -5064,7 +5083,7 @@ function drawsFocusable(data, key) {
     return true;
   return Object.values(fields).some((each) => drawsFocusable(each, key));
 }
-function forClaudeCode(table, surface, open) {
+function forClaudeCode(table, surface, open, { hasNerdFont } = plainTerminal) {
   const { Button: button, Link: link, Image: image, Svg: svg, Raster: raster } = table;
   const opening = (props) => {
     const { href, ...rest } = props;
@@ -5077,7 +5096,9 @@ function forClaudeCode(table, surface, open) {
     return button({ ...rest, onPress: (press) => open(href, press) });
   };
   const named = (draw) => ({ label, ...rest }) => draw({ alt: label, ...rest });
-  return { ...table, Button: opening, Image: named(image), Svg: named(svg), Raster: ({ label, ...rest }) => raster(rest) };
+  const resolved = { ...table, Button: opening, Image: named(image), Svg: named(svg), Raster: ({ label, ...rest }) => raster(rest) };
+  tableFacts.set(resolved, { hasNerdFont: hasNerdFont && surface === "terminal" });
+  return resolved;
 }
 var Box = element("Box");
 var Text = element("Text");
@@ -6968,10 +6989,58 @@ var Pagination = hostComponent("Pagination", ({ page, pages, onPage }) => ({
     onNext === undefined ? Text({ dimColor: true, children: "n: Next" }) : Button({ plain: true, hotkey: "n", label: "Next", onPress: onNext })
   ]
 }));
-var Progress = hostComponent("Progress", ({ value, width = 24, label }) => ({ value: Math.min(Math.max(value, 0), 100), width, ...label === undefined ? {} : { label } }), ({ value, width }) => {
-  const filled = Math.round(value / 100 * width);
-  return Text({ children: [Text({ color: "claude", children: "█".repeat(filled) }), Text({ color: "subtle", children: "░".repeat(width - filled) })] });
+var eighths = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+var roundedLeft = "";
+var roundedRight = "";
+var barColors = { neutral: "inactive", info: "suggestion", success: "success", warning: "warning", critical: "error" };
+function filledSections(sections) {
+  let reached = 0;
+  return sections.map((section) => {
+    const filled = Math.min(Math.max(section.value, 0), 100 - reached);
+    reached += filled;
+    return { ...section, value: filled };
+  });
+}
+var Progress = hostComponent("Progress", ({ width = 24, label, buffer, ...given }) => {
+  const sections = "sections" in given ? filledSections(given.sections) : given.tone === undefined ? undefined : filledSections([given]);
+  const value = sections === undefined && "value" in given ? Math.min(Math.max(given.value, 0), 100) : (sections ?? []).reduce((sum, each) => sum + each.value, 0);
+  const buffered = buffer === undefined ? undefined : Math.min(Math.max(buffer, value), 100);
+  return { value, width, ...label === undefined ? {} : { label }, ...sections === undefined ? {} : { sections }, ...buffered === undefined || buffered === value ? {} : { buffer: buffered } };
+}, ({ value, width, sections, buffer }) => {
+  const isRounded = drawnIn().hasNerdFont && width > 2;
+  const cells = isRounded ? width - 2 : width;
+  const units = cells * eighths.length;
+  let reached = 0;
+  const ends = (sections ?? [{ value }]).map((section) => {
+    reached += section.value;
+    return { end: Math.round(reached / 100 * units), color: "color" in section ? section.color : section.tone === undefined ? "claude" : barColors[section.tone] };
+  });
+  const buffered = Math.round((buffer ?? 0) / 100 * units);
+  const colorAt = (unit) => ends.find(({ end }) => unit < end)?.color ?? (unit < buffered ? "promptBorder" : "subtle");
+  const drawn = [];
+  for (let cell = 0;cell < cells; cell++) {
+    const from = cell * eighths.length;
+    const left = colorAt(from);
+    const right = colorAt(from + eighths.length - 1);
+    let edge = 1;
+    while (edge < eighths.length && colorAt(from + edge) === left)
+      edge++;
+    drawn.push(left === right ? { color: left, children: "█" } : { color: left, backgroundColor: right, children: eighths[edge] ?? "█" });
+  }
+  const capped = isRounded ? [{ color: colorAt(0), children: roundedLeft }, ...drawn, { color: colorAt(units - 1), children: roundedRight }] : drawn;
+  return Text({ children: runsOf(capped).map((run) => Text(run)) });
 });
+function runsOf(cells) {
+  const runs = [];
+  for (const cell of cells) {
+    const last = runs.at(-1);
+    if (last !== undefined && last.color === cell.color && last.backgroundColor === cell.backgroundColor && last.children !== roundedLeft && cell.children !== roundedRight)
+      last.children += cell.children;
+    else
+      runs.push({ ...cell });
+  }
+  return runs;
+}
 var List = hostComponent("List", ({ label, children }) => ({ label, ...children === undefined ? {} : { children } }), ({ children }) => Box({ flexDirection: "column", children }));
 var statusOf = (tone) => tone === undefined ? [] : [tone === "off" ? Text({ dimColor: true, children: "○ " }) : Text({ ...textOf2(tone), children: "● " })];
 function treeRow({ key, label, description, leading, trailing, tone, isSelected, depth = 0, isOpen, onToggle, onPress }) {
@@ -7026,6 +7095,11 @@ var stallTicks = 3;
 var stallMs = 60000;
 var settingsLoadMs = 500;
 var shellTools = ["Bash", "PowerShell"];
+async function roundsBarEnds(claude) {
+  const path = preferencesPath(await cmodStore(claude));
+  const text = await claude.fs.read(path).catch(ifMissing(undefined));
+  return parsePreferences(text === undefined ? undefined : JSON.parse(text), path).roundsBarEnds;
+}
 async function readPlugin(claude) {
   const { name, root } = claude.plugin;
   const read = async (path) => {
@@ -7610,12 +7684,13 @@ ${String(asked.input.session)}`, asked);
       if (runtime !== undefined)
         return;
       const open = (href, press) => void openLink(claudeCalls, href, press.surface).then((done) => done === "copied" && runtime?.toaster.toast.success("Copied the link", { description: "Paste it in your browser." }), (error) => toastFailure({ id: "open-link", message: "Could not open the link", error, isCritical: true }));
+      let hasNerdFont = false;
       const naming = {
         ...claudeCalls,
         ui: {
           ...claudeCalls.ui,
           warn: (id, text) => runtime === undefined ? claudeCalls.ui.warn(id, text) : runtime.toaster.warn(id, text),
-          resolve: (e) => forClaudeCode(claudeCalls.ui.resolve(e), e.surface, open)
+          resolve: (e) => forClaudeCode(claudeCalls.ui.resolve(e), e.surface, open, { hasNerdFont })
         },
         session: { ...claudeCalls.session, id: async () => startingSession ?? claudeCalls.session.id() }
       };
@@ -7634,6 +7709,7 @@ ${String(asked.input.session)}`, asked);
       readStarted = read;
       try {
         drawCount = await claudeCalls.clock.now() * drawsPerMs;
+        hasNerdFont = await roundsBarEnds(claudeCalls).catch((error) => (claudeCalls.ui.warn("preferences:read", `${definition.name} rounds its bars only in a terminal it knows: ${messageOf(error)}`), false)) || isNerdFontTerminal(await claudeCalls.env.terminal());
         await programs.refresh();
         await begin().catch(report);
       } finally {
@@ -8253,8 +8329,7 @@ async function startMod($, eventInput, passOn) {
       sshConnection: () => $.env.get("SSH_CONNECTION"),
       display: () => $.env.get("DISPLAY"),
       waylandDisplay: () => $.env.get("WAYLAND_DISPLAY"),
-      herdrTerminal: () => $.env.get("HC_TERMINAL_ID"),
-      herdrSocket: () => $.env.get("HC_TERMINAL_SOCKET")
+      terminal: async () => ({ program: await $.env.get("TERM_PROGRAM"), ghostty: await $.env.get("GHOSTTY_RESOURCES_DIR"), wezterm: await $.env.get("WEZTERM_EXECUTABLE") })
     },
     device: { read: () => readDevice(claude) },
     cmod: { call: (input) => $.cmod.call(input) }
@@ -8448,7 +8523,7 @@ function oneLine(error) {
   return messageOf(error).replace(/\s*\n\s*/g, " ");
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/status.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/status.ts
 var LOCAL_POOL = "http://127.0.0.1:8317";
 async function baseUrlOf() {
   const env = (await settings.user.read())["env"];
@@ -8588,9 +8663,6 @@ function heldOn(account, blocks, now) {
   const held = account.auth_index === undefined ? [] : blocks[account.auth_index] ?? [];
   return held.filter((block) => Date.parse(block.until) > Date.parse(now));
 }
-function isSignedOut(account, blocks, now) {
-  return account.signed_out || heldOn(account, blocks, now).some((block) => LOGINS.includes(block.reason));
-}
 function blocksOf(account, blocks, now) {
   return heldOn(account, blocks, now).filter((block) => !RATE_LIMITS.includes(block.reason) && !LOGINS.includes(block.reason));
 }
@@ -8598,8 +8670,8 @@ var ACCOUNTS = "accounts";
 var rowKey = (account) => `account-${account.name}`;
 function troublesOf(status, blocks) {
   const refused = status.accounts.filter((account) => account.refused !== undefined);
-  const signedOut = status.accounts.filter((account) => account.refused === undefined && isSignedOut(account, blocks, status.now));
-  const blocked = status.accounts.filter((account) => account.refused === undefined && !isSignedOut(account, blocks, status.now) && blocksOf(account, blocks, status.now).length > 0);
+  const signedOut = status.accounts.filter((account) => account.refused === undefined && account.signed_out);
+  const blocked = status.accounts.filter((account) => account.refused === undefined && !account.signed_out && blocksOf(account, blocks, status.now).length > 0);
   return [
     ...refused.length > 0 ? [{ text: `${plural(refused.length, "account")} refused`, key: rowKey(refused[0]) }] : [],
     ...signedOut.length > 0 ? [{ text: `${plural(signedOut.length, "account")} signed out`, key: rowKey(signedOut[0]) }] : [],
@@ -8665,38 +8737,10 @@ function ago(iso, now) {
   const passed = until(now, iso);
   return passed === "now" ? "just now" : `${passed} ago`;
 }
-var BAR_CELLS = 20;
-var STEPS = 8;
-var EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+var BAR_WIDTH = 22;
 var CAP_LEFT = "";
 var CAP_RIGHT = "";
-function bar(used, pace, cells) {
-  const units = cells * STEPS;
-  const filled = Math.round(clamp(used) * units);
-  const paced = Math.round(clamp(pace) * units);
-  const isNearlyEmpty = used >= NEARLY_EMPTY;
-  const colorAt = (unit) => {
-    if (unit < Math.min(filled, paced))
-      return isNearlyEmpty ? "error" : "inactive";
-    if (unit < filled)
-      return isNearlyEmpty ? "diffRemoved" : "warning";
-    if (unit < paced)
-      return "promptBorder";
-    return "subtle";
-  };
-  const drawn = [{ text: CAP_LEFT, color: colorAt(0) }];
-  for (let cell = 0;cell < cells; cell++) {
-    const left = colorAt(cell * STEPS);
-    const right = colorAt(cell * STEPS + STEPS - 1);
-    let edge = 1;
-    while (edge < STEPS && colorAt(cell * STEPS + edge) === left)
-      edge++;
-    drawn.push(left === right ? { text: "█", color: left } : { text: EIGHTHS[edge] ?? "█", color: left, background: right });
-  }
-  drawn.push({ text: CAP_RIGHT, color: colorAt(units - 1) });
-  return runsOf(drawn);
-}
-function runsOf(cells) {
+function runsOf2(cells) {
   return cells.reduce((runs, cell) => {
     const last = runs.at(-1);
     if (last !== undefined && last.color === cell.color && last.background === cell.background && last.isDim === cell.isDim)
@@ -8740,9 +8784,15 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/components/pool-bar.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/components/pool-bar.tsx
 function poolBar({ used, pace }) {
-  return drawCells(bar(used, pace, BAR_CELLS));
+  const isNearlyEmpty = used >= NEARLY_EMPTY;
+  const over = Math.max(0, used - pace) * 100;
+  return /* @__PURE__ */ h(Progress, {
+    width: BAR_WIDTH,
+    buffer: pace * 100,
+    sections: [{ value: Math.min(used, pace) * 100, tone: isNearlyEmpty ? "critical" : "neutral" }, isNearlyEmpty ? { value: over, color: "diffRemoved" } : { value: over, tone: "warning" }]
+  });
 }
 function drawCells(cells) {
   return cells.map((cell) => /* @__PURE__ */ h(Text, {
@@ -8752,7 +8802,7 @@ function drawCells(cells) {
   }, cell.text));
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/components/pool-line.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/components/pool-line.tsx
 var PACE_COLORS = {
   on: undefined,
   under: "success",
@@ -8835,7 +8885,7 @@ function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble }) {
   }))));
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/components/weekly-resets.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/components/weekly-resets.tsx
 var DAYS = 8;
 var HOUR_MS = 60 * 60 * 1000;
 var DAY_MS = 24 * HOUR_MS;
@@ -8886,7 +8936,7 @@ function runsOutAt(used, opened, now) {
   return pace === 0 ? Infinity : now + (1 - used) / pace;
 }
 function weekOf({ open, out, close }, nowCell, cells, isNearlyEmpty) {
-  return runsOf(Array.from({ length: cells }, (_, cell) => {
+  return runsOf2(Array.from({ length: cells }, (_, cell) => {
     if (cell < open || cell >= close)
       return { text: "╌", color: "inactive", isDim: true };
     const color = cell < nowCell ? "subtle" : isNearlyEmpty ? "error" : "inactive";
@@ -8923,7 +8973,7 @@ function WeeklyResets({ calendar, width }) {
   ]));
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/usage.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/usage.ts
 var PERIODS = [["quarter", "90 days"], ["month", "30 days"], ["week", "7 days"], ["yesterday", "Yesterday"], ["today", "Today"]];
 var BREAKDOWNS = [["account", "Account"], ["model", "Model"], ["agent", "Agent"], ["project", "Project"], ["time", "Time"]];
 var UNITS = [["cost", "Cost"], ["tokens", "Tokens"]];
@@ -9035,7 +9085,7 @@ function optimizePrompt(pool, agents, projects, models) {
 `);
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/pages/accounts.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/pages/accounts.tsx
 var COMBINED = "Combined usage";
 var GAP2 = 2;
 var INSET = 3;
@@ -9067,7 +9117,7 @@ var accountsPage = {
     const codex = status.codex.map((account) => codexRow(account, status.now, shown[codexKey(account)]));
     const rows = [combined, ...claude, ...codex];
     const width = Math.max(...rows.map((row) => row.name.length));
-    const isNarrow = rows.some((row) => INSET * 2 + width + GAP2 + BAR_CELLS + 2 + GAP2 + factText(row.facts).length > columns);
+    const isNarrow = rows.some((row) => INSET * 2 + width + GAP2 + BAR_WIDTH + GAP2 + factText(row.facts).length > columns);
     const draw = (row) => /* @__PURE__ */ h(RowView, {
       row,
       width,
@@ -9215,7 +9265,7 @@ function claudeRow(mod, account, blocks, now, shown) {
       account
     })) };
   }
-  if (isSignedOut(account, blocks, now)) {
+  if (account.signed_out) {
     return { key, name: account.name, facts: [], trouble: /* @__PURE__ */ h(TroubleView, {
       text: "signed out"
     }, /* @__PURE__ */ h(Button, {
@@ -9473,7 +9523,7 @@ function LogSection({ log }) {
   ]);
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/record.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/record.ts
 function checked(input) {
   const { name, url, responses, timeoutSeconds, failOpen, observabilityMode } = input;
   if (typeof name !== "string" || name === "")
@@ -9556,12 +9606,12 @@ function recordOf2(mod) {
   };
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/state.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/state.ts
 var initialState = {
   memory: { pool: LOCAL_POOL, reading: null, problem: null, isOpen: false, shown: {}, usage: { period: "month", by: "account", units: "cost" }, table: null, isConfirming: false, keyAnswer: null }
 };
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/src/mod.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/src/mod.tsx
 var RETRY_MS = [1000, 2000, 4000, 8000, 16000];
 async function checkKey(mod, key) {
   mod.state.memory.pool = await poolOf();
@@ -9762,7 +9812,7 @@ var oneclaude = defineMod({
   }
 });
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-T45OD0/release/hooks/register.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-93Ofwb/release/hooks/register.ts
 function register(addHook, options) {
   registerMod(addHook, oneclaude, options);
 }

@@ -252,7 +252,8 @@ function errorOf(text: string): string {
 }
 
 // A rate limit's block is a throttle, or a spent week, which the account's row
-// already shows, and a login's block is a signed-out account.
+// already shows. A login's block holds while the proxy renews the login, and
+// the plugin's signed_out says whether the login on disk is rejected.
 const RATE_LIMITS = ['quota', 'credential_quota']
 const LOGINS = ['unauthorized', 'invalid_grant']
 
@@ -261,10 +262,6 @@ const LOGINS = ['unauthorized', 'invalid_grant']
 function heldOn(account: Account, blocks: Blocks, now: string): readonly Block[] {
   const held = account.auth_index === undefined ? [] : blocks[account.auth_index] ?? []
   return held.filter((block) => Date.parse(block.until) > Date.parse(now))
-}
-
-export function isSignedOut(account: Account, blocks: Blocks, now: string): boolean {
-  return account.signed_out || heldOn(account, blocks, now).some((block) => LOGINS.includes(block.reason))
 }
 
 // blocksOf is the account's blocks that no rate limit or login explains.
@@ -282,8 +279,8 @@ export const rowKey = (account: Account): string => `account-${account.name}`
 
 export function troublesOf(status: Status, blocks: Blocks): readonly Trouble[] {
   const refused = status.accounts.filter((account) => account.refused !== undefined)
-  const signedOut = status.accounts.filter((account) => account.refused === undefined && isSignedOut(account, blocks, status.now))
-  const blocked = status.accounts.filter((account) => account.refused === undefined && !isSignedOut(account, blocks, status.now) && blocksOf(account, blocks, status.now).length > 0)
+  const signedOut = status.accounts.filter((account) => account.refused === undefined && account.signed_out)
+  const blocked = status.accounts.filter((account) => account.refused === undefined && !account.signed_out && blocksOf(account, blocks, status.now).length > 0)
   return [
     ...(refused.length > 0 ? [{ text: `${plural(refused.length, 'account')} refused`, key: rowKey(refused[0]!) }] : []),
     ...(signedOut.length > 0 ? [{ text: `${plural(signedOut.length, 'account')} signed out`, key: rowKey(signedOut[0]!) }] : []),
@@ -360,45 +357,16 @@ export function ago(iso: string, now: string): string {
   return passed === 'now' ? 'just now' : `${passed} ago`
 }
 
-// A bar cell holds one color, or two split at an eighth of the cell: the
-// glyph fills the left part in color and leaves the background showing. A
-// dim cell draws its color faint.
+// A calendar cell holds one color, or a glyph in its color on a background.
+// A dim cell draws its color faint.
 export type Cell = { readonly text: string; readonly color: Color; readonly background?: Color; readonly isDim?: boolean }
 
-export const BAR_CELLS = 20
-
-const STEPS = 8
-const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
+// BAR_WIDTH is a bar's columns, its rounded ends included.
+export const BAR_WIDTH = 22
 
 // The caps are Nerd Font's rounded ends, which round the bar's full height.
 export const CAP_LEFT = ''
 export const CAP_RIGHT = ''
-
-// bar draws a rounded pill, exact to an eighth of a cell. The fill runs to
-// the lower of used and pace, and the color change marks pace: over pace
-// fills on in the over color, under pace the headroom shows in a lifted track.
-export function bar(used: number, pace: number, cells: number): readonly Cell[] {
-  const units = cells * STEPS
-  const filled = Math.round(clamp(used) * units)
-  const paced = Math.round(clamp(pace) * units)
-  const isNearlyEmpty = used >= NEARLY_EMPTY
-  const colorAt = (unit: number): Color => {
-    if (unit < Math.min(filled, paced)) return isNearlyEmpty ? 'error' : 'inactive'
-    if (unit < filled) return isNearlyEmpty ? 'diffRemoved' : 'warning'
-    if (unit < paced) return 'promptBorder'
-    return 'subtle'
-  }
-  const drawn: Cell[] = [{ text: CAP_LEFT, color: colorAt(0) }]
-  for (let cell = 0; cell < cells; cell++) {
-    const left = colorAt(cell * STEPS)
-    const right = colorAt(cell * STEPS + STEPS - 1)
-    let edge = 1
-    while (edge < STEPS && colorAt(cell * STEPS + edge) === left) edge++
-    drawn.push(left === right ? { text: '█', color: left } : { text: EIGHTHS[edge] ?? '█', color: left, background: right })
-  }
-  drawn.push({ text: CAP_RIGHT, color: colorAt(units - 1) })
-  return runsOf(drawn)
-}
 
 // runsOf joins neighbouring cells of the same colors into one run.
 export function runsOf(cells: readonly Cell[]): Cell[] {
