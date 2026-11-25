@@ -10,8 +10,8 @@
       "description": "Every Claude subscription you have, as one pool: routing, usage, pace and agents under the prompt",
       "source": {
         "source": "archive",
-        "url": "https://github.com/heyJordanParker/oneclaude/releases/download/v0.11.1/oneclaude-0.11.1.zip",
-        "sha256": "b2b4f52dc5d940417420eb2a60f61b427a947a382004b62fd4724a543127c266"
+        "url": "https://github.com/heyJordanParker/oneclaude/releases/download/v0.11.2/oneclaude-0.11.2.zip",
+        "sha256": "54bf9b850312bc9f2b5bd9224b988202e65f06381f1570397f14300ad2130402"
       }
     },
     {
