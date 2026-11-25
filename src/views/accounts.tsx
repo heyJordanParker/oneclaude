@@ -1,4 +1,4 @@
-import { Prompt, sessions, type Mod, type PageInit } from '../../node_modules/@cmodjs/core/mod.js'
+import { Prompt, sessions, type Mod, type ViewInit } from '../../node_modules/@cmodjs/core/mod.js'
 import { Tabs } from '../../node_modules/@cmodjs/core/ui/components.js'
 import { Box, Button, Text } from '../../node_modules/@cmodjs/core/ui/elements.js'
 import { poolBar } from '../components/pool-bar.js'
@@ -32,7 +32,7 @@ type Row = { readonly key?: string; readonly name: string; readonly shown?: Show
 
 const LOG_SHOWN = 10
 
-export const accountsPage: PageInit<OneclaudeState> = {
+export const accountsView: ViewInit<OneclaudeState> = {
   id: 'accounts',
   title: 'Accounts',
   render: (mod, { columns }) => {

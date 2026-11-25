@@ -6,7 +6,7 @@
 ████████▊███▋███████  63% · 19% over pace · next refill in 2d · 14 agents [ + ]
 ```
 
-`/accounts` opens the pool in a tab of cmod's Sidebar, beside the conversation, or of Herdr:
+`/accounts` opens the pool in a tab of cmod's Sidebar beside the conversation, or of Herdr's panel beside the terminal:
 
 ```text
 Combined usage    ████████▊███▋███████  63%

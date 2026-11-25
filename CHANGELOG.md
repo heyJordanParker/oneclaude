@@ -2,6 +2,11 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.11.2]
+
+### Fixed
+- Accounts opens beside your session again: in Herdr's panel beside the terminal, where 0.11.0 opened it as a tab of its own in Herdr's main area. In Claude Code it shows in the Sidebar in a panel titled oneclaude.
+
 ## [0.11.1]
 
 ### Fixed
