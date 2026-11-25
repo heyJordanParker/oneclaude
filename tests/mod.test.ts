@@ -175,7 +175,7 @@ test('the line keeps the last status and warns while the pool doesn\'t answer', 
   expect(line).toContain('58% · 9% under')
   expect(line).toContain(since)
   await tested.type('/accounts')
-  const page = (await tested.shown.page.lines()).join('\n')
+  const page = (await tested.shown.view.lines()).join('\n')
   expect(page).toContain(since)
   expect(page).toContain('9% under pace · next refill in 2d frees 11%')
 })
@@ -249,7 +249,7 @@ test('a status still on its way holds back nothing: the Accounts page opens with
   await tested.startSession({ source: 'clear', id: 'cleared-session' })
   await tested.type('/accounts')
   await tested.settle()
-  expect((await tested.shown.page.lines({ columns: 110 })).join('\n')).toMatch(/All accounts +\$0 +\$0\.01/)
+  expect((await tested.shown.view.lines({ columns: 110 })).join('\n')).toMatch(/All accounts +\$0 +\$0\.01/)
   expect(records.map((record) => (JSON.parse(record) as SentRecord).session)).toEqual(['test-session', 'cleared-session'])
 })
 
@@ -276,7 +276,7 @@ test('after /clear the line shows the last status while the pool holds the ask f
 test('/accounts shows the combined usage, every account with its pace, and the log newest first', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const pane = (await tested.shown.page.lines()).join('\n')
+  const pane = (await tested.shown.view.lines()).join('\n')
   expect(pane).toContain('9% under pace · next refill in 2d frees 11% · 14 agents')
   expect(pane).toContain('26% over pace · refills in 6d · 9 opus, 2 haiku')
   expect(pane).not.toContain('/19')
@@ -294,7 +294,7 @@ test('/accounts shows the combined usage, every account with its pace, and the l
 test('/accounts starts every account\'s bar in one column, whatever the length of its name', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const lines = await tested.shown.page.lines()
+  const lines = await tested.shown.view.lines()
   const barAt = (name: string) => {
     const line = lines.find((each) => each.trimStart().startsWith(`${name} `))
     if (line === undefined) throw new Error(`no row for ${name}`)
@@ -317,7 +317,7 @@ test('/accounts puts each account\'s trouble on its row in a word or two, with t
   const blocks = { t1: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'not_found', retry_at: '2026-10-15T20:50:00Z' }] }
   const tested = answering({ text: JSON.stringify(troubled) }, blocks)
   await tested.type('/accounts')
-  const pane = (await tested.shown.page.lines()).join('\n')
+  const pane = (await tested.shown.view.lines()).join('\n')
   expect(pane).toMatch(/jarvis +signed out {2}\[ Sign in \]\n/)
   expect(pane).toMatch(/hopper +refused {2}\[ Retry \]\n/)
   expect(pane).not.toContain(reason)
@@ -333,9 +333,9 @@ test('Sign in, Add account and Open dashboard open the proxy\'s pages in the bro
   const ran: (readonly string[])[] = []
   tested.fakes.process.run = ranOn('Darwin', ran)
   await tested.type('/accounts')
-  await tested.shown.page.press('sign-in-jarvis')
-  await tested.shown.page.press('add-account')
-  await tested.shown.page.press('open-dashboard')
+  await tested.shown.view.press('sign-in-jarvis')
+  await tested.shown.view.press('add-account')
+  await tested.shown.view.press('open-dashboard')
   await tested.settle()
   expect(ran.filter((argv) => argv[0] === 'open')).toEqual([
     ['open', `${LOCAL_POOL}/management.html#/oauth`],
@@ -348,7 +348,7 @@ test('Sign in copies the login page\'s link where the computer has no browser to
   const tested = answering({ text: JSON.stringify({ ...status, accounts: status.accounts.map((account) => (account.name === 'jarvis' ? { ...account, signed_out: true } : account)) }) })
   tested.fakes.process.run = ranOn('Linux', [])
   await tested.type('/accounts')
-  await tested.shown.page.press('sign-in-jarvis')
+  await tested.shown.view.press('sign-in-jarvis')
   await tested.settle()
   expect(tested.calls.filter((call) => call.call === 'ui.copy').map((call) => call.args)).toEqual([[{ text: `${LOCAL_POOL}/management.html#/oauth`, surface: 'terminal' }]])
 })
@@ -367,12 +367,12 @@ test('Retry asks the plugin to retry the account, with oneclaude\'s key, and the
     },
   })
   await tested.type('/accounts')
-  expect((await tested.shown.page.lines()).join('\n')).toContain('[ Retry ]')
-  await tested.shown.page.press('retry-turing')
+  expect((await tested.shown.view.lines()).join('\n')).toContain('[ Retry ]')
+  await tested.shown.view.press('retry-turing')
   expect(asked).toEqual([{ url: `${LOCAL_POOL}/v0/management/plugins/oneclaude/retry`, method: 'POST', key: 'Bearer oneclaude', body: '{"auth_index":"t1"}' }])
   pool.change({ ...following, change: 2, blocks_change: 2, reads_blocks: true })
   await tested.settle()
-  expect((await tested.shown.page.lines()).join('\n')).not.toContain('[ Retry ]')
+  expect((await tested.shown.view.lines()).join('\n')).not.toContain('[ Retry ]')
 })
 
 test('Retry names the cause when the pool clears no blocks: another oneclaude version, no answer, or the proxy\'s error', async () => {
@@ -387,7 +387,7 @@ test('Retry names the cause when the pool clears no blocks: another oneclaude ve
       return { status: 200, ok: true, headers: {}, text: url.endsWith('/auth-files') ? '{"files":[]}' : JSON.stringify(troubled) }
     }
     await tested.type('/accounts')
-    await tested.shown.page.press('retry-turing')
+    await tested.shown.view.press('retry-turing')
     await tested.settle()
     return tested.shown.toasts.filter((toast) => toast.type === 'error').map(({ message, description }) => ({ message, description }))
   }
@@ -455,7 +455,7 @@ test('/accounts shows the newest 10 log lines and counts the rest', async () => 
   const log = Array.from({ length: 12 }, (_, i) => ({ at: new Date(Date.parse(now) - (12 - i) * 60_000).toISOString(), level: 'WARN' as const, text: `Anthropic rate limited turing (429). ${i}` }))
   const tested = answering({ text: JSON.stringify({ ...status, log }) })
   await tested.type('/accounts')
-  const pane = (await tested.shown.page.lines()).join('\n')
+  const pane = (await tested.shown.view.lines()).join('\n')
   expect(pane).toContain('(429). 11')
   expect(pane).toContain('(429). 2')
   expect(pane).not.toContain('(429). 1\n')
@@ -465,13 +465,13 @@ test('/accounts shows the newest 10 log lines and counts the rest', async () => 
 test('/accounts leaves the log out when nothing happened', async () => {
   const tested = answering({ text: JSON.stringify({ ...status, log: [] }) })
   await tested.type('/accounts')
-  expect((await tested.shown.page.lines()).join('\n')).not.toContain('Log')
+  expect((await tested.shown.view.lines()).join('\n')).not.toContain('Log')
 })
 
 test('/accounts shows each Codex account apart from the Claude pool', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const pane = (await tested.shown.page.lines()).join('\n')
+  const pane = (await tested.shown.view.lines()).join('\n')
   expect(pane.indexOf('Claude accounts')).toBeLessThan(pane.indexOf('Codex accounts'))
   expect(pane).toContain('52% under pace · refills in 1d 5h')
 })
@@ -479,7 +479,7 @@ test('/accounts shows each Codex account apart from the Claude pool', async () =
 test('every section title has an empty line under it, and every bar an empty line between it and the next', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const pane = (await tested.shown.page.lines()).map((row) => row.trim()).join('\n')
+  const pane = (await tested.shown.view.lines()).map((row) => row.trim()).join('\n')
   expect(pane).toContain('Claude accounts\n\nturing ')
   expect(pane).toContain('Codex accounts\n\nada ')
   expect(pane).toContain('Log\n\n')
@@ -492,7 +492,7 @@ test('every section title has an empty line under it, and every bar an empty lin
 test('a Sidebar too narrow for one line puts each row\'s facts under its bar, and every bar starts in its column', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const rows = await tested.shown.page.lines()
+  const rows = await tested.shown.view.lines()
   const barStart = (row: string): number => row.search(BAR)
   const header = rows.find((row) => row.includes('Combined usage'))!
   expect(header.replace(/│\s*$/, '').trimEnd().endsWith('58%')).toBe(true)
@@ -529,7 +529,7 @@ test('everything reads the pool Claude Code uses, on another machine too, and le
   }
   expect(await hintLines(tested)).toContain('58% · 9% under')
   await tested.type('/accounts')
-  const pane = (await tested.shown.page.lines()).join('\n')
+  const pane = (await tested.shown.view.lines()).join('\n')
   expect(pane).toContain('[ Open dashboard ]')
   expect(asked.length).toBeGreaterThan(2)
   expect(asked.filter((url) => !url.startsWith('http://homeserver:8317/'))).toEqual([])
@@ -629,24 +629,25 @@ test('the hint line leaves Claude Code alone while the proxy is down', async () 
 test('a row\'s details wrap between facts, never inside one', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const pane = (await tested.shown.page.lines({ columns: 60 })).join('\n')
+  const pane = (await tested.shown.view.lines({ columns: 60 })).join('\n')
   expect(pane).toContain('14 agents')
   expect(pane).toContain('1 account not read yet')
   expect(pane).toContain('next refill in 2d frees 11%')
 })
 
-test('/accounts closes the Sidebar page it opened', async () => {
+test('/accounts opens Accounts as a view beside the session, never a page, and closes it again', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  expect(await tested.shown.page.lines()).not.toHaveLength(0)
-  await tested.type('/accounts')
+  expect(await tested.shown.view.lines()).not.toHaveLength(0)
   await expect(tested.shown.page.lines()).rejects.toThrow()
+  await tested.type('/accounts')
+  await expect(tested.shown.view.lines()).rejects.toThrow()
 })
 
 test('/accounts lays each read Claude account\'s week on the days around now, soonest reset first, after every account', async () => {
   const tested = answering({ text: JSON.stringify(status) })
   await tested.type('/accounts')
-  const rows = await tested.shown.page.lines()
+  const rows = await tested.shown.view.lines()
   const pane = rows.join('\n')
   expect(pane.indexOf('Codex accounts')).toBeLessThan(pane.indexOf('Weekly resets'))
   expect(pane.indexOf('Weekly resets')).toBeLessThan(pane.indexOf('Usage'))
@@ -818,8 +819,8 @@ function withUsage() {
 
 // usagePane opens the page in a Sidebar wide enough for every Usage column.
 async function usagePane(tested: ReturnType<typeof testMod>): Promise<string> {
-  if ((await tested.shown.page.lines().catch(() => null)) === null) await tested.type('/accounts')
-  return (await tested.shown.page.lines({ columns: 110 })).map((line) => line.trimEnd()).join('\n')
+  if ((await tested.shown.view.lines().catch(() => null)) === null) await tested.type('/accounts')
+  return (await tested.shown.view.lines({ columns: 110 })).map((line) => line.trimEnd()).join('\n')
 }
 
 test('/accounts shows the last 30 days of usage by account, with the total last in each row', async () => {
@@ -841,11 +842,11 @@ test('/accounts shows the last 30 days of usage by account, with the total last 
 test('the Usage controls read the table for the chosen period, breakdown and units', async () => {
   const { tested, asked } = withUsage()
   await usagePane(tested)
-  await tested.shown.page.press('tab:time')
+  await tested.shown.view.press('tab:time')
   const pane = await usagePane(tested)
   expect(asked.at(-1)).toContain('period=month&by=time&units=cost')
   expect(pane).toMatch(/Oct 15( +\S+){5} +2% +\$0\.90\n +Oct 14( +\S+){5} +46% +\$18\n +Oct 3( +\S+){4} +51% +\$20\n/)
-  await tested.shown.page.press('tab:tokens')
+  await tested.shown.view.press('tab:tokens')
   await tested.settle()
   expect(asked.at(-1)).toContain('period=month&by=time&units=tokens')
 })
@@ -853,9 +854,9 @@ test('the Usage controls read the table for the chosen period, breakdown and uni
 test('the By row stays the same for every period, and Time over a day goes by the hour', async () => {
   const { tested, asked } = withUsage()
   await usagePane(tested)
-  await tested.shown.page.press('tab:time')
+  await tested.shown.view.press('tab:time')
   const before = await usagePane(tested)
-  await tested.shown.page.press('tab:today')
+  await tested.shown.view.press('tab:today')
   const pane = await usagePane(tested)
   expect(asked.at(-1)).toContain('period=today&by=time&units=cost')
   for (const shown of [before, pane]) expect(shown).toMatch(/By +Account +Model +Agent +Project +Time\n/)
@@ -865,7 +866,7 @@ test('the By row stays the same for every period, and Time over a day goes by th
 test('Usage says what Not recorded means when a row has no agent type or project', async () => {
   const { tested } = withUsage()
   await usagePane(tested)
-  await tested.shown.page.press('tab:agent')
+  await tested.shown.view.press('tab:agent')
   const pane = await usagePane(tested)
   expect(pane).toMatch(/Not recorded( +\S+){6}/)
   expect(pane.replace(/\s+/g, ' ')).toContain('Not recorded: requests from before oneclaude recorded agent types and projects, and from conversations whose record never reached the pool.')
@@ -901,16 +902,16 @@ test('the daily chart stands each day on the baseline, exact to an eighth, with 
 test('Optimize usage asks before it sends this session the last 30 days by agent type, project and model', async () => {
   const { tested } = withUsage()
   await usagePane(tested)
-  await tested.shown.page.press('optimize')
+  await tested.shown.view.press('optimize')
   const asking = await usagePane(tested)
   expect(asking).toContain('Ask your agent to optimize your usage?')
   expect(asking).toContain("We'll send it your last 30 days of usage, by agent, project and model.")
   expect(asking).toContain('[ Ask your agent ]  [ Cancel ]')
   expect(tested.shown.prompts).toHaveLength(0)
-  await tested.shown.page.press('optimize-cancel')
+  await tested.shown.view.press('optimize-cancel')
   expect(await usagePane(tested)).toContain('[ Optimize usage ]')
-  await tested.shown.page.press('optimize')
-  await tested.shown.page.press('optimize-send')
+  await tested.shown.view.press('optimize')
+  await tested.shown.view.press('optimize-send')
   const [prompt] = tested.shown.prompts
   expect(prompt).toContain('Optimize my Claude usage')
   expect(prompt).toContain('- explorer: $20 (cache writes $0, cache reads $0, output $20, input $0), 1M tokens')
@@ -972,7 +973,7 @@ test('a session tells the pool its project as it starts, with no filters, so a m
   const { tested, records } = recording()
   await tested.type('/accounts')
   expect(records[0]).toEqual({ record: { session: 'test-session', project: '/Users/turing/dotfiles', agents: {}, filters: [] }, key: 'Bearer oneclaude' })
-  expect((await tested.shown.page.lines()).join('\n')).not.toContain('memory')
+  expect((await tested.shown.view.lines()).join('\n')).not.toContain('memory')
 })
 
 test('a mod adds its filter to this session, and adding it again replaces it in its place', async () => {

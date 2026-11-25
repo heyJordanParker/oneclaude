@@ -3,7 +3,7 @@ import { slashCommand } from '../node_modules/@cmodjs/core/jobs/slash-command.js
 import { Box, Input, Text } from '../node_modules/@cmodjs/core/ui/elements.js'
 import type { OneclaudeFilter } from '../types/index.js'
 import { PoolLine } from './components/pool-line.js'
-import { accountsPage, showUsage } from './pages/accounts.js'
+import { accountsView, showUsage } from './views/accounts.js'
 import { recordOf } from './record.js'
 import { initialState, type OneclaudeState } from './state.js'
 import { barsOf, baseUrlOf, FRAME_MS, glide, keyOf, LINE, LOCAL_POOL, poolOf, read, saveKey, sharedBlocks, sharedReading, shareStatus, type Blocks, type Shown, type Status } from './status.js'
@@ -48,7 +48,7 @@ export const oneclaude = defineMod({
   installer: [askKey],
 
   async setup(mod) {
-    const page = mod.pages.add(accountsPage)
+    const view = mod.views.add(accountsView)
     let frames: Timer | undefined
     const settle = (): void => {
       frames?.stop()
@@ -109,7 +109,7 @@ export const oneclaude = defineMod({
     let usageReading: Promise<void> | undefined
     // draw shows a status the pool answered with the blocks this session
     // drew, which /clear keeps, then the blocks of its blocks change, and the
-    // Usage table while the Accounts page is open, and sends the record the
+    // Usage table while the Accounts view is open, and sends the record the
     // pool lacks.
     const draw = (status: Status): void => {
       mod.state.memory.problem = null
@@ -119,8 +119,8 @@ export const oneclaude = defineMod({
       void showBlocks(status)
       void record.send()
       void useProxy()
-      mod.state.memory.isOpen = page.isOpen
-      if (page.isOpen) usageReading ??= showUsage(mod).finally(() => {
+      mod.state.memory.isOpen = view.isOpen
+      if (view.isOpen) usageReading ??= showUsage(mod).finally(() => {
         usageReading = undefined
       })
     }
@@ -170,21 +170,21 @@ export const oneclaude = defineMod({
         if (after === undefined) await pause(RETRY_MS[0]!)
       }
     }
-    // toggle opens or closes the page. The toggle line follows the page, and
+    // toggle opens or closes the view. The toggle line follows the view, and
     // each status what the Sidebar shows, as after its ×.
     const toggle = async (): Promise<void> => {
-      if (!page.isOpen) {
+      if (!view.isOpen) {
         mod.state.memory.isConfirming = false
         void showUsage(mod)
         mod.state.memory.shown = Object.fromEntries(Object.entries(mod.state.memory.shown).map(([key, shown]) => [key, key === LINE ? shown : { used: 0, pace: 0 }]))
         animate()
       }
-      await page.toggle({ focus: true })
-      mod.state.memory.isOpen = page.isOpen
+      await view.toggle({ focus: true })
+      mod.state.memory.isOpen = view.isOpen
     }
     const showTrouble = async (key: string): Promise<void> => {
-      if (!page.isOpen) await toggle()
-      await page.scrollTo({ key }, { block: 'start' })
+      if (!view.isOpen) await toggle()
+      await view.scrollTo({ key }, { block: 'start' })
     }
 
     mod.widgets.add({

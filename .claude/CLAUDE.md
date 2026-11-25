@@ -22,7 +22,7 @@ oneclaude runs every Claude subscription account a person has as one pool: a CLI
 - Anthropic fills accounts on the same plan at different rates, so `pace` counts each account at its own quota per dollar.
 - The plugin writes `usage.json` back from memory on every save, so a hand edit to it holds only if it lands just before a new version loads.
 - The Architect's sessions run the mod linked from this checkout. An edit under `src/` reaches an open session only after Reload on its `Plugins changed` toast, so open sessions can run an older mod than the pool's plugin.
-- Herdr draws the `/accounts` page in a proportional font, so its columns align with a Box's `minWidth`, never with spaces.
+- Herdr draws the Accounts view in a proportional font, so its columns align with a Box's `minWidth`, never with spaces.
 - A tmux capture of Claude Code drops the Nerd Font glyphs Ghostty draws, so a capture never proves a glyph is missing.
 - macOS lets a process reach a local network address, such as an OrbStack machine's `192.168.139.x`, by the Local Network access of the terminal app that started its process tree, and refuses with `EHOSTUNREACH`. `/usr/bin/curl` reaches the address regardless, so curl proves nothing for oneclaude.
 - `README.md` links every page of `docs/`, the user documentation.

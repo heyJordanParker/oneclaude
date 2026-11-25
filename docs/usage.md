@@ -46,7 +46,7 @@ The line follows the pool as it changes: each session asks the pool for its next
 
 ## The Accounts tab
 
-`/accounts`, or `+`, opens the Accounts tab in cmod's Sidebar, beside the conversation. `meta+0` shows and hides the Sidebar. Herdr opens it as a tab of its own, and cmod's browser app beside the conversation, each with its own buttons and tabs. Claude Code draws it as below.
+`/accounts`, or `+`, opens the Accounts tab in cmod's Sidebar, beside the conversation, in a panel titled oneclaude. `meta+0` shows and hides the Sidebar. Herdr shows it in its panel beside the terminal, and cmod's browser app beside the conversation, each with its own buttons and tabs. Claude Code draws it as below.
 
 ```text
 Combined usage    ████████▊███▋███████  63%
