@@ -46,6 +46,9 @@ type Options struct {
 // and refused Anthropic's reason when it refused the login (403). doubted is
 // whether Anthropic rejected a request's login (401) since the plugin last
 // checked the login on disk, which the proxy may have refreshed since.
+// expires is when the login on disk runs out, and renews whether it holds a
+// refresh token, so the proxy renews it. cantRenew is whether the proxy has
+// failed to renew it while nothing but a new sign-in would fix that.
 type accountState struct {
 	model.Account
 	weekly     model.Weekly
@@ -59,6 +62,9 @@ type accountState struct {
 	signedOut  bool
 	refused    string
 	doubted    bool
+	expires    time.Time
+	renews     bool
+	cantRenew  bool
 }
 
 func (a *accountState) loginFails() bool {
@@ -114,26 +120,30 @@ type Plugin struct {
 	book    *limits.Book
 	records *session.Records
 
-	mu           sync.Mutex
-	accounts     map[string]*accountState
-	codex        map[string]*codexAccount
-	requests     map[string]request
-	events       []LogEntry
-	refusedAt    time.Time
-	unreachable  time.Time
-	log          *usage.Log
-	salt         string
-	loadedDir    string
-	loadedAt     time.Time
-	dirty        bool
-	mgmtBase     string
-	resourceBase string
-	history      requestHistory
-	historyRead  bool
-	imported     bool
-	repaired     bool
-	failedAt     map[string]time.Time
-	retrying     map[string]bool
+	mu          sync.Mutex
+	accounts    map[string]*accountState
+	codex       map[string]*codexAccount
+	requests    map[string]request
+	events      []LogEntry
+	refusedAt   time.Time
+	unreachable time.Time
+	// answered is when Anthropic last answered, and answeringSince when it
+	// answered first since a request or a reading last got no answer.
+	answered       time.Time
+	answeringSince time.Time
+	log            *usage.Log
+	salt           string
+	loadedDir      string
+	loadedAt       time.Time
+	dirty          bool
+	mgmtBase       string
+	resourceBase   string
+	history        requestHistory
+	historyRead    bool
+	imported       bool
+	repaired       bool
+	failedAt       map[string]time.Time
+	retrying       map[string]bool
 
 	filterFailedAt map[string]time.Time
 	responses      map[string]*response

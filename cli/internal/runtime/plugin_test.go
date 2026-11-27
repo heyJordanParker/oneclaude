@@ -1563,8 +1563,13 @@ func (c *credentialProxy) counts() (reads int, cleared []string) {
 // oneclaude install sets it.
 func newCredentialPlugin(t *testing.T, dir string) (*Plugin, *credentialProxy) {
 	t.Helper()
+	return newClockedCredentialPlugin(t, dir, func() time.Time { return testNow })
+}
+
+func newClockedCredentialPlugin(t *testing.T, dir string, now func() time.Time) (*Plugin, *credentialProxy) {
+	t.Helper()
 	proxy := &credentialProxy{dir: dir}
-	p := New(Options{Name: "oneclaude", NoPoller: true, Host: proxy.call, Now: func() time.Time { return testNow }})
+	p := New(Options{Name: "oneclaude", NoPoller: true, Host: proxy.call, Now: now})
 	cfg, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("enabled: true\ndata-dir: " + t.TempDir() + "\nauth-dir: " + dir)})
 	p.Call(MethodPluginRegister, cfg)
 	t.Cleanup(p.Shutdown)
@@ -1738,6 +1743,142 @@ func TestARequestRejectedWithALoginNothingRenewsSignsItsAccountOutAtTheNextTick(
 	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: "r3", Provider: "claude", Model: "claude-opus-5-5", AuthID: "claude-ada@x.json"})
 	if st := p.Status(); st.Accounts[0].SignedOut || len(st.Log) != 2 || st.Log[1].Text != "Anthropic accepted ada's login again." {
 		t.Fatalf("ada = %+v, log = %+v, want her signed in and logged", st.Accounts[0], st.Log)
+	}
+}
+
+// writeLogin writes a Claude login that runs out at expires, holding
+// refreshToken when it is not empty, as a login the proxy renews does.
+func writeLogin(t *testing.T, path string, expires time.Time, refreshToken string) {
+	t.Helper()
+	email := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "claude-"), ".json")
+	file := map[string]string{"type": "claude", "email": email, "access_token": "signed-in", "expired": expires.Format(time.RFC3339)}
+	if refreshToken != "" {
+		file["refresh_token"] = refreshToken
+	}
+	writeJSON(t, path, file)
+}
+
+// answerRequest sends the usage record of a request Anthropic answered on
+// account.
+func answerRequest(t *testing.T, p *Plugin, rid, account string) {
+	t.Helper()
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: rid, Provider: "claude", Model: "claude-opus-5-5", AuthID: account})
+}
+
+// failConnection sends the usage record of a request that got no answer.
+func failConnection(t *testing.T, p *Plugin, rid, account string) {
+	t.Helper()
+	call[struct{}](t, p, MethodUsageHandle, UsageRecord{RequestID: rid, Provider: "claude", Model: "claude-opus-5-5", AuthID: account, Failed: true, Failure: UsageFailure{Body: `Post "https://api.anthropic.com/v1/messages": EOF`}})
+}
+
+func logTexts(st Status) []string {
+	var texts []string
+	for _, e := range st.Log {
+		texts = append(texts, e.Text)
+	}
+	return texts
+}
+
+// checked is when the renewal tests check, networkProof after testNow.
+var checked = testNow.Add(networkProof)
+
+// overdue is when a login runs out whose renewal was due late before checked.
+func overdue(late time.Duration) time.Time {
+	return checked.Add(renewLead - late)
+}
+
+// answeredThroughout has Anthropic answer at testNow and at checked, and
+// leaves the clock at checked.
+func answeredThroughout(t *testing.T, p *Plugin, set func(time.Time)) {
+	t.Helper()
+	answerRequest(t, p, "first", "claude-ada@x.json")
+	set(checked)
+	answerRequest(t, p, "last", "claude-ada@x.json")
+}
+
+func TestALoginTheProxyCantRenewForAnHourShowsWhenItRunsOutUntilANewLogin(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude-ada@x.json")
+	expires := overdue(renewGrace + time.Minute)
+	writeLogin(t, path, expires, "refresh-1")
+	now, set := testClock()
+	p, _ := newClockedCredentialPlugin(t, dir, now)
+	answeredThroughout(t, p, set)
+	p.checkRenewals(checked)
+	p.checkRenewals(checked)
+	st := p.Status()
+	if at := st.Accounts[0].SignsOutAt; at == nil || !at.Equal(expires) || st.Accounts[0].SignedOut {
+		t.Fatalf("ada = %+v, want her signing out when her login runs out", st.Accounts[0])
+	}
+	if want := []string{"The proxy couldn't renew ada's login for an hour. Sign in again before it runs out."}; !slices.Equal(logTexts(st), want) {
+		t.Fatalf("log = %q, want %q", logTexts(st), want)
+	}
+	failConnection(t, p, "dropped", "claude-ada@x.json")
+	p.checkRenewals(checked)
+	if p.Status().Accounts[0].SignsOutAt == nil {
+		t.Fatal("ada's warning went away at a failed connection, want it kept until her login changes")
+	}
+	writeLogin(t, path, checked.Add(8*time.Hour), "refresh-2")
+	st, _ = statusUntil(t, p, func(st Status) bool { return st.Accounts[0].SignsOutAt == nil })
+	if last := st.Log[len(st.Log)-1]; last.Text != "ada's login is renewed." {
+		t.Fatalf("log = %+v, want her new login logged", st.Log)
+	}
+}
+
+func TestALoginTheProxyCouldntRenewSignsOutWhenItRunsOut(t *testing.T) {
+	dir := t.TempDir()
+	writeLogin(t, filepath.Join(dir, "claude-ada@x.json"), checked.Add(-time.Minute), "refresh-1")
+	now, set := testClock()
+	p, _ := newClockedCredentialPlugin(t, dir, now)
+	answeredThroughout(t, p, set)
+	p.checkRenewals(checked)
+	if ada := p.Status().Accounts[0]; !ada.SignedOut || ada.SignsOutAt != nil {
+		t.Fatalf("ada = %+v, want her signed out once her login ran out", ada)
+	}
+}
+
+// TestARenewalThatCanStillSucceedWarnsOfNothing holds each way the proxy's
+// renewal fails and then works on its own: the outages of the exit node
+// devbox reaches Anthropic through failed every login's renewal for up to 3
+// hours, and each renewed once it was back.
+func TestARenewalThatCanStillSucceedWarnsOfNothing(t *testing.T) {
+	cases := []struct {
+		name         string
+		late         time.Duration
+		refreshToken string
+		traffic      func(t *testing.T, p *Plugin, set func(time.Time))
+	}{
+		{"due under an hour ago", renewGrace - time.Minute, "refresh-1", answeredThroughout},
+		{"no answer from Anthropic", renewGrace + time.Minute, "refresh-1", func(t *testing.T, p *Plugin, set func(time.Time)) { set(checked) }},
+		{"Anthropic answering again for under 10 minutes", renewGrace + time.Minute, "refresh-1", func(t *testing.T, p *Plugin, set func(time.Time)) {
+			failConnection(t, p, "dropped", "claude-ada@x.json")
+			set(checked.Add(-time.Minute))
+			answerRequest(t, p, "back", "claude-ada@x.json")
+			set(checked)
+			answerRequest(t, p, "last", "claude-ada@x.json")
+		}},
+		{"a connection failed since Anthropic answered", renewGrace + time.Minute, "refresh-1", func(t *testing.T, p *Plugin, set func(time.Time)) {
+			answeredThroughout(t, p, set)
+			failConnection(t, p, "dropped", "claude-ada@x.json")
+		}},
+		{"no answer for the last 10 minutes", renewGrace + time.Minute, "refresh-1", func(t *testing.T, p *Plugin, set func(time.Time)) {
+			answerRequest(t, p, "first", "claude-ada@x.json")
+			set(checked)
+		}},
+		{"a copy of Claude Code's login, which Claude Code renews", renewGrace + time.Minute, "", answeredThroughout},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeLogin(t, filepath.Join(dir, "claude-ada@x.json"), overdue(c.late), c.refreshToken)
+			now, set := testClock()
+			p, _ := newClockedCredentialPlugin(t, dir, now)
+			c.traffic(t, p, set)
+			p.checkRenewals(checked)
+			if ada := p.Status().Accounts[0]; ada.SignsOutAt != nil || ada.SignedOut {
+				t.Fatalf("ada = %+v, want no warning while the proxy can still renew her login", ada)
+			}
+		})
 	}
 }
 

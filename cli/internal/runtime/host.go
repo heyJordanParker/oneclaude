@@ -153,12 +153,13 @@ func (h host) authList(ctx context.Context) ([]HostAuthFileEntry, error) {
 	return resp.Files, nil
 }
 
-// credential is what the plugin reads of a credential file: its token, for
-// Codex the ChatGPT account it belongs to, and for Claude the account and
-// refresh token a copy of Claude Code's login is matched on. file is the
-// whole file.
+// credential is what the plugin reads of a credential file: its token and
+// when it runs out, for Codex the ChatGPT account it belongs to, and for
+// Claude the account and refresh token a copy of Claude Code's login is
+// matched on. file is the whole file.
 type credential struct {
 	AccessToken      string `json:"access_token"`
+	Expired          string `json:"expired"`
 	AccountID        string `json:"account_id"`
 	RefreshToken     string `json:"refresh_token"`
 	AccountUUID      string `json:"account_uuid"`

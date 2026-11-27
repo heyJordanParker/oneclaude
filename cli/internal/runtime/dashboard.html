@@ -947,6 +947,7 @@ function accountState(row) {
   if (file?.disabled) return ['Disabled']
   if (account?.refused) return ['Refused', 'bad', account.refused]
   if (account?.signed_out) return ['Signed out', 'bad']
+  if (account?.signs_out_at) return ['Signs out', 'warn', `The proxy can't renew this login. It runs out at ${new Date(account.signs_out_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}.`]
   if (file?.unavailable) return ['Unavailable', 'warn', file.status_message]
   if (account?.empty) return ['Empty', 'bad']
   if (!account) return ['Not in the pool yet']
@@ -956,14 +957,14 @@ function accountState(row) {
 }
 
 // accountActions is the one button that fixes the account's trouble, Sign in
-// for a login Anthropic rejects and Retry for any other, then Disable or
-// Enable.
+// for a login Anthropic rejects or the proxy can't renew and Retry for any
+// other, then Disable or Enable.
 function accountActions(row) {
   const key = rowKey(row)
   const pending = state.pending[key]
   const trouble = accountState(row)?.[0]
   const buttons = []
-  if (trouble === 'Signed out') buttons.push(panelLink('Sign in', '/oauth', 'button'))
+  if (trouble === 'Signed out' || trouble === 'Signs out') buttons.push(panelLink('Sign in', '/oauth', 'button'))
   if ((trouble === 'Refused' || trouble === 'Unavailable') && row.file?.auth_index && state.key) {
     buttons.push(h('button', {
       class: 'button',

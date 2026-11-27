@@ -132,17 +132,21 @@ function combinedRow(status: Status, shown: Shown | undefined): Row {
 
 // claudeRow is one Claude account. An account in trouble shows what is wrong
 // in a word or two and the one button that fixes it: Sign in when Anthropic
-// rejects its login, else Retry. The log holds Anthropic's reason.
+// rejects its login or the proxy can't renew it, else Retry. The log holds
+// the reason.
 function claudeRow(mod: Mod<OneclaudeState>, account: Account, blocks: Blocks, now: string, shown: Shown | undefined): Row {
   const key = rowKey(account)
+  const signIn = <Button key={`sign-in-${account.name}`} dimColor href={addAccountUrl(mod.state.memory.pool)} label="Sign in" />
   if (account.refused !== undefined) {
     return { key, name: account.name, facts: [], trouble: <TroubleView text="refused"><RetryButton mod={mod} account={account} /></TroubleView> }
   }
   if (account.signed_out) {
-    return { key, name: account.name, facts: [], trouble: <TroubleView text="signed out"><Button key={`sign-in-${account.name}`} dimColor href={addAccountUrl(mod.state.memory.pool)} label="Sign in" /></TroubleView> }
+    return { key, name: account.name, facts: [], trouble: <TroubleView text="signed out">{signIn}</TroubleView> }
   }
   const last = blocksOf(account, blocks, now).map((block) => block.until).sort().at(-1)
-  const trouble = last === undefined ? undefined : <TroubleView text={`blocked until ${momentOf(last, now)}`}><RetryButton mod={mod} account={account} /></TroubleView>
+  const trouble = account.signs_out_at !== undefined ? <TroubleView text={`signs out at ${momentOf(account.signs_out_at, now)}`}>{signIn}</TroubleView>
+    : last === undefined ? undefined
+    : <TroubleView text={`blocked until ${momentOf(last, now)}`}><RetryButton mod={mod} account={account} /></TroubleView>
   if (!account.known) return { key, name: account.name, facts: ['not read yet'], trouble }
   const agents = FAMILIES.filter((family) => (account.agents[family] ?? 0) > 0).map((family) => `${account.agents[family]} ${family}`)
   return {

@@ -489,6 +489,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 			a.served = map[string]time.Time{}
 		}
 		a.served[modelID] = now
+		p.answeredAt(now)
 	case "throttled":
 		a.throttled = now
 	case "quota":
@@ -498,7 +499,7 @@ func (p *Plugin) observe(rec UsageRecord) {
 	case "error":
 		switch {
 		case unanswered(rec.Failure):
-			p.unreachable = now
+			p.unreachable, p.answeringSince = now, time.Time{}
 		case rec.Failure.StatusCode == http.StatusNotFound:
 			a.notFound = now
 		default:

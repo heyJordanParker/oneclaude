@@ -228,9 +228,10 @@ type PoolStatus struct {
 
 // AccountStatus is one Claude account. AuthIndex is the proxy's id for it,
 // which its management API names blocks by. SignedOut is whether Anthropic
-// rejected its login (401), and Refused Anthropic's reason when it refused
-// it (403), each until it answers again. ThrottledAt is the last throttle
-// within the hour.
+// rejected its login (401), or the login the proxy couldn't renew ran out,
+// and Refused Anthropic's reason when it refused it (403), each until it
+// answers again. SignsOutAt is when a login the proxy couldn't renew runs
+// out. ThrottledAt is the last throttle within the hour.
 type AccountStatus struct {
 	Name        string               `json:"name"`
 	AuthIndex   string               `json:"auth_index,omitempty"`
@@ -242,6 +243,7 @@ type AccountStatus struct {
 	Projected   bool                 `json:"projected"`
 	Empty       bool                 `json:"empty"`
 	SignedOut   bool                 `json:"signed_out"`
+	SignsOutAt  *time.Time           `json:"signs_out_at,omitempty"`
 	Refused     string               `json:"refused,omitempty"`
 	ThrottledAt *time.Time           `json:"throttled_at,omitempty"`
 	Agents      map[model.Family]int `json:"agents"`
@@ -491,7 +493,10 @@ func (p *Plugin) Status() Status {
 	var used, even float64
 	var shares []paceShare
 	for _, a := range accounts {
-		row := AccountStatus{Name: a.Name, AuthIndex: a.AuthIndex, Plan: a.Plan, Known: a.known, SignedOut: a.signedOut, Refused: a.refused, Agents: map[model.Family]int{}, Limits: map[model.Family]int{}}
+		row := AccountStatus{Name: a.Name, AuthIndex: a.AuthIndex, Plan: a.Plan, Known: a.known, SignedOut: a.signedOut || a.cantRenew && !now.Before(a.expires), Refused: a.refused, Agents: map[model.Family]int{}, Limits: map[model.Family]int{}}
+		if expires := a.expires; a.cantRenew && !row.SignedOut {
+			row.SignsOutAt = &expires
+		}
 		if throttled := a.throttled; now.Sub(throttled) < time.Hour {
 			row.ThrottledAt = &throttled
 		}

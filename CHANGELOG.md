@@ -2,6 +2,11 @@
 
 What changed in each version of oneclaude, for the people who use it. cmod publish releases the section for the version, and cmod's Settings shows it.
 
+## [0.11.3]
+
+### Added
+- `1 account signs out in 2h 55m` under the prompt, and `signs out at 01:15` with **Sign in** on the account's row, about 3 hours before a login runs out that the proxy can't renew, such as one whose refresh token Anthropic let expire. Before, the account showed nothing until it was already signed out. It shows only once the proxy has failed for an hour while Anthropic kept answering, so a renewal that fails while the network is down, and renews once it's back, shows nothing.
+
 ## [0.11.2]
 
 ### Fixed

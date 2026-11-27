@@ -325,6 +325,19 @@ test('/accounts puts each account\'s trouble on its row in a word or two, with t
   expect(pane).toContain('throttled 12m ago')
 })
 
+test('an account whose login the proxy can\'t renew keeps its bar, shows when it signs out with Sign in, and says under the prompt how long it has left', async () => {
+  const signsOutAt = '2026-10-15T23:15:00Z'
+  const troubled = { ...status, accounts: status.accounts.map((account) => (account.name === 'lamport' ? { ...account, signs_out_at: signsOutAt } : account)) }
+  const tested = answering({ text: JSON.stringify(troubled) })
+  expect(await hintLines(tested)).toContain('· 1 account signs out in 7h 15m')
+  await tested.type('/accounts')
+  const pane = (await tested.shown.view.lines()).join('\n')
+  expect(pane).toMatch(/lamport .*empty/)
+  expect(pane).toContain(`signs out at ${momentOf(signsOutAt, now)}  [ Sign in ]`)
+  const second = { ...troubled, accounts: troubled.accounts.map((account) => (account.name === 'turing' ? { ...account, signs_out_at: '2026-10-16T09:00:00Z' } : account)) }
+  expect(troublesOf(second, {})).toEqual([{ text: '2 accounts sign out in 7h 15m', key: 'account-lamport' }])
+})
+
 // ranOn answers uname with system and records each program the mod runs.
 const ranOn = (system: string, ran: (readonly string[])[]) => async (argv: readonly string[]) => (ran.push(argv), { exitCode: 0, stdout: argv[0] === 'uname' ? `${system}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 

@@ -84,6 +84,7 @@ export type Account = {
   readonly projected: boolean
   readonly empty: boolean
   readonly signed_out: boolean
+  readonly signs_out_at?: string
   readonly refused?: string
   readonly throttled_at?: string
   readonly agents: Readonly<Partial<Record<Family, number>>>
@@ -280,10 +281,12 @@ export const rowKey = (account: Account): string => `account-${account.name}`
 export function troublesOf(status: Status, blocks: Blocks): readonly Trouble[] {
   const refused = status.accounts.filter((account) => account.refused !== undefined)
   const signedOut = status.accounts.filter((account) => account.refused === undefined && account.signed_out)
-  const blocked = status.accounts.filter((account) => account.refused === undefined && !account.signed_out && blocksOf(account, blocks, status.now).length > 0)
+  const signingOut = status.accounts.filter((account) => account.refused === undefined && !account.signed_out && account.signs_out_at !== undefined).sort((a, b) => Date.parse(a.signs_out_at!) - Date.parse(b.signs_out_at!))
+  const blocked = status.accounts.filter((account) => account.refused === undefined && !account.signed_out && account.signs_out_at === undefined && blocksOf(account, blocks, status.now).length > 0)
   return [
     ...(refused.length > 0 ? [{ text: `${plural(refused.length, 'account')} refused`, key: rowKey(refused[0]!) }] : []),
     ...(signedOut.length > 0 ? [{ text: `${plural(signedOut.length, 'account')} signed out`, key: rowKey(signedOut[0]!) }] : []),
+    ...(signingOut.length > 0 ? [{ text: `${plural(signingOut.length, 'account')} ${signingOut.length === 1 ? 'signs' : 'sign'} out in ${until(signingOut[0]!.signs_out_at, status.now)}`, key: rowKey(signingOut[0]!) }] : []),
     ...(blocked.length > 0 ? [{ text: `${plural(blocked.length, 'account')} blocked`, key: rowKey(blocked[0]!) }] : []),
     ...(status.pool.limit_reached ? [{ text: 'agent limit reached', key: ACCOUNTS }] : []),
   ]

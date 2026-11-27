@@ -31,6 +31,19 @@ const (
 	catchUpStep   = 50 * time.Millisecond
 )
 
+// The proxy renews a Claude login renewLead before it runs out. After a
+// failed renewal it tries again in renewRetry, or after Anthropic's
+// invalid_grant at 1, 2, 4, 8 and 16 minutes, then every 30. So a login still
+// unrenewed renewGrace after its renewal was due failed at least 6 times, and
+// Anthropic answering for the last networkProof gave a failure of the
+// network two tries to pass. Then only a new sign-in renews it.
+const (
+	renewLead    = 4 * time.Hour
+	renewRetry   = 5 * time.Minute
+	renewGrace   = time.Hour
+	networkProof = 2 * renewRetry
+)
+
 // startPoller starts the usage poll, unless the options leave it out, and
 // lets watch start the watch on the proxy's credentials.
 func (p *Plugin) startPoller() {
@@ -80,6 +93,7 @@ func (p *Plugin) pollLoop(stop chan struct{}) {
 			}
 			p.checkDoubted(now)
 			p.refreshOne(now)
+			p.checkRenewals(now)
 			p.save()
 			p.changed(false)
 		}()
@@ -93,7 +107,71 @@ func (p *Plugin) list() error {
 		return err
 	}
 	p.updateAccounts(files)
+	p.readLogins(files)
 	return nil
+}
+
+// readLogins reads when each Claude login in files runs out and whether the
+// proxy renews it. A login whose expiry moved is a new one, so it can no
+// longer be one the proxy can't renew.
+func (p *Plugin) readLogins(files []HostAuthFileEntry) {
+	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+	defer cancel()
+	for _, f := range files {
+		if !isProvider(f, claudeProvider) || f.AuthIndex == "" || f.Disabled {
+			continue
+		}
+		c, err := p.host.credential(ctx, f.AuthIndex)
+		if err != nil {
+			continue
+		}
+		expires, _ := time.Parse(time.RFC3339, c.Expired)
+		p.mu.Lock()
+		a := p.accounts[f.ID]
+		if a == nil {
+			p.mu.Unlock()
+			continue
+		}
+		renewed := a.cantRenew && !expires.Equal(a.expires)
+		a.expires, a.renews = expires, c.RefreshToken != ""
+		a.cantRenew = a.cantRenew && !renewed
+		logged, name := renewed && !a.signedOut, a.Name
+		p.mu.Unlock()
+		if logged {
+			p.note(levelInfo, "%s's login is renewed.", name)
+		}
+	}
+}
+
+// answeredAt keeps that Anthropic answered at now. It runs with mu held.
+func (p *Plugin) answeredAt(now time.Time) {
+	p.answered = now
+	if p.answeringSince.IsZero() {
+		p.answeringSince = now
+	}
+}
+
+// checkRenewals marks each login the proxy renews that it has failed to renew
+// for renewGrace past when it was due, while Anthropic has answered with no
+// failed connection for networkProof and answered within it. The mark holds
+// until the login changes, as only a new sign-in changes it, and logs once.
+func (p *Plugin) checkRenewals(now time.Time) {
+	var stuck []string
+	p.mu.Lock()
+	network := !p.answeringSince.IsZero() && now.Sub(p.answeringSince) >= networkProof && now.Sub(p.answered) < networkProof
+	for _, a := range p.accounts {
+		if a.cantRenew || !a.renews || a.expires.IsZero() || a.loginFails() || !network {
+			continue
+		}
+		if now.Sub(a.expires.Add(-renewLead)) >= renewGrace {
+			a.cantRenew = true
+			stuck = append(stuck, a.Name)
+		}
+	}
+	p.mu.Unlock()
+	for _, name := range stuck {
+		p.note(levelWarn, "The proxy couldn't renew %s's login for an hour. Sign in again before it runs out.", name)
+	}
 }
 
 func (p *Plugin) authFiles() ([]HostAuthFileEntry, error) {
@@ -260,7 +338,8 @@ func contentOf(path string) (content string, written bool) {
 
 // credentialsChanged lists the accounts once the proxy lists each changed
 // file that is still there, and leaves out each whose file is gone, which the
-// proxy drops only after it checked the file stays gone. It clears the
+// proxy drops only after it checked the file stays gone. It reads each
+// written login's expiry, and clears the
 // proxy's blocks on each account Anthropic rejected whose file changed, as
 // its new login may fix them, and counts a change of the status
 // and of the blocks, so the blocks a session reads next are the cleared
@@ -275,13 +354,18 @@ func (p *Plugin) credentialsChanged(names map[string]bool) {
 		p.host.log("warn", "oneclaude could not list the proxy's credentials after one changed", map[string]any{"error": err.Error()})
 		return
 	}
-	var files []HostAuthFileEntry
+	var files, written []HostAuthFileEntry
 	for _, f := range listed {
-		if there, changed := names[filepath.Base(f.Path)]; !changed || there {
+		there, changed := names[filepath.Base(f.Path)]
+		if !changed || there {
 			files = append(files, f)
+		}
+		if there {
+			written = append(written, f)
 		}
 	}
 	p.updateAccounts(files)
+	p.readLogins(written)
 	now := p.now()
 	var due []reading
 	var blocked []string
@@ -537,6 +621,11 @@ func (p *Plugin) read(r reading, now time.Time) {
 	}
 	status, body, err := p.host.get(ctx, r.url, headers)
 	if err != nil {
+		if !r.codex {
+			p.mu.Lock()
+			p.answeringSince = time.Time{}
+			p.mu.Unlock()
+		}
 		failed()
 		return
 	}
@@ -549,6 +638,9 @@ func (p *Plugin) read(r reading, now time.Time) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if !r.codex {
+		p.answeredAt(now)
+	}
 	if r.codex {
 		if c := p.codex[r.id]; c != nil {
 			if w, ok := usage.WeeklyFromCodex(body, now); ok {
