@@ -8523,7 +8523,7 @@ function oneLine(error) {
   return messageOf(error).replace(/\s*\n\s*/g, " ");
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/status.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/status.ts
 var LOCAL_POOL = "http://127.0.0.1:8317";
 async function baseUrlOf() {
   const env = (await settings.user.read())["env"];
@@ -8671,10 +8671,12 @@ var rowKey = (account) => `account-${account.name}`;
 function troublesOf(status, blocks) {
   const refused = status.accounts.filter((account) => account.refused !== undefined);
   const signedOut = status.accounts.filter((account) => account.refused === undefined && account.signed_out);
-  const blocked = status.accounts.filter((account) => account.refused === undefined && !account.signed_out && blocksOf(account, blocks, status.now).length > 0);
+  const signingOut = status.accounts.filter((account) => account.refused === undefined && !account.signed_out && account.signs_out_at !== undefined).sort((a, b) => Date.parse(a.signs_out_at) - Date.parse(b.signs_out_at));
+  const blocked = status.accounts.filter((account) => account.refused === undefined && !account.signed_out && account.signs_out_at === undefined && blocksOf(account, blocks, status.now).length > 0);
   return [
     ...refused.length > 0 ? [{ text: `${plural(refused.length, "account")} refused`, key: rowKey(refused[0]) }] : [],
     ...signedOut.length > 0 ? [{ text: `${plural(signedOut.length, "account")} signed out`, key: rowKey(signedOut[0]) }] : [],
+    ...signingOut.length > 0 ? [{ text: `${plural(signingOut.length, "account")} ${signingOut.length === 1 ? "signs" : "sign"} out in ${until(signingOut[0].signs_out_at, status.now)}`, key: rowKey(signingOut[0]) }] : [],
     ...blocked.length > 0 ? [{ text: `${plural(blocked.length, "account")} blocked`, key: rowKey(blocked[0]) }] : [],
     ...status.pool.limit_reached ? [{ text: "agent limit reached", key: ACCOUNTS }] : []
   ];
@@ -8784,7 +8786,7 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/components/pool-bar.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/components/pool-bar.tsx
 function poolBar({ used, pace }) {
   const isNearlyEmpty = used >= NEARLY_EMPTY;
   const over = Math.max(0, used - pace) * 100;
@@ -8802,7 +8804,7 @@ function drawCells(cells) {
   }, cell.text));
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/components/pool-line.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/components/pool-line.tsx
 var PACE_COLORS = {
   on: undefined,
   under: "success",
@@ -8885,7 +8887,7 @@ function PoolLine({ reading, problem, shown, isOpen, onToggle, onTrouble }) {
   }))));
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/components/weekly-resets.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/components/weekly-resets.tsx
 var DAYS = 8;
 var HOUR_MS = 60 * 60 * 1000;
 var DAY_MS = 24 * HOUR_MS;
@@ -8973,7 +8975,7 @@ function WeeklyResets({ calendar, width }) {
   ]));
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/usage.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/usage.ts
 var PERIODS = [["quarter", "90 days"], ["month", "30 days"], ["week", "7 days"], ["yesterday", "Yesterday"], ["today", "Today"]];
 var BREAKDOWNS = [["account", "Account"], ["model", "Model"], ["agent", "Agent"], ["project", "Project"], ["time", "Time"]];
 var UNITS = [["cost", "Cost"], ["tokens", "Tokens"]];
@@ -9085,7 +9087,7 @@ function optimizePrompt(pool, agents, projects, models) {
 `);
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/views/accounts.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/views/accounts.tsx
 var COMBINED = "Combined usage";
 var GAP2 = 2;
 var INSET = 3;
@@ -9257,6 +9259,12 @@ function combinedRow(status, shown) {
 }
 function claudeRow(mod, account, blocks, now, shown) {
   const key = rowKey(account);
+  const signIn = /* @__PURE__ */ h(Button, {
+    key: `sign-in-${account.name}`,
+    dimColor: true,
+    href: addAccountUrl(mod.state.memory.pool),
+    label: "Sign in"
+  });
   if (account.refused !== undefined) {
     return { key, name: account.name, facts: [], trouble: /* @__PURE__ */ h(TroubleView, {
       text: "refused"
@@ -9268,15 +9276,12 @@ function claudeRow(mod, account, blocks, now, shown) {
   if (account.signed_out) {
     return { key, name: account.name, facts: [], trouble: /* @__PURE__ */ h(TroubleView, {
       text: "signed out"
-    }, /* @__PURE__ */ h(Button, {
-      key: `sign-in-${account.name}`,
-      dimColor: true,
-      href: addAccountUrl(mod.state.memory.pool),
-      label: "Sign in"
-    })) };
+    }, signIn) };
   }
   const last = blocksOf(account, blocks, now).map((block) => block.until).sort().at(-1);
-  const trouble = last === undefined ? undefined : /* @__PURE__ */ h(TroubleView, {
+  const trouble = account.signs_out_at !== undefined ? /* @__PURE__ */ h(TroubleView, {
+    text: `signs out at ${momentOf(account.signs_out_at, now)}`
+  }, signIn) : last === undefined ? undefined : /* @__PURE__ */ h(TroubleView, {
     text: `blocked until ${momentOf(last, now)}`
   }, /* @__PURE__ */ h(RetryButton, {
     mod,
@@ -9523,7 +9528,7 @@ function LogSection({ log }) {
   ]);
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/record.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/record.ts
 function checked(input) {
   const { name, url, responses, timeoutSeconds, failOpen, observabilityMode } = input;
   if (typeof name !== "string" || name === "")
@@ -9606,12 +9611,12 @@ function recordOf2(mod) {
   };
 }
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/state.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/state.ts
 var initialState = {
   memory: { pool: LOCAL_POOL, reading: null, problem: null, isOpen: false, shown: {}, usage: { period: "month", by: "account", units: "cost" }, table: null, isConfirming: false, keyAnswer: null }
 };
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/src/mod.tsx
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/src/mod.tsx
 var RETRY_MS = [1000, 2000, 4000, 8000, 16000];
 async function checkKey(mod, key) {
   mod.state.memory.pool = await poolOf();
@@ -9812,7 +9817,7 @@ var oneclaude = defineMod({
   }
 });
 
-// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-7DcgNj/release/hooks/register.ts
+// ../../../../../private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/cmod-publish-oneclaude-Ahm2E9/release/hooks/register.ts
 function register(addHook, options) {
   registerMod(addHook, oneclaude, options);
 }
